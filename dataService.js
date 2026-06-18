@@ -6,29 +6,49 @@ import { hosxpPool, trackerPool } from './db.js';
 export async function getHosxpVisits(visitDate) {
     const query = `
         SELECT 
-            o.vn, o.hn, p.cid, 
+            IF(ov.an IS NULL, v.vn, 'Admit') AS vn,
+            CONCAT('cid_', v.cid) AS cid_check,
+            v.cid,
             CONCAT(p.pname, p.fname, ' ', p.lname) as fullName,
-            o.vstdate as visitDate,
-            o.pttype,
-            v.pcode,
-            v.uc_money,
+            v.vstdate as visitDate,
+            vp.pttype,
+            py.hipdata_code as pcode,
+            vp.Auth_Code as authCode,
             vp.claim_code,
+            td.claimcode as nhso_claim_code,
+            td.authen_code_type,
             vp.pttype_note,
-            k.department,
             vp.staff,
-            vp.Auth_Code as authCode
-        FROM ovst o
-        LEFT JOIN patient p ON p.hn = o.hn
-        LEFT JOIN vn_stat v ON v.vn = o.vn
-        LEFT JOIN visit_pttype vp ON vp.vn = o.vn
-        LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
-        WHERE o.vstdate = ?
-        AND o.pttype IN (SELECT pttype FROM pttype WHERE hipdata_code = 'UCS' OR pttype_group1 IN ('UC', 'UCS'))
-        LIMIT 1000
+            IF((SELECT COUNT(cid) 
+                FROM vn_stat 
+                WHERE vstdate = ?
+                  AND cid = v.cid) > 1, 
+               'ตรวจสอบ', 
+               IF(vp.claim_code = td.claimcode, 'ตรง', 
+                  IF(td.claimcode IS NULL, 'ยังไม่ได้นำเข้า', 'ไม่ตรง')
+               )
+            ) AS check_claimcode,
+            v.uc_money,
+            CAST(CONVERT(k.department USING utf8) AS BINARY) AS department,
+            COUNT(DISTINCT v.cid) AS cc_cid
+        FROM vn_stat v
+        LEFT JOIN patient p ON p.hn = v.hn
+        LEFT OUTER JOIN visit_pttype vp ON vp.vn = v.vn 
+        LEFT OUTER JOIN temp_authen_code td ON td.cid = v.cid 
+            AND td.status_use <> 'C' 
+            AND td.dateser = ?
+            AND td.flag = 'D'
+        LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+        LEFT OUTER JOIN ovst ov ON ov.vn = v.vn
+        LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
+        WHERE v.vstdate = ?
+          AND py.hipdata_code IN ('UCS', 'OFC')
+        GROUP BY v.vn
+        ORDER BY vp.Auth_Code, vp.claim_code
     `;
 
     try {
-        const [rows] = await hosxpPool.query(query, [visitDate]);
+        const [rows] = await hosxpPool.query(query, [visitDate, visitDate, visitDate]);
         return rows;
     } catch (error) {
         console.error('❌ HOSxP Query Error:', error);

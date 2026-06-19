@@ -244,7 +244,7 @@ function parseExcelDate(val) {
 /**
  * บันทึกข้อมูลดิบจาก Excel ลงในตาราง authencode เพื่อเก็บ Log
  */
-export async function saveAuthenLog(excelData) {
+export async function saveAuthenLog(excelData, visitDate) {
     if (!excelData || excelData.length === 0) return;
 
     const query = `
@@ -308,7 +308,7 @@ export async function saveAuthenLog(excelData) {
         r['วันที่แก้ไข Authen Code'] || null,
         r['ชื่อผู้ที่แก้ใข Authen Code'] || null,
         r['หมายเหตุการยกเลิก'] || null,
-        r['dateser'] || r.dateser || null
+        visitDate || r['dateser'] || r.dateser || null
     ]);
 
     try {

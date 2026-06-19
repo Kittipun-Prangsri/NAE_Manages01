@@ -112,10 +112,23 @@ export function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
-    if (!token) return res.status(401).json({ message: 'Unauthorized' });
+    if (!token) {
+        return res.status(401).json({ message: 'Unauthorized: No token provided' });
+    }
 
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) {
+            // If token is expired, log as warning and return 401
+            if (err.name === 'TokenExpiredError') {
+                console.warn(`⚠️ JWT Expired: ${err.message}`);
+                return res.status(401).json({ 
+                    message: 'Session Expired', 
+                    error: 'token_expired',
+                    details: err.message 
+                });
+            }
+            
+            // For actual verification failures (e.g. invalid signature, bad format)
             console.error(`❌ JWT Verification Failed: ${err.message}`);
             const message = err.name === 'TokenExpiredError' ? 'Session Expired' : 'Forbidden';
             return res.status(403).json({ 

@@ -130,7 +130,7 @@ app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (
             dateNF: 'yyyy-mm-dd hh:mm:ss' 
         });
 
-        await saveAuthenLog(excelData);
+        await saveAuthenLog(excelData, visit_date);
         const hosxpData = await getHosxpVisits(visit_date);
 
         if (hosxpData.length === 0) {
@@ -164,7 +164,7 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
 
         const excelData = data; // ใช้ข้อมูลจาก JSON ที่ส่งมาโดยตรง
 
-        await saveAuthenLog(excelData);
+        await saveAuthenLog(excelData, visit_date);
         const hosxpData = await getHosxpVisits(visit_date);
 
         if (hosxpData.length === 0) {
@@ -242,7 +242,7 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
         }
 
         if (apiResults.length > 0) {
-            await saveAuthenLog(apiResults);
+            await saveAuthenLog(apiResults, visit_date);
             const processedData = processCrossCheck(hosxpData, apiResults);
             await saveTrackingResults(processedData);
             await executeAdvancedRunLogic(visit_date);
@@ -350,18 +350,21 @@ app.post('/api/custom-query', authenticateToken, async (req, res) => {
         const { query, db_type, visit_date, hipdata_code } = req.body;
         if (!query) return res.status(400).json({ message: 'กรุณาระบุคำสั่ง SQL Query' });
 
-        // ตรวจสอบความปลอดภัยเบื้องต้น (อนุญาตเฉพาะอ่านข้อมูล)
+        // ตรวจสอบความปลอดภัยเบื้องต้น
         const trimmedQuery = query.trim().toUpperCase();
         const allowedPrefixes = ['SELECT', 'WITH', 'SHOW', 'DESCRIBE'];
-        const isAllowed = allowedPrefixes.some(prefix => trimmedQuery.startsWith(prefix));
+        const isReadQuery = allowedPrefixes.some(prefix => trimmedQuery.startsWith(prefix));
 
-        if (!isAllowed) {
-            return res.status(400).json({ message: 'ระบบอนุญาตเฉพาะคำสั่งแสดงผลข้อมูล (SELECT, WITH, SHOW, DESCRIBE) เท่านั้น เพื่อความปลอดภัยของข้อมูล' });
+        // ถ้าไม่ใช่คำสั่งอ่านข้อมูล และไม่ใช่ admin ให้ส่ง 403 Forbidden
+        if (!isReadQuery && req.user.role !== 'admin') {
+            return res.status(403).json({ 
+                message: 'Forbidden: คุณไม่มีสิทธิ์ในการรันคำสั่งแก้ไขข้อมูล (UPDATE, DELETE, INSERT) เฉพาะผู้ดูแลระบบเท่านั้น' 
+            });
         }
 
         // แปลง Grafana Macros
         const processedQuery = replaceGrafanaMacros(query, visit_date, hipdata_code || "'UCS'");
-        console.log(`[SQL Query] DB: ${db_type || 'hosxp'} | Execution started`);
+        console.log(`[SQL Query] DB: ${db_type || 'hosxp'} | User: ${req.user.username} | Role: ${req.user.role}`);
 
         const pool = db_type === 'tracker' ? trackerPool : hosxpPool;
         const startTime = Date.now();

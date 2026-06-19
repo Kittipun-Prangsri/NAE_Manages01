@@ -1,9 +1,11 @@
 // app.js
 import { api } from './api.js';
 import { ui } from './ui.js';
-import { exportToCsv } from './utils.js';
+import { exportToCsv, isTokenExpired } from './utils.js';
 
 // App State
+let isLoggingOut = false;
+
 const getInitialState = () => {
     if (typeof localStorage === 'undefined') {
         return {
@@ -50,6 +52,11 @@ function init() {
     excelFileInput = document.getElementById('excel-file');
 
     if (appState.token && appState.user) {
+        if (isTokenExpired(appState.token)) {
+            console.warn('Session expired (checked locally). Logging out.');
+            handleLogout();
+            return;
+        }
         ui.showDashboard(appState.user.full_name || appState.user.name);
         if (visitDateInput) visitDateInput.valueAsDate = new Date();
         loadDashboardData();
@@ -128,6 +135,25 @@ function setupEventListeners() {
 
 // --- Handlers ---
 
+function handleApiResponse(response) {
+    if (!response.ok) {
+        if (response.status === 401) {
+            console.warn('Session expired or unauthorized. Logging out.');
+            if (!isLoggingOut) {
+                isLoggingOut = true;
+                alert('เซสชั่นหมดอายุหรือคุณไม่มีสิทธิ์เข้าใช้งาน กรุณาเข้าสู่ระบบใหม่');
+                handleLogout();
+            }
+            return false;
+        }
+        if (response.status === 403) {
+            alert(response.data.message || 'คุณไม่มีสิทธิ์ในการดำเนินการนี้ (Forbidden)');
+            return false;
+        }
+    }
+    return response.ok;
+}
+
 async function handleLogin(e) {
     e.preventDefault();
     const userInp = document.getElementById('username').value;
@@ -158,6 +184,7 @@ async function handleLogin(e) {
 }
 
 function handleLogout() {
+    isLoggingOut = true;
     if (typeof localStorage !== 'undefined') {
         localStorage.removeItem('nhso_token');
         localStorage.removeItem('nhso_user');
@@ -214,9 +241,9 @@ async function handleFileSelection(file) {
     // Auto-detect Date from Excel
     ui.setLoading(true);
     try {
-        const { ok, data } = await api.probeDate(file, appState.token);
-        if (ok && data.detected_date) {
-            visitDateInput.value = data.detected_date;
+        const response = await api.probeDate(file, appState.token);
+        if (handleApiResponse(response) && response.data.detected_date) {
+            visitDateInput.value = response.data.detected_date;
             // โหลดข้อมูล Dashboard ตามวันที่ที่จับได้
             loadDashboardData(); 
             loadWeeklySummary();
@@ -241,13 +268,13 @@ async function handleApiSync() {
 
     ui.setLoading(true);
     try {
-        const { ok, data } = await api.processSyncDirect(visitDate, appState.token);
-        if (ok) {
-            alert(data.message);
+        const response = await api.processSyncDirect(visitDate, appState.token);
+        if (handleApiResponse(response)) {
+            alert(response.data.message);
             loadDashboardData();
             loadWeeklySummary();
-        } else {
-            alert(data.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ API');
+        } else if (response.status !== 401 && response.status !== 403) {
+            alert(response.data.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ API');
         }
     } catch (error) {
         console.error('API Sync error:', error);
@@ -280,13 +307,13 @@ async function handlePasteSync() {
 
         if (confirm(`พบข้อมูล ${jsonData.length} รายการ ต้องการ Sync หรือไม่?`)) {
             ui.setLoading(true);
-            const { ok, data } = await api.processSyncJson(visitDate, jsonData, appState.token);
-            if (ok) {
-                alert(data.message);
+            const response = await api.processSyncJson(visitDate, jsonData, appState.token);
+            if (handleApiResponse(response)) {
+                alert(response.data.message);
                 loadDashboardData();
                 loadWeeklySummary();
-            } else {
-                alert(data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
+            } else if (response.status !== 401 && response.status !== 403) {
+                alert(response.data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
             }
         }
     } catch (err) {
@@ -342,14 +369,14 @@ async function handleSyncProcess() {
 
     ui.setLoading(true);
     try {
-        const { ok, data } = await api.processSync(visitDate, file, appState.token);
-        if (ok) {
-            alert(data.message);
+        const response = await api.processSync(visitDate, file, appState.token);
+        if (handleApiResponse(response)) {
+            alert(response.data.message);
             // โหลดข้อมูลล่าสุดมาแสดงในตาราง
             loadDashboardData();
             loadWeeklySummary();
-        } else {
-            alert(data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
+        } else if (response.status !== 401 && response.status !== 403) {
+            alert(response.data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
         }
     } catch (error) {
         alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
@@ -360,9 +387,9 @@ async function handleSyncProcess() {
 
 async function loadWeeklySummary() {
     try {
-        const { ok, data } = await api.fetchSummary(appState.token);
-        if (ok) {
-            ui.renderWeeklySummary(data, (selectedDate) => {
+        const response = await api.fetchSummary(appState.token);
+        if (handleApiResponse(response)) {
+            ui.renderWeeklySummary(response.data, (selectedDate) => {
                 visitDateInput.value = selectedDate;
                 loadDashboardData();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -381,15 +408,13 @@ async function loadDashboardData() {
 
     ui.setLoading(true);
     try {
-        const { ok, data } = await api.fetchDashboard(date, appState.token);
-        if (ok) {
+        const response = await api.fetchDashboard(date, appState.token);
+        if (handleApiResponse(response)) {
+            const data = response.data;
             // data now contains { trackingData: [], hosxpStats: { totalPersons: X, totalVisits: Y } }
             appState.rawTableData = data.trackingData || [];
             renderTrackerTable();
             ui.updateStats(appState.rawTableData, data.hosxpStats);
-        } else if (data.message === 'Forbidden' || data.message === 'Session Expired' || data.message === 'Unauthorized') {
-            console.warn('Authentication failed, logging out...');
-            handleLogout();
         }
     } catch (error) {
         console.error('Fetch error:', error);
@@ -502,12 +527,10 @@ function handleTabSwitch(tabId) {
 async function loadSavedQueries(selectedId = '') {
     if (!appState.token) return;
     try {
-        const { ok, data } = await api.fetchSavedQueries(appState.token);
-        if (ok) {
-            appState.savedQueries = data;
-            ui.renderSavedQueriesDropdown(data, selectedId);
-        } else if (data.message === 'Forbidden' || data.message === 'Session Expired' || data.message === 'Unauthorized') {
-            handleLogout();
+        const response = await api.fetchSavedQueries(appState.token);
+        if (handleApiResponse(response)) {
+            appState.savedQueries = response.data;
+            ui.renderSavedQueriesDropdown(response.data, selectedId);
         }
     } catch (e) {
         console.error('Error loading saved queries:', e);
@@ -539,20 +562,20 @@ async function handleRunQuery() {
     
     ui.setLoading(true);
     try {
-        const { ok, data } = await api.runCustomQuery(query, dbType, date, hipdataCode, appState.token);
-        if (ok && data.success) {
-            appState.currentQueryResults = data.rows;
+        const response = await api.runCustomQuery(query, dbType, date, hipdataCode, appState.token);
+        if (handleApiResponse(response) && response.data.success) {
+            appState.currentQueryResults = response.data.rows;
             appState.querySortBy = '';
             appState.querySortDesc = false;
             
             const searchVal = document.getElementById('query-search-input').value;
-            ui.renderGrafanaTable(data.rows, '', false, searchVal, handleQueryHeaderClick);
+            ui.renderGrafanaTable(response.data.rows, '', false, searchVal, handleQueryHeaderClick);
             
             document.getElementById('query-info-msg').textContent = 
-                `พบผลลัพธ์ ${data.rows.length.toLocaleString()} แถว | ใช้เวลาประมวลผล ${data.executionTimeMs} ms`;
-        } else {
-            alert(data.message || 'เกิดข้อผิดพลาดในการรัน SQL');
-            document.getElementById('query-info-msg').textContent = data.message || 'การเรียกใช้ SQL ล้มเหลว';
+                `พบผลลัพธ์ ${response.data.rows.length.toLocaleString()} แถว | ใช้เวลาประมวลผล ${response.data.executionTimeMs} ms`;
+        } else if (response.status !== 401 && response.status !== 403) {
+            alert(response.data.message || 'เกิดข้อผิดพลาดในการรัน SQL');
+            document.getElementById('query-info-msg').textContent = response.data.message || 'การเรียกใช้ SQL ล้มเหลว';
             ui.renderGrafanaTable([], '', false, '', null);
         }
     } catch (err) {
@@ -627,16 +650,16 @@ async function handleSaveQuery() {
     
     ui.setLoading(true);
     try {
-        const { ok, data } = await api.saveQuery(name, queryText, dbType, appState.token);
-        if (ok) {
+        const response = await api.saveQuery(name, queryText, dbType, appState.token);
+        if (handleApiResponse(response)) {
             alert('บันทึกคำสั่งสำเร็จ');
             await loadSavedQueries();
             const newlySaved = appState.savedQueries.find(q => q.name === name);
             if (newlySaved) {
                 document.getElementById('query-template-select').value = newlySaved.id;
             }
-        } else {
-            alert(data.message || 'บันทึกล้มเหลว');
+        } else if (response.status !== 401 && response.status !== 403) {
+            alert(response.data.message || 'บันทึกล้มเหลว');
         }
     } catch (err) {
         alert('เกิดข้อผิดพลาด: ' + err.message);
@@ -662,14 +685,14 @@ async function handleDeleteQuery() {
     
     ui.setLoading(true);
     try {
-        const { ok, data } = await api.deleteSavedQuery(queryId, appState.token);
-        if (ok) {
+        const response = await api.deleteSavedQuery(queryId, appState.token);
+        if (handleApiResponse(response)) {
             alert('ลบสำเร็จ');
             document.getElementById('sql-editor').value = '';
             document.getElementById('new-query-name').value = '';
             await loadSavedQueries();
-        } else {
-            alert(data.message || 'ลบล้มเหลว');
+        } else if (response.status !== 401 && response.status !== 403) {
+            alert(response.data.message || 'ลบล้มเหลว');
         }
     } catch (err) {
         alert('เกิดข้อผิดพลาด: ' + err.message);

@@ -8,7 +8,7 @@ export const api = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
-        return { ok: res.ok, data: await res.json() };
+        return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
     async probeDate(file, token) {
@@ -19,7 +19,7 @@ export const api = {
             headers: { 'Authorization': `Bearer ${token}` },
             body: formData
         });
-        return { ok: res.ok, data: await res.json() };
+        return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
     async processSync(date, file, token) {
@@ -31,7 +31,7 @@ export const api = {
             headers: { 'Authorization': `Bearer ${token}` },
             body: formData
         });
-        return { ok: res.ok, data: await res.json() };
+        return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
     async processSyncJson(date, jsonData, token) {
@@ -43,7 +43,7 @@ export const api = {
             },
             body: JSON.stringify({ visit_date: date, data: jsonData })
         });
-        return { ok: res.ok, data: await res.json() };
+        return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
     async processSyncDirect(date, token) {
@@ -55,21 +55,21 @@ export const api = {
             },
             body: JSON.stringify({ visit_date: date })
         });
-        return { ok: res.ok, data: await res.json() };
+        return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
     async fetchDashboard(date, token) {
         const res = await fetch(`${API_BASE}/tracking/dashboard?date=${date}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        return { ok: res.ok, data: await res.json() };
+        return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
     async fetchSummary(token) {
         const res = await fetch(`${API_BASE}/tracking/summary`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        return { ok: res.ok, data: await res.json() };
+        return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
     async runCustomQuery(query, dbType, date, hipdataCode, token) {
@@ -81,14 +81,14 @@ export const api = {
             },
             body: JSON.stringify({ query, db_type: dbType, visit_date: date, hipdata_code: hipdataCode })
         });
-        return { ok: res.ok, data: await res.json() };
+        return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
     async fetchSavedQueries(token) {
         const res = await fetch(`${API_BASE}/saved-queries`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        return { ok: res.ok, data: await res.json() };
+        return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
     async saveQuery(name, queryText, dbType, token) {
@@ -100,7 +100,7 @@ export const api = {
             },
             body: JSON.stringify({ name, query_text: queryText, db_type: dbType })
         });
-        return { ok: res.ok, data: await res.json() };
+        return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
     async deleteSavedQuery(id, token) {
@@ -108,6 +108,6 @@ export const api = {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        return { ok: res.ok, data: await res.json() };
+        return { ok: res.ok, status: res.status, data: await res.json() };
     }
 };

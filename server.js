@@ -79,9 +79,14 @@ app.post('/api/sync/probe-date', authenticateToken, upload.single('excel'), (req
                 if (dateStr instanceof Date) {
                    dateStr = dateStr.toISOString().split('T')[0];
                 } else if (typeof dateStr === 'string') {
-                   const match = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-                   if (match) {
-                       let [_, d, m, y] = match;
+                   const matchDmy = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                   const matchYmd = dateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+                   if (matchDmy) {
+                       let [_, d, m, y] = matchDmy;
+                       if (parseInt(y) > 2500) y = (parseInt(y) - 543).toString();
+                       dateStr = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+                   } else if (matchYmd) {
+                       let [_, y, m, d] = matchYmd;
                        if (parseInt(y) > 2500) y = (parseInt(y) - 543).toString();
                        dateStr = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
                    } else {
@@ -218,7 +223,10 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
                         authenCode: nhsoInfo.authenCode || nhsoInfo.claimCode,
                         channel: nhsoInfo.authenticationType || 'API Direct',
                         dateAuthen: nhsoInfo.serviceDate || visit_date,
-                        fullName: nhsoInfo.patientName || patient.fullName
+                        fullName: nhsoInfo.patientName || patient.fullName,
+                        visitDate: visit_date,
+                        dateser: visit_date,
+                        statusUse: 'E'
                     };
                 }
                 return null;

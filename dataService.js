@@ -193,7 +193,8 @@ function parseExcelDate(val) {
     // กรณีเป็น Date Object
     if (val instanceof Date) {
         if (isNaN(val.getTime())) return null;
-        const y = val.getFullYear();
+        let y = val.getFullYear();
+        if (y < 2500) y += 543; // แปลง ค.ศ. เป็น พ.ศ. เพื่อความสอดคล้องของฐานข้อมูล
         const m = String(val.getMonth() + 1).padStart(2, '0');
         const d = String(val.getDate()).padStart(2, '0');
         const h = String(val.getHours()).padStart(2, '0');
@@ -202,14 +203,33 @@ function parseExcelDate(val) {
         return `${y}-${m}-${d} ${h}:${min}:${s}`;
     }
 
-    // กรณีเป็น String (เช่น "02/05/2569 09:12:00")
+    // กรณีเป็น String
     const str = String(val).trim();
+    
+    // ตรวจสอบรูปแบบ YYYY-MM-DD (เช่น "2026-06-18 12:00:00")
+    const ymdRegex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/;
+    const ymdMatch = str.match(ymdRegex);
+    if (ymdMatch) {
+        let [_, y, m, d, h, min, s] = ymdMatch;
+        let year = parseInt(y);
+        if (year < 2500) year += 543; // แปลง ค.ศ. เป็น พ.ศ.
+        y = year.toString().padStart(4, '0');
+        m = m.padStart(2, '0');
+        d = d.padStart(2, '0');
+        h = h ? h.padStart(2, '0') : '00';
+        min = min ? min.padStart(2, '0') : '00';
+        s = s ? s.padStart(2, '0') : '00';
+        return `${y}-${m}-${d} ${h}:${min}:${s}`;
+    }
+
     const dmYRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/;
     const match = str.match(dmYRegex);
 
     if (match) {
         let [_, d, m, y, h, min, s] = match;
-        y = y.padStart(4, '0');
+        let year = parseInt(y);
+        if (year < 2500) year += 543; // แปลง ค.ศ. เป็น พ.ศ.
+        y = year.toString().padStart(4, '0');
         m = m.padStart(2, '0');
         d = d.padStart(2, '0');
         h = h ? h.padStart(2, '0') : '00';
@@ -272,7 +292,7 @@ export async function saveAuthenLog(excelData) {
         r['เบอร์โทร'] || null,
         r['สิทธิหลัก'] || null,
         r['สิทธิย่อย'] || null,
-        r['รหัสการเข้ารับบริการ'] || null,
+        r['รหัสการเข้ารับบริการ'] || r.statusUse || 'E',
         r['CLAIM CODE'] || r.authenCode || null,
         r['ประเภทการเข้ารับบริการ'] || null,
         r['รหัสบริการ'] || null,
@@ -288,7 +308,7 @@ export async function saveAuthenLog(excelData) {
         r['วันที่แก้ไข Authen Code'] || null,
         r['ชื่อผู้ที่แก้ใข Authen Code'] || null,
         r['หมายเหตุการยกเลิก'] || null,
-        r['dateser'] || null
+        r['dateser'] || r.dateser || null
     ]);
 
     try {

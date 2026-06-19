@@ -20,7 +20,7 @@ export async function verifyUserLogin(username, password) {
                 role: 'admin',
                 department: 'IT Center'
             };
-            const token = jwt.sign(adminData, JWT_SECRET, { expiresIn: '24h' });
+            const token = jwt.sign(adminData, JWT_SECRET);
             return { success: true, token, user: adminData };
         }
         // --------------------------------
@@ -97,7 +97,7 @@ export async function verifyUserLogin(username, password) {
         };
 
         // Generate JWT
-        const token = jwt.sign(userData, JWT_SECRET, { expiresIn: '24h' });
+        const token = jwt.sign(userData, JWT_SECRET);
 
         return { success: true, token, user: userData };
         

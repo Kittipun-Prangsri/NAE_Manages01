@@ -29,7 +29,7 @@ export const trackerPool = mysql.createPool({
     password: process.env.TRACKER_PASS,
     database: process.env.TRACKER_DB,
     port: process.env.TRACKER_PORT || 3306,
-    charset: 'tis620',
+    charset: process.env.TRACKER_CHARSET || 'utf8mb4',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,

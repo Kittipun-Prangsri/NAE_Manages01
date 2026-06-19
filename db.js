@@ -17,7 +17,9 @@ export const hosxpPool = mysql.createPool({
     multipleStatements: true,
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
-    connectTimeout: 20000
+    connectTimeout: 20000,
+    maxIdle: 10, // max idle connections, the default value is the same as `connectionLimit`
+    idleTimeout: 60000, // idle connections timeout, in milliseconds, the default value 60000
 });
 
 // Pool for Internal Tracking DB
@@ -27,14 +29,16 @@ export const trackerPool = mysql.createPool({
     password: process.env.TRACKER_PASS,
     database: process.env.TRACKER_DB,
     port: process.env.TRACKER_PORT || 3306,
-    charset: 'utf8mb4',
+    charset: 'tis620',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
     multipleStatements: true,
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
-    connectTimeout: 20000
+    connectTimeout: 20000,
+    maxIdle: 10,
+    idleTimeout: 60000
 });
 
 // Helper to check connections

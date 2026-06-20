@@ -118,7 +118,7 @@ export function authenticateToken(req, res, next) {
 
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) {
-            // If token is expired, log as warning and return 401
+            // If token is expired → 401 so the client can auto-logout / refresh
             if (err.name === 'TokenExpiredError') {
                 console.warn(`⚠️ JWT Expired: ${err.message}`);
                 return res.status(401).json({ 
@@ -128,12 +128,11 @@ export function authenticateToken(req, res, next) {
                 });
             }
             
-            // For actual verification failures (e.g. invalid signature, bad format)
+            // Any other JWT error (invalid signature, malformed, etc.) → 403
             console.error(`❌ JWT Verification Failed: ${err.message}`);
-            const message = err.name === 'TokenExpiredError' ? 'Session Expired' : 'Forbidden';
             return res.status(403).json({ 
                 success: false,
-                message: message, 
+                message: 'Forbidden', 
                 error: err.message 
             });
         }

@@ -1,4 +1,5 @@
 import { hosxpPool, trackerPool } from './db.js';
+// NOTE: authencode table lives in HOSxP DB (TIS-620), so saveAuthenLog uses hosxpPool
 
 /**
  * ดึงข้อมูลผู้ป่วยจาก HOSxP ตามวันที่ระบุ (เฉพาะสิทธิ สปสช.)
@@ -312,7 +313,8 @@ export async function saveAuthenLog(excelData, visitDate) {
     ]);
 
     try {
-        await trackerPool.query(query, [values]);
+        // Use hosxpPool because `authencode` is in the HOSxP database (TIS-620 charset)
+        await hosxpPool.query(query, [values]);
         console.log(`✅ Logged ${excelData.length} records to "authencode" table.`);
     } catch (error) {
         console.warn('⚠️ Could not save to authencode table (it might not exist or columns mismatch):', error.message);

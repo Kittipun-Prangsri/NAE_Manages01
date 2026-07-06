@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { execSync } from 'child_process';
 
 dotenv.config();
 
@@ -35,6 +36,18 @@ async function testThaiDFlow() {
     let browser;
     try {
         const sessionPath = path.join(__dirname, 'puppeteer_session');
+        
+        // Terminate stale Chrome/Chromium processes under Linux to release lock handles
+        if (process.platform === 'linux') {
+            try {
+                execSync('pkill -f "chrome|chromium" || true');
+                console.log('🧹 Cleaned up stale background browser processes.');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            } catch (err) {
+                console.warn('⚠️ Warning: Could not pkill stale browsers:', err.message);
+            }
+        }
+
         const lockFile = path.join(sessionPath, 'SingletonLock');
         if (fs.existsSync(lockFile)) {
             try {

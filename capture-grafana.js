@@ -148,9 +148,12 @@ async function captureAndNotify() {
 
         // Telegram Bot
         if (telegramBotToken && telegramChatId) {
-            notificationPromises.push(
-                sendToTelegram(filepath, filename, telegramBotToken, telegramChatId)
-            );
+            const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
+            chatIds.forEach(id => {
+                notificationPromises.push(
+                    sendToTelegram(filepath, filename, telegramBotToken, id)
+                );
+            });
         } else {
             console.log('⚠️ TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing in .env, skipping Telegram Bot.');
         }

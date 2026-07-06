@@ -88,8 +88,11 @@ export async function downloadNhsoReport() {
                 ? '📲 กรุณาสแกน QR Code เพื่อให้ระบบดาวน์โหลดรายงาน Authen Code อัตโนมัติ (จำกัดเวลา 2 นาที)'
                 : `⚠️ QR Code ก่อนหน้านี้หมดอายุแล้ว กรุณาสแกน QR Code ใหม่นี้แทน (จำกัดเวลา 2 นาที, ครั้งที่ ${attempt}/${retries})`;
             
-            await sendTelegramPhoto(thaidQrPath, 'thaid_qr.png', telegramToken, telegramChatId, caption, thaidUrl);
-            console.log(`📲 QR Code (Attempt ${attempt}) sent to Telegram with action button. Waiting for user scan...`);
+            const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
+            for (const id of chatIds) {
+                await sendTelegramPhoto(thaidQrPath, 'thaid_qr.png', telegramToken, id, caption, thaidUrl);
+            }
+            console.log(`📲 QR Code (Attempt ${attempt}) sent to ${chatIds.length} Telegram chat(s). Waiting for user scan...`);
 
             // Wait for scan (Timeout: 120 seconds)
             const startTime = Date.now();

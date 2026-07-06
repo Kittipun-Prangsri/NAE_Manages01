@@ -605,19 +605,21 @@ app.listen(PORT, () => {
 let lastUpdateId = 0;
 
 async function startTelegramBotListener() {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-    
-    if (!token || !chatId || chatId === 'your_telegram_chat_id_here') {
-        console.warn('⚠️ Telegram Bot listener not started: Token or Chat ID not configured.');
-        return;
-    }
-    
     console.log('🤖 Telegram Bot message listener started (Long Polling)...');
     
     // Background polling loop
     setInterval(async () => {
         try {
+            // Dynamically reload .env configuration changes
+            dotenv.config({ override: true });
+            
+            const token = process.env.TELEGRAM_BOT_TOKEN;
+            const chatId = process.env.TELEGRAM_CHAT_ID;
+            
+            if (!token || !chatId || chatId === 'your_telegram_chat_id_here') {
+                return;
+            }
+
             const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`);
             if (!response.ok) return;
             
@@ -632,9 +634,11 @@ async function startTelegramBotListener() {
                     const text = message.text.trim();
                     const fromChatId = message.chat.id.toString();
                     
-                    // We respond to messages from the configured group/chat
-                    if (fromChatId === chatId || chatId.includes(fromChatId)) {
-                        if (text === 'เข้าระบบ' || text.toLowerCase() === '/login') {
+                    // Split the comma-separated list of allowed chat IDs
+                    const allowedChatIds = chatId.split(',').map(id => id.trim()).filter(id => id);
+                    
+                    if (allowedChatIds.includes(fromChatId)) {
+                        if (text === 'เข้าระบบ' || text === 'ดึงข้อมูล' || text.toLowerCase() === '/login' || text.toLowerCase() === '/sync') {
                             console.log(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
                             
                             // Send initial acknowledgment

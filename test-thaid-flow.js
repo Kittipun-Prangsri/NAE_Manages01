@@ -93,8 +93,11 @@ async function testThaiDFlow() {
                 ? '📲 สแกน QR Code นี้ด้วยแอป ThaiD เพื่อเข้าใช้งานระบบ สปสช. (จำกัดเวลา 2 นาที)'
                 : `⚠️ QR Code ก่อนหน้านี้หมดอายุแล้ว กรุณาสแกน QR Code ใหม่นี้แทน (จำกัดเวลา 2 นาที, ครั้งที่ ${attempt}/${retries})`;
 
-            await sendToTelegram(thaidQrPath, 'thaid_qr.png', telegramToken, telegramChatId, caption, thaidUrl);
-            console.log(`📲 QR Code (Attempt ${attempt}) sent to Telegram with action button. Please scan it now!`);
+            const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
+            for (const id of chatIds) {
+                await sendToTelegram(thaidQrPath, 'thaid_qr.png', telegramToken, id, caption, thaidUrl);
+            }
+            console.log(`📲 QR Code (Attempt ${attempt}) sent to ${chatIds.length} Telegram chat(s). Please scan it now!`);
 
             // Wait loop: Poll every 2 seconds to check if we are redirected back to authencode dashboard
             console.log('⏳ Waiting for user to scan QR Code (Timeout: 120 seconds)...');

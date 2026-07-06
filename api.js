@@ -180,5 +180,44 @@ export const api = {
             body: JSON.stringify({ type, token: tokenVal, target: targetVal })
         });
         return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async fetchSchedules(token) {
+        const res = await fetch(`${API_BASE}/admin/schedules`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async createSchedule(time, token) {
+        const res = await fetch(`${API_BASE}/admin/schedules`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ schedule_time: time })
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async updateSchedule(id, scheduleData, token) {
+        const res = await fetch(`${API_BASE}/admin/schedules/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(scheduleData)
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async deleteSchedule(id, token) {
+        const res = await fetch(`${API_BASE}/admin/schedules/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
     }
 };

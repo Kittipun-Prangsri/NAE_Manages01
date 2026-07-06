@@ -40,6 +40,16 @@ export async function initInternalDb() {
         );
     `;
 
+    const cronSchedulesSchema = `
+        CREATE TABLE IF NOT EXISTS cron_schedules (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            schedule_time TIME NOT NULL UNIQUE,
+            is_enabled BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        );
+    `;
+
     const usersSchema = `
         CREATE TABLE IF NOT EXISTS users (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -85,6 +95,16 @@ export async function initInternalDb() {
 
         await trackerPool.query(savedQueriesSchema);
         console.log('✅ Internal database table "saved_queries" is ready.');
+
+        await trackerPool.query(cronSchedulesSchema);
+        console.log('✅ Internal database table "cron_schedules" is ready.');
+
+        // Prepopulate default cron schedules if empty
+        const [schedRows] = await trackerPool.query('SELECT COUNT(*) as count FROM cron_schedules');
+        if (schedRows[0].count === 0) {
+            await trackerPool.query("INSERT INTO cron_schedules (schedule_time) VALUES ('15:00:00'), ('20:29:00')");
+            console.log('✅ Prepopulated default cron schedules.');
+        }
 
         // Prepopulate default queries if empty
         const [rows] = await trackerPool.query('SELECT COUNT(*) as count FROM saved_queries');

@@ -128,6 +128,11 @@ function setupEventListeners() {
     document.getElementById('close-user-modal')?.addEventListener('click', closeUserModal);
     document.getElementById('cancel-user-modal')?.addEventListener('click', closeUserModal);
     document.getElementById('user-form')?.addEventListener('submit', handleUserFormSubmit);
+    
+    // Admin subtab navigation events
+    document.getElementById('admin-subtab-users')?.addEventListener('click', () => handleAdminSubtabSwitch('users'));
+    document.getElementById('admin-subtab-schedules')?.addEventListener('click', () => handleAdminSubtabSwitch('schedules'));
+    document.getElementById('add-schedule-form')?.addEventListener('submit', handleAddSchedule);
 
     // Admin quick login modal listeners
     document.getElementById('admin-login-btn')?.addEventListener('click', openAdminLoginModal);
@@ -594,7 +599,7 @@ function handleTabSwitch(tabId) {
         }
         loadSavedQueries();
     } else if (tabId === 'tab-admin') {
-        loadAdminUsers();
+        handleAdminSubtabSwitch('users');
     }
 }
 
@@ -730,6 +735,110 @@ async function handleTestNotification(type, user) {
     } catch (error) {
         console.error('Error testing notification:', error);
         alert('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + error.message);
+    } finally {
+        ui.setLoading(false);
+    }
+}
+
+// --- Admin Schedules Management Handlers ---
+
+function handleAdminSubtabSwitch(subtab) {
+    const btnUsers = document.getElementById('admin-subtab-users');
+    const btnSchedules = document.getElementById('admin-subtab-schedules');
+    const viewUsers = document.getElementById('admin-subview-users');
+    const viewSchedules = document.getElementById('admin-subview-schedules');
+
+    if (!btnUsers || !btnSchedules || !viewUsers || !viewSchedules) return;
+
+    const activeClass = 'flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center bg-white dark:bg-slate-800 shadow-sm text-blue-600 dark:text-blue-400';
+    const inactiveClass = 'flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200';
+
+    if (subtab === 'users') {
+        btnUsers.className = activeClass;
+        btnSchedules.className = inactiveClass;
+        viewUsers.classList.remove('hidden');
+        viewSchedules.classList.add('hidden');
+        loadAdminUsers();
+    } else if (subtab === 'schedules') {
+        btnUsers.className = inactiveClass;
+        btnSchedules.className = activeClass;
+        viewUsers.classList.add('hidden');
+        viewSchedules.classList.remove('hidden');
+        loadAdminSchedules();
+    }
+}
+
+async function loadAdminSchedules() {
+    if (!appState.token || appState.user.role !== 'admin') return;
+    ui.setLoading(true);
+    try {
+        const { ok, data } = await api.fetchSchedules(appState.token);
+        if (ok) {
+            ui.renderAdminSchedules(data.schedules, handleToggleSchedule, handleDeleteSchedule);
+        } else {
+            console.error('Failed to fetch schedules:', data.message);
+        }
+    } catch (error) {
+        console.error('Error loading admin schedules:', error);
+    } finally {
+        ui.setLoading(false);
+    }
+}
+
+async function handleAddSchedule(e) {
+    e.preventDefault();
+    const timeInput = document.getElementById('new-schedule-time');
+    if (!timeInput || !timeInput.value) return;
+
+    ui.setLoading(true);
+    try {
+        const { ok, data } = await api.createSchedule(timeInput.value, appState.token);
+        if (ok) {
+            alert(data.message || 'เพิ่มเวลาทำงานสำเร็จ');
+            timeInput.value = '';
+            loadAdminSchedules();
+        } else {
+            alert(data.message || 'เพิ่มเวลาทำงานไม่สำเร็จ');
+        }
+    } catch (error) {
+        console.error('Error adding schedule:', error);
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+    } finally {
+        ui.setLoading(false);
+    }
+}
+
+async function handleToggleSchedule(id, enabled) {
+    try {
+        const { ok, data } = await api.updateSchedule(id, { is_enabled: enabled }, appState.token);
+        if (ok) {
+            loadAdminSchedules();
+        } else {
+            alert(data.message || 'อัปเดตสถานะไม่สำเร็จ');
+            loadAdminSchedules();
+        }
+    } catch (error) {
+        console.error('Error toggling schedule:', error);
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+        loadAdminSchedules();
+    }
+}
+
+async function handleDeleteSchedule(id, timeStr) {
+    if (!confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบเวลาทำงาน ${timeStr} น. ออกจากระบบ?`)) return;
+
+    ui.setLoading(true);
+    try {
+        const { ok, data } = await api.deleteSchedule(id, appState.token);
+        if (ok) {
+            alert(data.message || 'ลบเวลาทำงานสำเร็จ');
+            loadAdminSchedules();
+        } else {
+            alert(data.message || 'ลบไม่สำเร็จ');
+        }
+    } catch (error) {
+        console.error('Error deleting schedule:', error);
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
         ui.setLoading(false);
     }

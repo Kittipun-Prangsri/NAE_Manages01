@@ -15,6 +15,13 @@ export async function downloadNhsoReport() {
     const url = process.env.NHSO_PORTAL_URL || 'https://authenservice.nhso.go.th/authencode/';
     const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
     const telegramChatId = process.env.TELEGRAM_CHAT_ID;
+    const lineAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    const lineGroupId = process.env.LINE_GROUP_ID;
+    const imgbbApiKey = process.env.IMGBB_API_KEY;
+    const serverPublicUrl = process.env.SERVER_PUBLIC_URL || 'http://localhost:3000';
+
+    const hasTelegram = telegramToken && telegramChatId && telegramChatId !== 'your_telegram_chat_id_here';
+    const hasLine = lineAccessToken && lineGroupId && lineGroupId !== 'your_group_id_here';
     
     const downloadsDir = path.join(__dirname, 'downloads');
     if (!fs.existsSync(downloadsDir)) {
@@ -76,23 +83,35 @@ export async function downloadNhsoReport() {
             await page.setViewport({ width: 440, height: 600 });
             await new Promise(resolve => setTimeout(resolve, 1000));
 
-            // Capture QR Code page screenshot
-            const thaidQrPath = path.join(downloadsDir, 'thaid_qr.png');
+            // Capture QR Code page screenshot in screenshots directory
+            const screenshotsDir = path.join(__dirname, 'screenshots');
+            if (!fs.existsSync(screenshotsDir)) {
+                fs.mkdirSync(screenshotsDir, { recursive: true });
+            }
+            const thaidQrFilename = `thaid_qr_${attempt}.png`;
+            const thaidQrPath = path.join(screenshotsDir, thaidQrFilename);
             await page.screenshot({ path: thaidQrPath });
 
             // Restore desktop viewport for subsequent operations
             await page.setViewport({ width: 1440, height: 900 });
 
-            // Send QR Code to Telegram so the user can scan it
+            // Send QR Code to Telegram & LINE so the user can scan it
             const caption = attempt === 1 
                 ? '📲 กรุณาสแกน QR Code เพื่อให้ระบบดาวน์โหลดรายงาน Authen Code อัตโนมัติ (จำกัดเวลา 2 นาที)'
                 : `⚠️ QR Code ก่อนหน้านี้หมดอายุแล้ว กรุณาสแกน QR Code ใหม่นี้แทน (จำกัดเวลา 2 นาที, ครั้งที่ ${attempt}/${retries})`;
             
-            const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
-            for (const id of chatIds) {
-                await sendTelegramPhoto(thaidQrPath, 'thaid_qr.png', telegramToken, id, caption, thaidUrl);
+            if (hasTelegram) {
+                const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
+                for (const id of chatIds) {
+                    await sendTelegramPhoto(thaidQrPath, 'thaid_qr.png', telegramToken, id, caption, thaidUrl);
+                }
+                console.log(`📲 QR Code (Attempt ${attempt}) sent to Telegram.`);
             }
-            console.log(`📲 QR Code (Attempt ${attempt}) sent to ${chatIds.length} Telegram chat(s). Waiting for user scan...`);
+
+            if (hasLine) {
+                await sendToLineBot(thaidQrPath, thaidQrFilename, lineAccessToken, lineGroupId, imgbbApiKey, serverPublicUrl, caption, thaidUrl);
+                console.log(`📲 QR Code (Attempt ${attempt}) sent to LINE.`);
+            }
 
             // Wait for scan (Timeout: 120 seconds)
             const startTime = Date.now();
@@ -101,6 +120,9 @@ export async function downloadNhsoReport() {
             while (Date.now() - startTime < timeoutMs) {
                 const currentUrl = page.url();
                 if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
+                    console.log(`🎉 Detected redirect to NHSO Portal! URL: ${currentUrl}`);
+                    console.log('⏳ Waiting 5 seconds for session and cookies to settle...');
+                    await new Promise(resolve => setTimeout(resolve, 5000));
                     authenticated = true;
                     break;
                 }
@@ -262,6 +284,129 @@ async function sendTelegramPhoto(filepath, filename, token, chatId, text, action
         });
     } catch (error) {
         console.error('Error sending photo to Telegram:', error);
+    }
+}
+
+async function sendToLineBot(filepath, filename, token, groupId, imgbbKey, publicUrl, captionText, actionUrl = null) {
+    console.log('📲 Processing image hosting for LINE Messaging API...');
+    let imageUrl = '';
+
+    try {
+        if (imgbbKey && imgbbKey !== 'your_imgbb_api_key_here') {
+            console.log('📤 Uploading screenshot to ImgBB...');
+            const imageBase64 = fs.readFileSync(filepath, { encoding: 'base64' });
+            
+            const formData = new FormData();
+            formData.append('image', imageBase64);
+
+            const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const imgbbData = await imgbbResponse.json();
+            if (imgbbResponse.ok && imgbbData.success) {
+                imageUrl = imgbbData.data.url;
+                console.log(`✅ Uploaded to ImgBB successfully: ${imageUrl}`);
+            } else {
+                console.error('❌ ImgBB upload failed:', imgbbData);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Error uploading to ImgBB, falling back to local server URL:', error);
+    }
+
+    // If ImgBB upload failed or key not present, use local server URL
+    if (!imageUrl) {
+        imageUrl = `${publicUrl}/screenshots/${filename}`;
+        console.log(`ℹ️ Using local server static URL: ${imageUrl}`);
+    }
+
+    console.log('💬 Sending Flex Message via LINE Bot push api...');
+    try {
+        // Construct standard bubble Flex Message content dynamically
+        const flexBubble = {
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "md",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": actionUrl ? "🔑 ยืนยันตัวตน ThaiD" : "🎉 ดึงรายงาน NHSO สำเร็จ",
+                        "weight": "bold",
+                        "size": "md",
+                        "color": actionUrl ? "#2563eb" : "#10b981"
+                    },
+                    {
+                        "type": "text",
+                        "text": captionText,
+                        "wrap": true,
+                        "size": "sm",
+                        "color": "#4b5563"
+                    }
+                ]
+            }
+        };
+
+        if (imageUrl) {
+            flexBubble.hero = {
+                "type": "image",
+                "url": imageUrl,
+                "size": "full",
+                "aspectRatio": actionUrl ? "1:1" : "1.91:1",
+                "aspectMode": "fit"
+            };
+        }
+
+        if (actionUrl) {
+            flexBubble.footer = {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "color": "#2563eb",
+                        "action": {
+                            "type": "uri",
+                            "label": "📲 เปิดแอป ThaiD ล็อกอิน",
+                            "uri": actionUrl
+                        }
+                    }
+                ]
+            };
+        }
+
+        const payload = {
+            to: groupId,
+            messages: [
+                {
+                    type: 'flex',
+                    altText: actionUrl ? '📲 สแกน QR Code ด้วยแอป ThaiD' : '🎉 ดาวน์โหลดรายงาน NHSO สำเร็จ',
+                    contents: flexBubble
+                }
+            ]
+        };
+
+        const response = await fetch('https://api.line.me/v2/bot/message/push', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const resData = await response.json().catch(() => ({}));
+        if (response.ok) {
+            console.log('✅ Sent Flex Message via LINE Bot successfully.');
+        } else {
+            console.error('❌ LINE Messaging API returned error:', resData);
+        }
+    } catch (error) {
+        console.error('❌ Error calling LINE Messaging API:', error);
     }
 }
 

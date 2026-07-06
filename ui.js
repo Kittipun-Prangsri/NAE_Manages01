@@ -22,7 +22,14 @@ const getEls = () => {
         exportBtn: document.getElementById('export-error-btn'),
         adminViewContainer: document.getElementById('admin-view-container'),
         adminUserTableBody: document.getElementById('admin-user-table-body'),
-        tabAdmin: document.getElementById('tab-admin')
+        tabAdmin: document.getElementById('tab-admin'),
+        adminSubtabUsers: document.getElementById('admin-subtab-users'),
+        adminSubtabSchedules: document.getElementById('admin-subtab-schedules'),
+        adminSubviewUsers: document.getElementById('admin-subview-users'),
+        adminSubviewSchedules: document.getElementById('admin-subview-schedules'),
+        adminScheduleTableBody: document.getElementById('admin-schedule-table-body'),
+        addScheduleForm: document.getElementById('add-schedule-form'),
+        newScheduleTime: document.getElementById('new-schedule-time')
     };
 };
 
@@ -436,6 +443,70 @@ export const ui = {
             if (hasTelegram) {
                 tr.querySelector('.test-telegram-btn').addEventListener('click', () => onTest('telegram', user));
             }
+
+            body.appendChild(tr);
+        });
+    },
+
+    renderAdminSchedules(schedules, onToggle, onDelete) {
+        if (typeof document === 'undefined') return;
+        const body = document.getElementById('admin-schedule-table-body');
+        if (!body) return;
+
+        body.innerHTML = '';
+        if (!schedules || schedules.length === 0) {
+            body.innerHTML = `
+                <tr>
+                    <td colspan="3" class="py-8 text-center text-slate-500 dark:text-slate-400 font-bold bg-transparent">
+                        <i class="fas fa-clock text-3xl mb-2 block"></i>
+                        ไม่พบการตั้งเวลาทำงานอัตโนมัติ
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        schedules.forEach(sched => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200 bg-transparent';
+
+            const enabledChecked = sched.is_enabled ? 'checked' : '';
+            const statusLabel = sched.is_enabled ? 
+                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ทำงาน</span>` : 
+                `<span class="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/10">ปิดใช้งาน</span>`;
+
+            tr.innerHTML = `
+                <td class="py-3.5 px-6 font-bold text-slate-900 dark:text-white text-sm">
+                    <i class="far fa-clock mr-1 text-slate-400"></i> ${sched.schedule_time} น.
+                </td>
+                <td class="py-3.5 px-6 space-y-1">
+                    <div class="flex items-center space-x-2">
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="schedule-toggle sr-only peer" data-id="${sched.id}" ${enabledChecked}>
+                            <div class="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                        ${statusLabel}
+                    </div>
+                </td>
+                <td class="py-3.5 px-6 text-center">
+                    <button class="delete-schedule-btn px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-lg transition text-xs cursor-pointer flex items-center justify-center space-x-1 mx-auto" data-id="${sched.id}">
+                        <i class="fas fa-trash-alt"></i>
+                        <span>ลบ</span>
+                    </button>
+                </td>
+            `;
+
+            // Bind toggle switch
+            const toggleInput = tr.querySelector('.schedule-toggle');
+            toggleInput.addEventListener('change', (e) => {
+                onToggle(sched.id, e.target.checked);
+            });
+
+            // Bind delete button
+            const deleteBtn = tr.querySelector('.delete-schedule-btn');
+            deleteBtn.addEventListener('click', () => {
+                onDelete(sched.id, sched.schedule_time);
+            });
 
             body.appendChild(tr);
         });

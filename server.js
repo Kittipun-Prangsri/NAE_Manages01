@@ -683,6 +683,84 @@ app.post('/api/admin/users/test-notification', authenticateToken, requireAdmin, 
     }
 });
 
+// --- Cron Schedules CRUD Endpoints ---
+
+// 1. Get all schedules
+app.get('/api/admin/schedules', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await trackerPool.query('SELECT * FROM cron_schedules ORDER BY schedule_time ASC');
+        const formatted = rows.map(r => {
+            const [hh, mm] = r.schedule_time.split(':');
+            return {
+                id: r.id,
+                schedule_time: `${hh.padStart(2, '0')}:${mm.padStart(2, '0')}`,
+                is_enabled: !!r.is_enabled
+            };
+        });
+        res.json({ success: true, schedules: formatted });
+    } catch (error) {
+        console.error('Get schedules error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// 2. Add new schedule
+app.post('/api/admin/schedules', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { schedule_time } = req.body; // 'HH:MM'
+        if (!schedule_time) return res.status(400).json({ success: false, message: 'กรุณาระบุเวลาทำงาน' });
+
+        const timeWithSeconds = `${schedule_time}:00`;
+        await trackerPool.query('INSERT INTO cron_schedules (schedule_time, is_enabled) VALUES (?, 1)', [timeWithSeconds]);
+        await reloadSchedules();
+        res.json({ success: true, message: 'เพิ่มเวลาทำงานสำเร็จ' });
+    } catch (error) {
+        console.error('Add schedule error:', error);
+        if (error.code === 'ER_DUP_ENTRY') {
+            res.status(400).json({ success: false, message: 'เวลานี้ถูกกำหนดไว้แล้ว' });
+        } else {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    }
+});
+
+// 3. Toggle or edit schedule
+app.put('/api/admin/schedules/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { is_enabled, schedule_time } = req.body;
+
+        if (schedule_time) {
+            const timeWithSeconds = `${schedule_time}:00`;
+            await trackerPool.query('UPDATE cron_schedules SET schedule_time = ? WHERE id = ?', [timeWithSeconds, id]);
+        }
+        if (is_enabled !== undefined) {
+            const enabledVal = is_enabled ? 1 : 0;
+            await trackerPool.query('UPDATE cron_schedules SET is_enabled = ? WHERE id = ?', [enabledVal, id]);
+        }
+
+        await reloadSchedules();
+        res.json({ success: true, message: 'อัปเดตเวลาทำงานสำเร็จ' });
+    } catch (error) {
+        console.error('Update schedule error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// 4. Delete schedule
+app.delete('/api/admin/schedules/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await trackerPool.query('DELETE FROM cron_schedules WHERE id = ?', [id]);
+        await reloadSchedules();
+        res.json({ success: true, message: 'ลบเวลาทำงานสำเร็จ' });
+    } catch (error) {
+        console.error('Delete schedule error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+
 // For any other requests, serve the index.html from the root
 app.use((req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
@@ -732,26 +810,54 @@ async function handleScheduledSyncAndCapture() {
     await captureAndNotify();
 }
 
-// ตั้งเวลาทำงานอัตโนมัติ: 15.00 น. และ 20.29 น. (เวลาประเทศไทย Asia/Bangkok)
-cron.schedule('0 15 * * *', () => {
-    console.log('⏰ [Cron Scheduler] เริ่มต้นทำงานเวลา 15:00 น....');
-    handleScheduledSyncAndCapture();
-}, {
-    scheduled: true,
-    timezone: "Asia/Bangkok"
-});
+// --- Dynamic Cron Scheduler Configurator ---
+let activeCronTasks = [];
 
-cron.schedule('29 20 * * *', () => {
-    console.log('⏰ [Cron Scheduler] เริ่มต้นทำงานเวลา 20:29 น....');
-    handleScheduledSyncAndCapture();
-}, {
-    scheduled: true,
-    timezone: "Asia/Bangkok"
-});
+async function reloadSchedules() {
+    console.log('⏰ [Scheduler] Reloading cron schedules from database...');
+    try {
+        // Stop and destroy all currently running tasks
+        activeCronTasks.forEach(task => {
+            if (task && typeof task.stop === 'function') {
+                task.stop();
+            }
+        });
+        activeCronTasks = [];
+
+        // Fetch enabled schedules from database
+        const [rows] = await trackerPool.query('SELECT schedule_time FROM cron_schedules WHERE is_enabled = TRUE');
+        
+        console.log(`⏰ [Scheduler] Found ${rows.length} active schedule(s). Registering tasks...`);
+        
+        for (const row of rows) {
+            const timeStr = row.schedule_time; // format 'HH:MM:SS' or 'HH:MM'
+            const [hh, mm] = timeStr.split(':');
+            
+            // Build standard cron pattern: 'mm hh * * *'
+            const cronPattern = `${parseInt(mm, 10)} ${parseInt(hh, 10)} * * *`;
+            
+            console.log(`⏰ [Scheduler] Scheduling job at ${hh}:${mm} (Cron pattern: "${cronPattern}")`);
+            
+            const task = cron.schedule(cronPattern, () => {
+                console.log(`⏰ [Cron Scheduler] Automatically triggering sync and capture task for time: ${timeStr}...`);
+                handleScheduledSyncAndCapture();
+            }, {
+                scheduled: true,
+                timezone: "Asia/Bangkok"
+            });
+            
+            activeCronTasks.push(task);
+        }
+        console.log('✅ [Scheduler] Schedules reloaded and registered successfully.');
+    } catch (error) {
+        console.error('❌ [Scheduler] Error reloading cron schedules:', error);
+    }
+}
 
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     startTelegramBotListener();
+    reloadSchedules(); // Initial loading of database schedules
 });
 
 // --- Telegram Bot Command Listener (Polling) ---

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { trackerPool } from './db.js';
 
 dotenv.config();
 
@@ -176,58 +177,348 @@ async function captureAndNotify() {
 }
 
 async function sendToLineBot(filepath, filename, token, groupId, imgbbKey, publicUrl) {
-    console.log('📲 Processing image hosting for LINE Messaging API...');
-    let imageUrl = '';
-
+    console.log('📊 Querying database stats for LINE Flex Message summary...');
     try {
-        if (imgbbKey && imgbbKey !== 'your_imgbb_api_key_here') {
-            console.log('📤 Uploading screenshot to ImgBB...');
-            const imageBase64 = fs.readFileSync(filepath, { encoding: 'base64' });
-            
-            const formData = new FormData();
-            formData.append('image', imageBase64);
+        // Get the latest date with records
+        const [[{ max_date }]] = await trackerPool.query('SELECT MAX(visit_date) as max_date FROM visit_tracking');
+        const queryDate = max_date ? new Date(max_date).toISOString().split('T')[0] : new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
 
-            const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, {
-                method: 'POST',
-                body: formData
+        console.log(`📅 Database stats date selected: ${queryDate}`);
+
+        // 1. Total visits
+        const [[{ total_visits }]] = await trackerPool.query(
+            'SELECT COUNT(*) as total_visits FROM visit_tracking WHERE visit_date = ?',
+            [queryDate]
+        );
+
+        // 2. Total money
+        const [[{ total_money }]] = await trackerPool.query(
+            'SELECT COALESCE(SUM(uc_money), 0) as total_money FROM visit_tracking WHERE visit_date = ?',
+            [queryDate]
+        );
+
+        // 3. Status counts
+        const [[{ endpoint_count }]] = await trackerPool.query(
+            "SELECT COUNT(*) as endpoint_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'YELLOW'",
+            [queryDate]
+        );
+
+        const [[{ not_imported_count }]] = await trackerPool.query(
+            "SELECT COUNT(*) as not_imported_count FROM visit_tracking WHERE visit_date = ? AND check_claimcode = 'ยังไม่ได้นำเข้า'",
+            [queryDate]
+        );
+
+        const [[{ authen_count }]] = await trackerPool.query(
+            "SELECT COUNT(*) as authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'",
+            [queryDate]
+        );
+
+        // 4. Top 3 rights
+        const [rights] = await trackerPool.query(
+            'SELECT COALESCE(pttype_note, pttype) as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3',
+            [queryDate]
+        );
+
+        // 5. UCS outstanding
+        const [[{ ucs_total }]] = await trackerPool.query(
+            "SELECT COUNT(*) as ucs_total FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW')",
+            [queryDate]
+        );
+
+        const [ucs_departments] = await trackerPool.query(
+            "SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW') GROUP BY dept_name ORDER BY cnt DESC LIMIT 3",
+            [queryDate]
+        );
+
+        // Build right items contents dynamically
+        const rightsContents = [];
+        rights.forEach(r => {
+            rightsContents.push({
+                "type": "box",
+                "layout": "horizontal",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": r.right_name || 'ไม่ระบุสิทธิ',
+                        "color": "#ffffff",
+                        "size": "sm"
+                    },
+                    {
+                        "type": "text",
+                        "text": String(r.cnt),
+                        "color": "#52c41a",
+                        "size": "md",
+                        "align": "end",
+                        "weight": "bold"
+                    }
+                ]
             });
+        });
 
-            const imgbbData = await imgbbResponse.json();
-            if (imgbbResponse.ok && imgbbData.success) {
-                imageUrl = imgbbData.data.url;
-                console.log(`✅ Uploaded to ImgBB successfully: ${imageUrl}`);
-            } else {
-                console.error('❌ ImgBB upload failed:', imgbbData);
+        // Build UCS department items dynamically
+        const ucsContents = [
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "UCS ไม่ได้ปิดสิทธิ",
+                        "color": "#ffffff",
+                        "size": "sm",
+                        "weight": "bold"
+                    },
+                    {
+                        "type": "text",
+                        "text": String(ucs_total),
+                        "color": "#ff4d4d",
+                        "size": "md",
+                        "align": "end",
+                        "weight": "bold"
+                    }
+                ]
             }
-        }
-    } catch (error) {
-        console.error('❌ Error uploading to ImgBB, falling back to local server URL:', error);
-    }
+        ];
 
-    // If ImgBB upload failed or key not present, use local server URL
-    if (!imageUrl) {
-        imageUrl = `${publicUrl}/screenshots/${filename}`;
-        console.log(`ℹ️ Using local server static URL: ${imageUrl}`);
-        console.log('⚠️ Please ensure this server port is exposed to the public internet so LINE servers can download the image.');
-    }
+        ucs_departments.forEach(d => {
+            ucsContents.push({
+                "type": "box",
+                "layout": "horizontal",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": ` - ${d.dept_name}`,
+                        "color": "#8c8c8c",
+                        "size": "xs"
+                    },
+                    {
+                        "type": "text",
+                        "text": String(d.cnt),
+                        "color": "#ffffff",
+                        "size": "xs",
+                        "align": "end"
+                    }
+                ]
+            });
+        });
 
-    console.log('💬 Sending image message via LINE Bot push api...');
-    try {
+        // Construct exact user-requested bubble
+        const formattedDate = new Date(queryDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+        const flexBubble = {
+            "type": "bubble",
+            "size": "giga",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "backgroundColor": "#18191a",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "📊 สรุปข้อมูลการให้บริการ",
+                        "weight": "bold",
+                        "color": "#ffffff",
+                        "size": "xl"
+                    },
+                    {
+                        "type": "text",
+                        "text": `Dashboard Summary (${formattedDate})`,
+                        "size": "xs",
+                        "color": "#8c8c8c",
+                        "margin": "sm"
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md",
+                        "color": "#333333"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "md",
+                        "spacing": "sm",
+                        "contents": [
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    {
+                                        "type": "text",
+                                        "text": "จำนวนผู้มารับบริการ(ครั้ง)",
+                                        "color": "#ffffff",
+                                        "size": "sm",
+                                        "gravity": "center"
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": String(total_visits),
+                                        "color": "#ff4d4d",
+                                        "size": "xl",
+                                        "align": "end",
+                                        "weight": "bold"
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    {
+                                        "type": "text",
+                                        "text": "ค่ารักษาลูกหนี้ (sum)",
+                                        "color": "#ffffff",
+                                        "size": "sm",
+                                        "gravity": "center"
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": Number(total_money).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                                        "color": "#ff4d4d",
+                                        "size": "xl",
+                                        "align": "end",
+                                        "weight": "bold"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md",
+                        "color": "#333333"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "md",
+                        "spacing": "sm",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": "Visit Authen code",
+                                "color": "#8c8c8c",
+                                "size": "xs",
+                                "weight": "bold"
+                            },
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    {
+                                        "type": "box",
+                                        "layout": "vertical",
+                                        "contents": [
+                                            {
+                                                "type": "text",
+                                                "text": "ENDPOINT",
+                                                "color": "#ffffff",
+                                                "size": "xs",
+                                                "align": "center"
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": String(endpoint_count),
+                                                "color": "#ff4d4d",
+                                                "size": "md",
+                                                "align": "center",
+                                                "weight": "bold"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "type": "box",
+                                        "layout": "vertical",
+                                        "contents": [
+                                            {
+                                                "type": "text",
+                                                "text": "ยังไม่นำเข้า",
+                                                "color": "#ffffff",
+                                                "size": "xs",
+                                                "align": "center"
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": String(not_imported_count),
+                                                "color": "#ff4d4d",
+                                                "size": "md",
+                                                "align": "center",
+                                                "weight": "bold"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "type": "box",
+                                        "layout": "vertical",
+                                        "contents": [
+                                            {
+                                                "type": "text",
+                                                "text": "AUTHENCODE",
+                                                "color": "#ffffff",
+                                                "size": "xs",
+                                                "align": "center"
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": String(authen_count),
+                                                "color": "#ff4d4d",
+                                                "size": "md",
+                                                "align": "center",
+                                                "weight": "bold"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md",
+                        "color": "#333333"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "md",
+                        "spacing": "sm",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": "สิทธิการรักษา (Top 3)",
+                                "color": "#8c8c8c",
+                                "size": "xs",
+                                "weight": "bold"
+                            },
+                            ...rightsContents
+                        ]
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md",
+                        "color": "#333333"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "md",
+                        "spacing": "sm",
+                        "contents": ucsContents
+                    }
+                ]
+            }
+        };
+
         const payload = {
             to: groupId,
             messages: [
                 {
-                    type: 'text',
-                    text: `📊 บันทึกหน้าจอ Grafana อัตโนมัติ\n📅 วันที่บันทึก: ${new Date().toLocaleString('th-TH')}`
-                },
-                {
-                    type: 'image',
-                    originalContentUrl: imageUrl,
-                    previewImageUrl: imageUrl
+                    type: 'flex',
+                    altText: `📊 สรุปข้อมูลการให้บริการ (${queryDate})`,
+                    contents: flexBubble
                 }
             ]
         };
 
+        console.log('💬 Dispatching LINE Flex summary message...');
         const response = await fetch('https://api.line.me/v2/bot/message/push', {
             method: 'POST',
             headers: {
@@ -239,12 +530,12 @@ async function sendToLineBot(filepath, filename, token, groupId, imgbbKey, publi
 
         const resData = await response.json().catch(() => ({}));
         if (response.ok) {
-            console.log('✅ Sent message and image via LINE Bot successfully.');
+            console.log('✅ Sent LINE Flex Message summary successfully.');
         } else {
             console.error('❌ LINE Messaging API returned error:', resData);
         }
     } catch (error) {
-        console.error('❌ Error calling LINE Messaging API:', error);
+        console.error('❌ Error sending Flex message to LINE:', error);
     }
 }
 

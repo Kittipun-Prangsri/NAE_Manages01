@@ -35,6 +35,16 @@ async function testThaiDFlow() {
     let browser;
     try {
         const sessionPath = path.join(__dirname, 'puppeteer_session');
+        const lockFile = path.join(sessionPath, 'SingletonLock');
+        if (fs.existsSync(lockFile)) {
+            try {
+                fs.unlinkSync(lockFile);
+                console.log('🧹 Cleaned up stale Puppeteer SingletonLock.');
+            } catch (e) {
+                console.warn('⚠️ Warning: Could not remove SingletonLock:', e.message);
+            }
+        }
+
         browser = await puppeteer.launch({
             headless: true,
             userDataDir: sessionPath,

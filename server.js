@@ -351,6 +351,7 @@ app.post('/api/sync/nhso-portal-download', authenticateToken, async (req, res) =
 
 async function runManualPortalSyncInBackground(visit_date) {
     console.log(`📥 [Background Portal Sync] Starting for date: ${visit_date}`);
+    await sendLineMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`);
     const dlResult = await downloadNhsoReport();
     
     const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -362,6 +363,7 @@ async function runManualPortalSyncInBackground(visit_date) {
         for (const id of chatIds) {
             await sendTelegramMessage(token, id, `❌ ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
         }
+        await sendLineMessage(`❌ [Manual Sync] ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
         return;
     }
 
@@ -385,10 +387,11 @@ async function runManualPortalSyncInBackground(visit_date) {
     // Keep only the latest Excel download as backup
     cleanOldDownloads(path.join(__dirname, 'downloads'));
 
-    // แจ้งเตือนใน Telegram
+    // แจ้งเตือนใน Telegram & LINE
     for (const id of chatIds) {
         await sendTelegramMessage(token, id, `✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`);
     }
+    await sendLineMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`);
 
     // Capture Grafana and send Telegram/LINE in the background
     captureAndNotify().catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
@@ -906,6 +909,7 @@ async function startTelegramBotListener() {
                             
                             // Send initial acknowledgment
                             await sendTelegramMessage(token, fromChatId, '⏳ กำลังเตรียมการเข้าสู่ระบบ สปสช. และดึง QR Code ของ ThaiD...');
+                            await sendLineMessage('⏳ [Telegram Command] กำลังเตรียมการดึงข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD...');
                             
                             // Run the end-to-end sync and capture in the background!
                             runE2EPortalSyncAndCapture(fromChatId).catch(err => {
@@ -930,6 +934,36 @@ async function sendTelegramMessage(token, chatId, text) {
         });
     } catch (err) {
         console.error('Error sending message:', err);
+    }
+}
+
+async function sendLineMessage(text) {
+    const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    const groupId = process.env.LINE_GROUP_ID;
+    if (!token || !groupId || token === 'your_line_token_here' || groupId === 'your_group_id_here') {
+        return;
+    }
+    try {
+        const payload = {
+            to: groupId,
+            messages: [
+                {
+                    type: 'text',
+                    text: text
+                }
+            ]
+        };
+        await fetch('https://api.line.me/v2/bot/message/push', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+        console.log('✅ Sent status message to LINE successfully.');
+    } catch (err) {
+        console.error('Error sending message to LINE:', err);
     }
 }
 
@@ -962,13 +996,16 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             
             // แจ้งเตือนความสำเร็จ
             await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, '✅ ซิงก์ข้อมูลฐานข้อมูลสำเร็จแล้ว! กำลังเตรียมบันทึกหน้าจอ Grafana...');
+            await sendLineMessage(`✅ ดึงข้อมูลรายงานและประมวลผลข้อมูลประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังเตรียมส่งรายงาน Flex...`);
         } else {
             console.warn(`⚠️ [Telegram Trigger] การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
             await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `❌ ดึงข้อมูลรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
+            await sendLineMessage(`❌ ดึงข้อมูลรายงานของวันที่ ${visit_date} ไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
         }
     } catch (err) {
         console.error('❌ [Telegram Trigger] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
         await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `❌ ข้อผิดพลาดภายในเซิร์ฟเวอร์: ${err.message}`);
+        await sendLineMessage(`❌ เกิดข้อผิดพลาดในเซิร์ฟเวอร์: ${err.message}`);
     }
     
     // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)

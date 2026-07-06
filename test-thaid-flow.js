@@ -34,8 +34,10 @@ async function testThaiDFlow() {
     
     let browser;
     try {
+        const sessionPath = path.join(__dirname, 'puppeteer_session');
         browser = await puppeteer.launch({
             headless: true,
+            userDataDir: sessionPath,
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
@@ -59,23 +61,52 @@ async function testThaiDFlow() {
             behavior: 'allow',
             downloadPath: downloadsDir
         });
-        
-        let authenticated = false;
-        let retries = 3;
 
+        console.log('🔗 Navigating to NHSO portal to check session...');
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        let authenticated = false;
+        const checkUrl = page.url();
+        console.log(`📍 Initial check URL: ${checkUrl}`);
+
+        // If we are already logged in (redirected to dashboard/authencode and no login button)
+        if (checkUrl.includes('authenservice.nhso.go.th/authencode') && !checkUrl.includes('login')) {
+            const hasLoginButton = await page.evaluate(() => {
+                return !!document.querySelector('a[href*="/broker/thaid/login"]');
+            });
+            if (!hasLoginButton) {
+                console.log('✅ Existing active session found! Skipping ThaiD QR Code login.');
+                authenticated = true;
+            }
+        }
+
+        let retries = 3;
         for (let attempt = 1; attempt <= retries; attempt++) {
+            if (authenticated) break;
+
             console.log(`🔗 Navigating to NHSO portal (Attempt ${attempt}/${retries})...`);
             await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
             console.log('🔑 Clicking ThaiD login option...');
-            await page.waitForSelector('a[href*="/broker/thaid/login"]', { timeout: 15000 });
-            
-            await Promise.all([
-                page.click('a[href*="/broker/thaid/login"]'),
-                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 45000 }).catch(() => {
-                    console.log('⚠️ Navigation after ThaiD click timed out, continuing...');
-                })
-            ]);
+            try {
+                await page.waitForSelector('a[href*="/broker/thaid/login"]', { timeout: 15000 });
+                await Promise.all([
+                    page.click('a[href*="/broker/thaid/login"]'),
+                    page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 45000 }).catch(() => {
+                        console.log('⚠️ Navigation after ThaiD click timed out, continuing...');
+                    })
+                ]);
+            } catch (err) {
+                // If it failed to find the login button, maybe we got authenticated in the meantime
+                const currentUrl = page.url();
+                if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
+                    console.log('🎉 Detected authentication during transition!');
+                    authenticated = true;
+                    break;
+                }
+                throw err;
+            }
 
             console.log('⏳ Waiting for ThaiD QR Code page to render...');
             await new Promise(resolve => setTimeout(resolve, 5000));

@@ -2,7 +2,7 @@ import { hosxpPool } from './db.js';
 
 async function check() {
     try {
-        const [rows] = await hosxpPool.query('SELECT officer_login_name, officer_login_password, officer_name FROM officer LIMIT 10');
+        const [rows] = await hosxpPool.query('SELECT officer_name, officer_login_name, officer_login_password FROM officer LIMIT 10');
         console.log(rows);
         process.exit(0);
     } catch (e) {
@@ -11,3 +11,6 @@ async function check() {
     }
 }
 check();
+
+
+

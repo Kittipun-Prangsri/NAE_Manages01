@@ -58,6 +58,10 @@ function init() {
             return;
         }
         ui.showDashboard(appState.user.full_name || appState.user.name);
+        updateAdminLoginBtnVisibility();
+        if (appState.user.role === 'admin') {
+            document.getElementById('tab-admin')?.classList.remove('hidden');
+        }
         if (visitDateInput) visitDateInput.valueAsDate = new Date();
         loadDashboardData();
         loadSavedQueries();
@@ -117,6 +121,19 @@ function setupEventListeners() {
     document.getElementById('tab-tracker')?.addEventListener('click', () => handleTabSwitch('tab-tracker'));
     document.getElementById('tab-grafana')?.addEventListener('click', () => handleTabSwitch('tab-grafana'));
     document.getElementById('tab-embed-grafana')?.addEventListener('click', () => handleTabSwitch('tab-embed-grafana'));
+    document.getElementById('tab-admin')?.addEventListener('click', () => handleTabSwitch('tab-admin'));
+    
+    // Admin user management listeners
+    document.getElementById('add-user-btn')?.addEventListener('click', () => openUserModal());
+    document.getElementById('close-user-modal')?.addEventListener('click', closeUserModal);
+    document.getElementById('cancel-user-modal')?.addEventListener('click', closeUserModal);
+    document.getElementById('user-form')?.addEventListener('submit', handleUserFormSubmit);
+
+    // Admin quick login modal listeners
+    document.getElementById('admin-login-btn')?.addEventListener('click', openAdminLoginModal);
+    document.getElementById('close-admin-login-modal')?.addEventListener('click', closeAdminLoginModal);
+    document.getElementById('cancel-admin-login-modal')?.addEventListener('click', closeAdminLoginModal);
+    document.getElementById('admin-login-form')?.addEventListener('submit', handleAdminQuickLogin);
 
     // Grafana SQL Panel Action Events
     document.getElementById('query-template-select')?.addEventListener('change', handleQueryTemplateSelect);
@@ -176,6 +193,10 @@ async function handleLogin(e) {
         localStorage.setItem('department', data.user.department || '');
         localStorage.setItem('role', data.user.role);
         
+        if (data.user.role === 'admin') {
+            document.getElementById('tab-admin')?.classList.remove('hidden');
+        }
+        updateAdminLoginBtnVisibility();
         ui.showDashboard(data.user.full_name);
         visitDateInput.valueAsDate = new Date();
         loadDashboardData();
@@ -572,6 +593,145 @@ function handleTabSwitch(tabId) {
             dateInput.value = visitDateInput.value || new Date().toISOString().split('T')[0];
         }
         loadSavedQueries();
+    } else if (tabId === 'tab-admin') {
+        loadAdminUsers();
+    }
+}
+
+// --- Admin User Management Handlers ---
+
+async function loadAdminUsers() {
+    if (!appState.token || appState.user.role !== 'admin') return;
+    ui.setLoading(true);
+    try {
+        const { ok, data } = await api.fetchUsers(appState.token);
+        if (ok) {
+            ui.renderAdminUsers(data, openUserModal, handleDeleteUser, handleTestNotification);
+        } else {
+            console.error('Failed to fetch users:', data.message);
+        }
+    } catch (error) {
+        console.error('Error loading admin users:', error);
+    } finally {
+        ui.setLoading(false);
+    }
+}
+
+function openUserModal(user = null) {
+    const modal = document.getElementById('user-modal');
+    const title = document.getElementById('user-modal-title');
+    const form = document.getElementById('user-form');
+    
+    if (!modal) return;
+
+    form.reset();
+
+    if (user) {
+        title.textContent = 'แก้ไขข้อมูลผู้ใช้งาน';
+        document.getElementById('modal-user-id').value = user.id;
+        document.getElementById('modal-username').value = user.username;
+        document.getElementById('modal-username').disabled = true; // Don't allow changing username
+        document.getElementById('modal-fullname').value = user.full_name || '';
+        document.getElementById('modal-role').value = user.role || 'user';
+        document.getElementById('modal-department').value = user.department || '';
+        document.getElementById('modal-line-token').value = user.line_token || '';
+        document.getElementById('modal-line-group-id').value = user.line_group_id || '';
+        document.getElementById('modal-telegram-token').value = user.telegram_token || '';
+        document.getElementById('modal-telegram-chat-id').value = user.telegram_chat_id || '';
+    } else {
+        title.textContent = 'เพิ่มผู้ใช้งานใหม่';
+        document.getElementById('modal-user-id').value = '';
+        document.getElementById('modal-username').disabled = false;
+    }
+
+    modal.classList.remove('hidden');
+}
+
+function closeUserModal() {
+    const modal = document.getElementById('user-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function handleUserFormSubmit(e) {
+    e.preventDefault();
+    const id = document.getElementById('modal-user-id').value;
+    const userData = {
+        username: document.getElementById('modal-username').value,
+        full_name: document.getElementById('modal-fullname').value,
+        role: document.getElementById('modal-role').value,
+        department: document.getElementById('modal-department').value,
+        line_token: document.getElementById('modal-line-token').value || null,
+        line_group_id: document.getElementById('modal-line-group-id').value || null,
+        telegram_token: document.getElementById('modal-telegram-token').value || null,
+        telegram_chat_id: document.getElementById('modal-telegram-chat-id').value || null
+    };
+
+    ui.setLoading(true);
+    try {
+        let response;
+        if (id) {
+            response = await api.updateUser(id, userData, appState.token);
+        } else {
+            response = await api.createUser(userData, appState.token);
+        }
+
+        if (response.ok) {
+            alert(response.data.message || 'บันทึกสำเร็จ');
+            closeUserModal();
+            loadAdminUsers();
+        } else {
+            alert(response.data.message || 'เกิดข้อผิดพลาดในการบันทึก');
+        }
+    } catch (error) {
+        console.error('Error saving user:', error);
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+    } finally {
+        ui.setLoading(false);
+    }
+}
+
+async function handleDeleteUser(id) {
+    if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการลบผู้ใช้นี้ออกจากระบบ?')) return;
+
+    ui.setLoading(true);
+    try {
+        const { ok, data } = await api.deleteUser(id, appState.token);
+        if (ok) {
+            alert(data.message || 'ลบผู้ใช้สำเร็จ');
+            loadAdminUsers();
+        } else {
+            alert(data.message || 'ลบผู้ใช้ไม่สำเร็จ');
+        }
+    } catch (error) {
+        console.error('Error deleting user:', error);
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+    } finally {
+        ui.setLoading(false);
+    }
+}
+
+async function handleTestNotification(type, user) {
+    const tokenVal = type === 'line' ? user.line_token : user.telegram_token;
+    const targetVal = type === 'line' ? user.line_group_id : user.telegram_chat_id;
+
+    if (!tokenVal || !targetVal) {
+        alert('กรุณากรอกข้อมูล Token และ ID ปลายทางให้ครบถ้วนก่อนทดสอบ');
+        return;
+    }
+
+    ui.setLoading(true);
+    try {
+        const { ok, data } = await api.testNotification(type, tokenVal, targetVal, appState.token);
+        if (ok) {
+            alert(data.message || 'ส่งข้อความทดสอบสำเร็จ!');
+        } else {
+            alert(data.message || 'ส่งข้อความทดสอบล้มเหลว');
+        }
+    } catch (error) {
+        console.error('Error testing notification:', error);
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + error.message);
+    } finally {
+        ui.setLoading(false);
     }
 }
 
@@ -765,6 +925,83 @@ function handleQuerySearch(e) {
         query,
         handleQueryHeaderClick
     );
+}
+
+// --- Admin Quick Login Logic & Functions ---
+
+function updateAdminLoginBtnVisibility() {
+    const btn = document.getElementById('admin-login-btn');
+    const roleEl = document.getElementById('user-role');
+    if (appState.user) {
+        if (roleEl) {
+            roleEl.textContent = appState.user.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 
+                                 appState.user.role === 'viewer' ? 'ผู้เข้าชม (Viewer)' : 'ผู้ใช้งาน (User)';
+        }
+        if (btn) {
+            if (appState.user.role === 'admin') {
+                btn.classList.add('hidden');
+            } else {
+                btn.classList.remove('hidden');
+            }
+        }
+    }
+}
+
+function openAdminLoginModal() {
+    const modal = document.getElementById('admin-login-modal');
+    if (modal) {
+        document.getElementById('admin-login-password').value = '';
+        modal.classList.remove('hidden');
+        document.getElementById('admin-login-password').focus();
+    }
+}
+
+function closeAdminLoginModal() {
+    const modal = document.getElementById('admin-login-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function handleAdminQuickLogin(e) {
+    e.preventDefault();
+    const password = document.getElementById('admin-login-password').value;
+
+    ui.setLoading(true);
+    try {
+        const { ok, data } = await api.login('admin', password);
+        if (ok) {
+            appState.token = data.token;
+            appState.user = data.user;
+            
+            // Save to LocalStorage
+            localStorage.setItem('nhso_token', data.token);
+            localStorage.setItem('nhso_user', JSON.stringify(data.user));
+            localStorage.setItem('username', data.user.username);
+            localStorage.setItem('fullname', data.user.full_name);
+            localStorage.setItem('department', data.user.department || '');
+            localStorage.setItem('role', data.user.role);
+            
+            // Show Admin Panel tab
+            document.getElementById('tab-admin')?.classList.remove('hidden');
+            
+            closeAdminLoginModal();
+            updateAdminLoginBtnVisibility();
+            
+            alert('เข้าสู่ระบบสิทธิ์ Admin สำเร็จ!');
+            
+            // Render the dashboard header name and refresh data
+            ui.showDashboard(data.user.full_name);
+            
+            // Load admin tab automatically or refresh dashboard data
+            handleTabSwitch('tab-admin');
+        } else {
+            alert(data.message || 'รหัสผ่าน Admin ไม่ถูกต้อง');
+        }
+    } catch (err) {
+        console.error('Admin quick login error:', err);
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+    } finally {
+        ui.setLoading(false);
+    }
 }
 
 // Start App

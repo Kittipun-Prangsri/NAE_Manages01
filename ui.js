@@ -19,7 +19,10 @@ const getEls = () => {
         statGreen: document.getElementById('stat-green'),
         statUcCount: document.getElementById('stat-uc-count'),
         statUcMoney: document.getElementById('stat-uc-money'),
-        exportBtn: document.getElementById('export-error-btn')
+        exportBtn: document.getElementById('export-error-btn'),
+        adminViewContainer: document.getElementById('admin-view-container'),
+        adminUserTableBody: document.getElementById('admin-user-table-body'),
+        tabAdmin: document.getElementById('tab-admin')
     };
 };
 
@@ -308,35 +311,134 @@ export const ui = {
         const tabTracker = document.getElementById('tab-tracker');
         const tabGrafana = document.getElementById('tab-grafana');
         const tabEmbedGrafana = document.getElementById('tab-embed-grafana');
+        const tabAdmin = document.getElementById('tab-admin');
+        
         const trackerView = document.getElementById('tracker-view-container');
         const grafanaView = document.getElementById('grafana-view-container');
         const embedGrafanaView = document.getElementById('embed-grafana-view-container');
+        const adminView = document.getElementById('admin-view-container');
 
         const activeClass = 'px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase';
         const inactiveClass = 'px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase';
 
-        if (tabId === 'tab-tracker') {
+        // Reset all tabs to inactive
+        if (tabTracker) tabTracker.className = inactiveClass;
+        if (tabGrafana) tabGrafana.className = inactiveClass;
+        if (tabEmbedGrafana) tabEmbedGrafana.className = inactiveClass;
+        if (tabAdmin) tabAdmin.className = inactiveClass;
+
+        // Hide all views
+        if (trackerView) trackerView.classList.add('hidden');
+        if (grafanaView) grafanaView.classList.add('hidden');
+        if (embedGrafanaView) embedGrafanaView.classList.add('hidden');
+        if (adminView) adminView.classList.add('hidden');
+
+        // Activate selected tab and view
+        if (tabId === 'tab-tracker' && tabTracker && trackerView) {
             tabTracker.className = activeClass;
-            tabGrafana.className = inactiveClass;
-            tabEmbedGrafana.className = inactiveClass;
             trackerView.classList.remove('hidden');
-            grafanaView.classList.add('hidden');
-            embedGrafanaView.classList.add('hidden');
-        } else if (tabId === 'tab-grafana') {
-            tabTracker.className = inactiveClass;
+        } else if (tabId === 'tab-grafana' && tabGrafana && grafanaView) {
             tabGrafana.className = activeClass;
-            tabEmbedGrafana.className = inactiveClass;
-            trackerView.classList.add('hidden');
             grafanaView.classList.remove('hidden');
-            embedGrafanaView.classList.add('hidden');
-        } else if (tabId === 'tab-embed-grafana') {
-            tabTracker.className = inactiveClass;
-            tabGrafana.className = inactiveClass;
+        } else if (tabId === 'tab-embed-grafana' && tabEmbedGrafana && embedGrafanaView) {
             tabEmbedGrafana.className = activeClass;
-            trackerView.classList.add('hidden');
-            grafanaView.classList.add('hidden');
             embedGrafanaView.classList.remove('hidden');
+        } else if (tabId === 'tab-admin' && tabAdmin && adminView) {
+            tabAdmin.className = activeClass;
+            adminView.classList.remove('hidden');
         }
+    },
+
+    renderAdminUsers(users, onEdit, onDelete, onTest) {
+        if (typeof document === 'undefined') return;
+        const body = document.getElementById('admin-user-table-body');
+        if (!body) return;
+
+        body.innerHTML = '';
+        if (!users || users.length === 0) {
+            body.innerHTML = `
+                <tr>
+                    <td colspan="7" class="py-8 text-center text-slate-500 dark:text-slate-400 font-bold bg-transparent">
+                        <i class="fas fa-users-slash text-3xl mb-2 block"></i>
+                        ไม่พบข้อมูลผู้ใช้งานในระบบ
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        users.forEach(user => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200 bg-transparent';
+
+            const roleClass = user.role === 'admin' ? 'bg-purple-100 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400' :
+                              user.role === 'viewer' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' :
+                              'bg-blue-100 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400';
+
+            const roleText = user.role === 'admin' ? 'Admin' :
+                             user.role === 'viewer' ? 'Viewer' : 'User';
+
+            // Check details for Line and Telegram config
+            const hasLine = user.line_token && user.line_group_id;
+            const lineStatus = hasLine ? 
+                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ตั้งค่าแล้ว</span>` : 
+                `<span class="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/10">ยังไม่ได้ตั้งค่า</span>`;
+
+            const hasTelegram = user.telegram_token && user.telegram_chat_id;
+            const telegramStatus = hasTelegram ? 
+                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ตั้งค่าแล้ว</span>` : 
+                `<span class="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/10">ยังไม่ได้ตั้งค่า</span>`;
+
+            // Action Test buttons
+            const testLineBtn = hasLine ? 
+                `<button class="test-line-btn px-2 py-1 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 font-bold rounded-lg transition text-[10px] cursor-pointer" data-id="${user.id}">Test LINE</button>` : 
+                `<button class="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 font-bold rounded-lg text-[10px] cursor-not-allowed" disabled>Test LINE</button>`;
+
+            const testTelegramBtn = hasTelegram ? 
+                `<button class="test-telegram-btn px-2 py-1 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-lg transition text-[10px] cursor-pointer" data-id="${user.id}">Test TG</button>` : 
+                `<button class="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 font-bold rounded-lg text-[10px] cursor-not-allowed" disabled>Test TG</button>`;
+
+            tr.innerHTML = `
+                <td class="py-3.5 px-4 font-semibold text-blue-600 dark:text-blue-400">${user.username}</td>
+                <td class="py-3.5 px-4 font-medium">${user.full_name || '-'}</td>
+                <td class="py-3.5 px-4">
+                    <span class="inline-flex items-center justify-center px-2 py-0.5 rounded text-[10px] font-bold ${roleClass}">${roleText}</span>
+                </td>
+                <td class="py-3.5 px-4 text-slate-500 dark:text-slate-400">${user.department || '-'}</td>
+                <td class="py-3.5 px-4 space-y-1">
+                    <div>${lineStatus}</div>
+                    <div class="text-[9px] font-mono text-slate-400 truncate max-w-[150px]" title="${user.line_group_id || ''}">${user.line_group_id || '-'}</div>
+                </td>
+                <td class="py-3.5 px-4 space-y-1">
+                    <div>${telegramStatus}</div>
+                    <div class="text-[9px] font-mono text-slate-400 truncate max-w-[150px]" title="${user.telegram_chat_id || ''}">${user.telegram_chat_id || '-'}</div>
+                </td>
+                <td class="py-3.5 px-4 text-center">
+                    <div class="flex items-center justify-center gap-1.5 flex-wrap">
+                        ${testLineBtn}
+                        ${testTelegramBtn}
+                        <button class="edit-user-btn p-1.5 text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition cursor-pointer" title="แก้ไข" data-id="${user.id}">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="delete-user-btn p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition cursor-pointer" title="ลบ" data-id="${user.id}">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            // Attach event handlers safely
+            tr.querySelector('.edit-user-btn').addEventListener('click', () => onEdit(user));
+            tr.querySelector('.delete-user-btn').addEventListener('click', () => onDelete(user.id));
+            if (hasLine) {
+                tr.querySelector('.test-line-btn').addEventListener('click', () => onTest('line', user));
+            }
+            if (hasTelegram) {
+                tr.querySelector('.test-telegram-btn').addEventListener('click', () => onTest('telegram', user));
+            }
+
+            body.appendChild(tr);
+        });
     },
 
     renderSavedQueriesDropdown(queries, selectedId = '') {

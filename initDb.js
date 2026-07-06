@@ -47,6 +47,10 @@ export async function initInternalDb() {
             full_name VARCHAR(200),
             role ENUM('admin', 'user', 'viewer') DEFAULT 'user',
             department VARCHAR(200),
+            line_token VARCHAR(255) DEFAULT NULL,
+            line_group_id VARCHAR(150) DEFAULT NULL,
+            telegram_token VARCHAR(255) DEFAULT NULL,
+            telegram_chat_id VARCHAR(150) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         );
@@ -61,6 +65,19 @@ export async function initInternalDb() {
         if (userCols.length === 0) {
             await trackerPool.query("ALTER TABLE users ADD COLUMN role ENUM('admin', 'user', 'viewer') DEFAULT 'user' AFTER full_name");
             console.log('✅ Added "role" column to "users" table.');
+        }
+
+        // Check if line_token column exists in users table (in case table existed without it)
+        const [lineTokenCols] = await trackerPool.query('SHOW COLUMNS FROM users LIKE "line_token"');
+        if (lineTokenCols.length === 0) {
+            await trackerPool.query(`
+                ALTER TABLE users 
+                ADD COLUMN line_token VARCHAR(255) DEFAULT NULL AFTER department,
+                ADD COLUMN line_group_id VARCHAR(150) DEFAULT NULL AFTER line_token,
+                ADD COLUMN telegram_token VARCHAR(255) DEFAULT NULL AFTER line_group_id,
+                ADD COLUMN telegram_chat_id VARCHAR(150) DEFAULT NULL AFTER telegram_token
+            `);
+            console.log('✅ Added Line and Telegram notification columns to "users" table.');
         }
 
         await trackerPool.query(schema);

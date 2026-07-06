@@ -129,5 +129,56 @@ export const api = {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async fetchUsers(token) {
+        const res = await fetch(`${API_BASE}/admin/users`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async createUser(userData, token) {
+        const res = await fetch(`${API_BASE}/admin/users`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(userData)
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async updateUser(id, userData, token) {
+        const res = await fetch(`${API_BASE}/admin/users/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(userData)
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async deleteUser(id, token) {
+        const res = await fetch(`${API_BASE}/admin/users/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async testNotification(type, tokenVal, targetVal, token) {
+        const res = await fetch(`${API_BASE}/admin/users/test-notification`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ type, token: tokenVal, target: targetVal })
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
     }
 };

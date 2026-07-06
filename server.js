@@ -549,6 +549,140 @@ app.delete('/api/saved-queries/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// --- Admin User Management CRUD API ---
+
+// Helper middleware to check if user has admin role
+function requireAdmin(req, res, next) {
+    if (req.user && req.user.role === 'admin') {
+        next();
+    } else {
+        res.status(403).json({ success: false, message: 'Forbidden: Requires admin privileges' });
+    }
+}
+
+// 1. Get all users
+app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await trackerPool.query('SELECT id, username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, created_at, updated_at FROM users ORDER BY id ASC');
+        res.json(rows);
+    } catch (error) {
+        console.error('Fetch users error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// 2. Create user
+app.post('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id } = req.body;
+        if (!username) {
+            return res.status(400).json({ success: false, message: 'กรุณากรอก Username' });
+        }
+        await trackerPool.query(
+            `INSERT INTO users (username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [username, full_name || '', role || 'user', department || '', line_token || null, line_group_id || null, telegram_token || null, telegram_chat_id || null]
+        );
+        res.json({ success: true, message: 'เพิ่มผู้ใช้งานสำเร็จ' });
+    } catch (error) {
+        console.error('Create user error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// 3. Update user
+app.put('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id } = req.body;
+        if (!username) {
+            return res.status(400).json({ success: false, message: 'กรุณากรอก Username' });
+        }
+        await trackerPool.query(
+            `UPDATE users 
+             SET username = ?, full_name = ?, role = ?, department = ?, line_token = ?, line_group_id = ?, telegram_token = ?, telegram_chat_id = ? 
+             WHERE id = ?`,
+            [username, full_name || '', role || 'user', department || '', line_token || null, line_group_id || null, telegram_token || null, telegram_chat_id || null, id]
+        );
+        res.json({ success: true, message: 'แก้ไขข้อมูลผู้ใช้งานสำเร็จ' });
+    } catch (error) {
+        console.error('Update user error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// 4. Delete user
+app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await trackerPool.query('DELETE FROM users WHERE id = ?', [id]);
+        res.json({ success: true, message: 'ลบผู้ใช้งานสำเร็จ' });
+    } catch (error) {
+        console.error('Delete user error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// 5. Test Notification
+app.post('/api/admin/users/test-notification', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { type, token, target } = req.body;
+        if (!token || !target) {
+            return res.status(400).json({ success: false, message: 'กรุณาระบุ Token และ ID ปลายทาง' });
+        }
+
+        const testMessage = `🔔 Test Notification from NAE Manages System\n📅 Date: ${new Date().toLocaleString('th-TH')}\n⚙️ Status: Connection OK!`;
+
+        if (type === 'line') {
+            console.log(`📲 Testing LINE message push...`);
+            const payload = {
+                to: target,
+                messages: [
+                    {
+                        type: 'text',
+                        text: testMessage
+                    }
+                ]
+            };
+
+            const response = await fetch('https://api.line.me/v2/bot/message/push', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (response.ok) {
+                return res.json({ success: true, message: 'ส่งข้อความทดสอบไปยัง LINE สำเร็จ!' });
+            } else {
+                return res.status(400).json({ success: false, message: `LINE API Error: ${data.message || response.statusText}` });
+            }
+        } else if (type === 'telegram') {
+            console.log(`📲 Testing Telegram message push...`);
+            const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: target, text: testMessage })
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (response.ok && data.ok) {
+                return res.json({ success: true, message: 'ส่งข้อความทดสอบไปยัง Telegram สำเร็จ!' });
+            } else {
+                return res.status(400).json({ success: false, message: `Telegram API Error: ${data.description || response.statusText}` });
+            }
+        } else {
+            return res.status(400).json({ success: false, message: 'ไม่รองรับช่องทางนี้' });
+        }
+    } catch (error) {
+        console.error('Test notification error:', error);
+        res.status(500).json({ success: false, message: `เกิดข้อผิดพลาดในการเชื่อมต่อ: ${error.message}` });
+    }
+});
+
 // For any other requests, serve the index.html from the root
 app.use((req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));

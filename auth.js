@@ -29,12 +29,11 @@ export async function verifyUserLogin(username, password) {
             return { success: false, message: 'กรุณากรอกชื่อผู้ใช้งานและรหัสผ่าน' };
         }
 
-        // Query the officer table from the HOSxP database, join with opduser for department
+        // Query the officer table from the HOSxP database using requested fields
         const [rows] = await hosxpPool.query(
-            `SELECT o.*, ou.department 
-             FROM officer o 
-             LEFT JOIN opduser ou ON ou.loginname = o.officer_login_name 
-             WHERE o.officer_login_name = ?`,
+            `SELECT officer_name, officer_group_list_text, officer_login_name, officer_login_password, officer_login_password_md5 
+             FROM officer 
+             WHERE officer_login_name = ?`,
             [username]
         );
 
@@ -60,9 +59,9 @@ export async function verifyUserLogin(username, password) {
 
         console.log(`✅ Login successful for user: ${username}`);
         
-        // Get name if available, fallback to username
-        const fullName = userRecord.officer_name || userRecord.name || userRecord.officer_login_name;
-        const department = userRecord.department || 'ไม่ระบุแผนก';
+        // Get name and department (group text)
+        const fullName = userRecord.officer_name || userRecord.officer_login_name;
+        const department = userRecord.officer_group_list_text || 'ไม่ระบุกลุ่มงาน';
 
         // --- Sync with Internal users table ---
         let role = 'user';

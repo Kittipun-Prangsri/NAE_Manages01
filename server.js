@@ -12,8 +12,8 @@ import { verifyUserLogin, authenticateToken } from './auth.js';
 import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic, checkNhsoStatusViaApi, getHosxpTotalVisits } from './dataService.js';
 import { processCrossCheck } from './crossCheckLogic.js';
 import cron from 'node-cron';
-import { captureAndNotify } from './capture-grafana.js';
-import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
+import { captureAndNotify } from './jobs/capture-grafana.js';
+import { downloadNhsoReport, cleanOldDownloads } from './jobs/download-nhso.js';
 
 dotenv.config();
 
@@ -856,8 +856,12 @@ async function reloadSchedules() {
 
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
-    startTelegramBotListener();
-    reloadSchedules(); // Initial loading of database schedules
+    if (process.env.DISABLE_BACKGROUND_JOBS === 'true') {
+        console.log('ℹ️ [Server] DISABLE_BACKGROUND_JOBS=true: Background scheduler and Telegram bot listener are disabled on this instance.');
+    } else {
+        startTelegramBotListener();
+        reloadSchedules(); // Initial loading of database schedules
+    }
 });
 
 // --- Telegram Bot Command Listener (Polling) ---

@@ -1,4 +1,4 @@
-import { captureAndNotify } from './capture-grafana.js';
+import { captureAndNotify } from './jobs/capture-grafana.js';
 
 console.log('🧪 Starting Manual Test Capture of Grafana Dashboard...');
 console.time('Test Execution Time');

@@ -1,5 +1,5 @@
-import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
-import { captureAndNotify } from './capture-grafana.js';
+import { downloadNhsoReport, cleanOldDownloads } from './jobs/download-nhso.js';
+import { captureAndNotify } from './jobs/capture-grafana.js';
 import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic } from './dataService.js';
 import { processCrossCheck } from './crossCheckLogic.js';
 import { checkConnections } from './db.js';

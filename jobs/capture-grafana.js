@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { trackerPool } from './db.js';
+import { trackerPool } from '../db.js';
 
 dotenv.config();
 
@@ -115,7 +115,7 @@ async function captureAndNotify() {
         await new Promise(resolve => setTimeout(resolve, 3000));
 
         // Create screenshots folder if it doesn't exist
-        const screenshotsDir = path.join(__dirname, 'screenshots');
+        const screenshotsDir = path.join(__dirname, '../screenshots');
         if (!fs.existsSync(screenshotsDir)) {
             fs.mkdirSync(screenshotsDir, { recursive: true });
         }

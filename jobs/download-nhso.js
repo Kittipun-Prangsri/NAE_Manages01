@@ -23,7 +23,7 @@ export async function downloadNhsoReport() {
     const hasTelegram = telegramToken && telegramChatId && telegramChatId !== 'your_telegram_chat_id_here';
     const hasLine = lineAccessToken && lineGroupId && lineGroupId !== 'your_group_id_here';
     
-    const downloadsDir = path.join(__dirname, 'downloads');
+    const downloadsDir = path.join(__dirname, '../downloads');
     if (!fs.existsSync(downloadsDir)) {
         fs.mkdirSync(downloadsDir, { recursive: true });
     }
@@ -35,7 +35,7 @@ export async function downloadNhsoReport() {
     
     let browser;
     try {
-        const sessionPath = path.join(__dirname, 'puppeteer_session');
+        const sessionPath = path.join(__dirname, '../puppeteer_session');
         browser = await puppeteer.launch({
             headless: true,
             userDataDir: sessionPath,

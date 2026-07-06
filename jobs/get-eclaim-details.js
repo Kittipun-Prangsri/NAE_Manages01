@@ -48,7 +48,7 @@ async function extractEclaimDetails() {
         await new Promise(resolve => setTimeout(resolve, 5000));
 
         // Capture QR Code page screenshot
-        const thaidQrPath = path.join(__dirname, 'thaid_qr_extract.png');
+        const thaidQrPath = path.join(__dirname, '../thaid_qr_extract.png');
         await page.screenshot({ path: thaidQrPath });
 
         // Send QR Code to Telegram

@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js",
+    "worker": "node jobs/worker.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

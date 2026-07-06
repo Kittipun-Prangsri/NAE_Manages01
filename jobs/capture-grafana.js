@@ -184,9 +184,8 @@ async function captureAndNotify() {
 async function sendToLineBot(filepath, filename, token, groupId, imgbbKey, publicUrl) {
     console.log('📊 Querying database stats for LINE Flex Message summary...');
     try {
-        // Get the latest date with records
-        const [[{ max_date }]] = await trackerPool.query('SELECT MAX(visit_date) as max_date FROM visit_tracking');
-        const queryDate = max_date ? new Date(max_date).toISOString().split('T')[0] : new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+        // Get current date (today) in Asia/Bangkok timezone ('YYYY-MM-DD' format)
+        const queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
 
         console.log(`📅 Database stats date selected: ${queryDate}`);
 

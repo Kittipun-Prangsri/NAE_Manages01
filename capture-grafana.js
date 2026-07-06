@@ -44,7 +44,7 @@ async function captureAndNotify() {
 
         // Navigate to URL
         console.log('🔗 Navigating to URL...');
-        await page.goto(grafanaUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+        await page.goto(grafanaUrl, { waitUntil: 'load', timeout: 30000 });
 
         const currentUrl = page.url();
         console.log(`📍 Current page URL: ${currentUrl}`);
@@ -96,7 +96,7 @@ async function captureAndNotify() {
             // Click log in button
             await Promise.all([
                 page.click('button[type="submit"]'),
-                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {
+                page.waitForNavigation({ waitUntil: 'load', timeout: 15000 }).catch(() => {
                     console.log('⚠️ Navigation timeout after clicking submit, continuing...');
                 })
             ]);
@@ -106,8 +106,13 @@ async function captureAndNotify() {
         }
 
         // Wait extra time for all panels and data queries to load fully (Grafana load animation)
-        console.log('⏳ Waiting 15 seconds for dashboard panels to render completely...');
-        await new Promise(resolve => setTimeout(resolve, 15000));
+        console.log('⏳ Waiting for dashboard panels grid to render...');
+        await page.waitForSelector('.react-grid-layout', { timeout: 10000 }).catch(() => {
+            console.log('⚠️ Could not find react-grid-layout selector, continuing...');
+        });
+        
+        console.log('⏳ Waiting an additional 3 seconds for charts and data queries to fully render...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
 
         // Create screenshots folder if it doesn't exist
         const screenshotsDir = path.join(__dirname, 'screenshots');

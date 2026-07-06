@@ -15,6 +15,12 @@
   --animate-float: float 6s ease-in-out infinite;
   --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   --animate-fade-in-up: fadeInUp 0.5s ease-out forwards;
+
+  /* Map Tailwind slate colors dynamically */
+  --color-slate-950: var(--slate-950);
+  --color-slate-900: var(--slate-900);
+  --color-slate-800: var(--slate-800);
+  --color-slate-700: var(--slate-700);
 }
 
 @keyframes float {
@@ -35,37 +41,87 @@
 
 /* Custom Light & Dark variables */
 :root {
+  /* Slate Tailwind defaults for Light Mode */
+  --slate-950: #020617;
+  --slate-900: #0f172a;
+  --slate-800: #1e293b;
+  --slate-700: #334155;
+
+  /* Custom Light Mode variables */
   --bg-app: #f8fafc;
-  --bg-card: rgba(255, 255, 255, 0.85);
-  --border-color: rgba(203, 213, 225, 0.5);
+  --bg-card: rgba(255, 255, 255, 0.9);
+  --bg-card-hover: rgba(255, 255, 255, 0.95); /* Light surface hover */
+  --border-color: rgba(226, 232, 240, 0.8);
   --text-main: #0f172a;
-  --text-muted: #475569;
+  --text-muted: #64748b;
   --table-bg: transparent;
-  --table-header-bg: rgba(241, 245, 249, 0.85);
+  --table-header-bg: rgba(241, 245, 249, 0.9);
   --table-hover: rgba(241, 245, 249, 0.6);
-  --input-bg: rgba(248, 250, 252, 0.8);
+  --input-bg: rgba(255, 255, 255, 0.9);
   --input-border: #cbd5e1;
-  --shadow-card: 0 10px 25px -5px rgba(15, 23, 42, 0.04), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
-  --navbar-bg: rgba(255, 255, 255, 0.85);
-  --stat-title: #475569;
+  
+  /* Modern soft multi-layered shadow for light mode cards */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.02), 0 12px 24px -4px rgba(15, 23, 42, 0.04), 0 4px 12px -2px rgba(15, 23, 42, 0.02);
+  --shadow-card-hover: 0 10px 30px -5px rgba(15, 23, 42, 0.08), 0 8px 20px -6px rgba(15, 23, 42, 0.04);
+  
+  --navbar-bg: rgba(255, 255, 255, 0.8);
+  --stat-title: #64748b;
   --table-border: rgba(226, 232, 240, 0.8);
+
+  /* Status Colors - Light Mode (High visibility) */
+  --status-red-text: #dc2626;
+  --status-red-bg: rgba(220, 38, 38, 0.06);
+  --status-red-border: rgba(220, 38, 38, 0.15);
+  
+  --status-yellow-text: #d97706;
+  --status-yellow-bg: rgba(217, 119, 6, 0.06);
+  --status-yellow-border: rgba(217, 119, 6, 0.15);
+  
+  --status-green-text: #059669;
+  --status-green-bg: rgba(5, 150, 105, 0.06);
+  --status-green-border: rgba(5, 150, 105, 0.15);
 }
 
 .dark {
-  --bg-app: #0b0f19;
-  --bg-card: rgba(17, 24, 39, 0.45);
-  --border-color: rgba(51, 65, 85, 0.5);
-  --text-main: #f3f4f6;
-  --text-muted: #9ca3af;
+  /* Dynamic Slate colors mapped to Material Design Dark surfaces (Elevation levels) */
+  --slate-950: #121212; /* Elevation 0dp: Main background */
+  --slate-900: #1e1e1e; /* Elevation 1dp: Default Card background */
+  --slate-800: #242424; /* Elevation 2dp: Inner elements/inputs */
+  --slate-700: #2d2d2d; /* Elevation 3dp: Hovered states & Borders */
+
+  /* Custom Dark Mode variables */
+  --bg-app: #121212;
+  --bg-card: #1e1e1e; /* Elevation 1dp */
+  --bg-card-hover: #262626; /* Elevation 2dp - Lighter surface according to Material Design shadow depth rules */
+  --border-color: rgba(255, 255, 255, 0.08);
+  --text-main: #f8fafc; /* Complies with 15.8:1+ contrast ratio on dark surfaces */
+  --text-muted: #94a3b8;
   --table-bg: transparent;
-  --table-header-bg: rgba(17, 24, 39, 0.4);
-  --table-hover: rgba(51, 65, 85, 0.3);
-  --input-bg: rgba(17, 24, 39, 0.4);
-  --input-border: rgba(51, 65, 85, 0.5);
-  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.3);
-  --navbar-bg: rgba(17, 24, 39, 0.75);
-  --stat-title: #cbd5e1;
-  --table-border: rgba(51, 65, 85, 0.3);
+  --table-header-bg: rgba(30, 30, 30, 0.95);
+  --table-hover: rgba(255, 255, 255, 0.02);
+  --input-bg: #242424; /* Elevation 2dp */
+  --input-border: rgba(255, 255, 255, 0.12);
+  
+  /* Premium card shadow for #121212 theme with fine white border-glow */
+  --shadow-card: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-card-hover: 0 0 0 1px rgba(255, 255, 255, 0.12), 0 16px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.03);
+  
+  --navbar-bg: rgba(18, 18, 18, 0.9);
+  --stat-title: #94a3b8;
+  --table-border: rgba(255, 255, 255, 0.06);
+
+  /* Desaturated Status Colors - Dark Mode (Complies with WCAG AA 4.5:1+ contrast) */
+  --status-red-text: #f87171; /* Desaturated Red-400 */
+  --status-red-bg: rgba(248, 113, 113, 0.08);
+  --status-red-border: rgba(248, 113, 113, 0.2);
+  
+  --status-yellow-text: #fbbf24; /* Desaturated Yellow-400 */
+  --status-yellow-bg: rgba(251, 191, 36, 0.08);
+  --status-yellow-border: rgba(251, 191, 36, 0.2);
+  
+  --status-green-text: #34d399; /* Desaturated Emerald-400 */
+  --status-green-bg: rgba(52, 211, 153, 0.08);
+  --status-green-border: rgba(52, 211, 153, 0.2);
 }
 
 /* Custom Utilities & Components */
@@ -83,7 +139,7 @@ body::before {
   position: fixed;
   inset: 0;
   z-index: -2;
-  background: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.06) 0%, rgba(59, 130, 246, 0) 60%);
+  background: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.05) 0%, rgba(59, 130, 246, 0) 70%);
   pointer-events: none;
 }
 
@@ -93,7 +149,7 @@ body::before {
   inset: 0;
   overflow: hidden;
   z-index: -1;
-  background-color: #0f172a; /* Dark sleek slate for login */
+  background-color: #121212; /* #121212 background for login */
 }
 
 .login-glow-blob-1 {
@@ -101,7 +157,7 @@ body::before {
   width: 600px;
   height: 600px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.25) 0%, rgba(37, 99, 235, 0) 70%);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0) 70%);
   filter: blur(100px);
   top: -150px;
   left: -150px;
@@ -113,7 +169,7 @@ body::before {
   width: 500px;
   height: 500px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(168, 85, 247, 0.2) 0%, rgba(124, 58, 237, 0) 70%);
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.15) 0%, rgba(124, 58, 237, 0) 70%);
   filter: blur(80px);
   bottom: -100px;
   right: -100px;
@@ -127,7 +183,13 @@ body::before {
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-color);
   box-shadow: var(--shadow-card);
-  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel:hover {
+  background: var(--bg-card-hover);
+  border-color: rgba(59, 130, 246, 0.25);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .glass-login-card {
@@ -202,21 +264,21 @@ body::before {
 
 /* Status styling updates */
 .status-red {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background-color: var(--status-red-bg);
+  color: var(--status-red-text);
+  border: 1px solid var(--status-red-border);
 }
 
 .status-yellow {
-  background-color: rgba(245, 158, 11, 0.1);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.2);
+  background-color: var(--status-yellow-bg);
+  color: var(--status-yellow-text);
+  border: 1px solid var(--status-yellow-border);
 }
 
 .status-green {
-  background-color: rgba(16, 185, 129, 0.1);
-  color: #10b981;
-  border: 1px solid rgba(16, 185, 129, 0.2);
+  background-color: var(--status-green-bg);
+  color: var(--status-green-text);
+  border: 1px solid var(--status-green-border);
 }
 
 /* Premium Button Styles */

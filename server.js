@@ -333,47 +333,66 @@ app.post('/api/sync/nhso-portal-download', authenticateToken, async (req, res) =
         const visit_date = req.body.visit_date || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
         console.log(`📥 [Manual Trigger] NHSO Portal Download requested for date: ${visit_date} by user: ${req.user.username}`);
 
-        const dlResult = await downloadNhsoReport();
-        if (!dlResult.success || !dlResult.filePath) {
-            return res.status(500).json({ 
-                success: false, 
-                message: `การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}` 
-            });
-        }
-
-        console.log(`📥 อ่านไฟล์รายงานที่ดาวน์โหลดได้: ${dlResult.filePath}`);
-        const fileBuffer = fs.readFileSync(dlResult.filePath);
-        const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
-        const sheetName = workbook.SheetNames[0];
-        const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { 
-            raw: false, 
-            dateNF: 'yyyy-mm-dd hh:mm:ss' 
+        // Run the sync process in the background to prevent HTTP connection timeouts
+        runManualPortalSyncInBackground(visit_date).catch(err => {
+            console.error('❌ Error in manual portal background sync:', err);
         });
-
-        // นำเข้าข้อมูลและประมวลผล Sync
-        await saveAuthenLog(excelData, visit_date);
-        const hosxpData = await getHosxpVisits(visit_date);
-        const processedData = processCrossCheck(hosxpData, excelData);
-        await saveTrackingResults(processedData);
-        await executeAdvancedRunLogic(visit_date);
-
-        // Keep only the latest Excel download as backup
-        cleanOldDownloads(path.join(__dirname, 'downloads'));
-
-        // Capture Grafana and send Telegram/LINE in the background
-        captureAndNotify().catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
 
         res.json({
             success: true,
-            message: `ดาวน์โหลดรายงานและประมวลผล Sync ข้อมูลสำเร็จแล้ว (${excelData.length} รายการ)`,
-            data: processedData
+            message: 'เริ่มดาวน์โหลดข้อมูลผ่านบอทหลังบ้านแล้ว! กรุณาตรวจสอบ QR Code และสแกนใน Telegram เพื่อเข้าระบบ'
         });
 
     } catch (error) {
-        console.error('Manual Portal Download Sync Error:', error);
+        console.error('Manual Portal Download Sync Trigger Error:', error);
         res.status(500).json({ success: false, message: `เกิดข้อผิดพลาดในการประมวลผล: ${error.message}` });
     }
 });
+
+async function runManualPortalSyncInBackground(visit_date) {
+    console.log(`📥 [Background Portal Sync] Starting for date: ${visit_date}`);
+    const dlResult = await downloadNhsoReport();
+    
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatIds = chatId ? chatId.split(',').map(id => id.trim()).filter(id => id) : [];
+
+    if (!dlResult.success || !dlResult.filePath) {
+        console.error(`❌ [Background Portal Sync] Download failed: ${dlResult.error}`);
+        for (const id of chatIds) {
+            await sendTelegramMessage(token, id, `❌ ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
+        }
+        return;
+    }
+
+    console.log(`📥 [Background Portal Sync] Reading downloaded file: ${dlResult.filePath}`);
+    const fileBuffer = fs.readFileSync(dlResult.filePath);
+    const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
+    const sheetName = workbook.SheetNames[0];
+    const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { 
+        raw: false, 
+        dateNF: 'yyyy-mm-dd hh:mm:ss' 
+    });
+
+    // นำเข้าข้อมูลและประมวลผล Sync
+    await saveAuthenLog(excelData, visit_date);
+    const hosxpData = await getHosxpVisits(visit_date);
+    const processedData = processCrossCheck(hosxpData, excelData);
+    await saveTrackingResults(processedData);
+    await executeAdvancedRunLogic(visit_date);
+    console.log('✅ [Background Portal Sync] Database sync completed.');
+
+    // Keep only the latest Excel download as backup
+    cleanOldDownloads(path.join(__dirname, 'downloads'));
+
+    // แจ้งเตือนใน Telegram
+    for (const id of chatIds) {
+        await sendTelegramMessage(token, id, `✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`);
+    }
+
+    // Capture Grafana and send Telegram/LINE in the background
+    captureAndNotify().catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
+}
 
 /**
  * ดึงข้อมูล Dashboard จาก Internal DB

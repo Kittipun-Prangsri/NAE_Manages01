@@ -82,6 +82,7 @@ function setupEventListeners() {
     document.getElementById('sync-btn')?.addEventListener('click', handleSyncProcess);
     document.getElementById('paste-sync-btn')?.addEventListener('click', handlePasteSync);
     document.getElementById('api-sync-btn')?.addEventListener('click', handleApiSync);
+    document.getElementById('manual-capture-btn')?.addEventListener('click', handleManualCapture);
     document.getElementById('refresh-btn')?.addEventListener('click', loadDashboardData);
     visitDateInput?.addEventListener('change', loadDashboardData);
     
@@ -278,6 +279,27 @@ async function handleApiSync() {
         }
     } catch (error) {
         console.error('API Sync error:', error);
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
+    } finally {
+        ui.setLoading(false);
+    }
+}
+
+async function handleManualCapture() {
+    if (!confirm('คุณต้องการสั่งบันทึกหน้าจอ Grafana และจัดส่งรายงานไปยัง LINE/Telegram ทันทีหรือไม่?')) {
+        return;
+    }
+
+    ui.setLoading(true);
+    try {
+        const response = await api.triggerCapture(appState.token);
+        if (handleApiResponse(response)) {
+            alert(response.data.message || 'บันทึกหน้าจอและจัดส่งรายงานสำเร็จแล้ว');
+        } else if (response.status !== 401 && response.status !== 403) {
+            alert(response.data.message || 'เกิดข้อผิดพลาดในการบันทึกหน้าจอ');
+        }
+    } catch (error) {
+        console.error('Manual capture trigger error:', error);
         alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
     } finally {
         ui.setLoading(false);

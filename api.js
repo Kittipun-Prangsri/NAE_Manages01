@@ -58,6 +58,14 @@ export const api = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
+    async triggerCapture(token) {
+        const res = await fetch(`${API_BASE}/sync/capture-grafana`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
     async fetchDashboard(date, token) {
         const res = await fetch(`${API_BASE}/tracking/dashboard?date=${date}`, {
             headers: { 'Authorization': `Bearer ${token}` }

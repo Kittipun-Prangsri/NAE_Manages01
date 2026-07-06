@@ -10,6 +10,8 @@ import { initInternalDb } from './initDb.js';
 import { verifyUserLogin, authenticateToken } from './auth.js';
 import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic, checkNhsoStatusViaApi, getHosxpTotalVisits } from './dataService.js';
 import { processCrossCheck } from './crossCheckLogic.js';
+import cron from 'node-cron';
+import { captureAndNotify } from './capture-grafana.js';
 
 dotenv.config();
 
@@ -36,6 +38,9 @@ if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, 'dist')));
 }
 
+// Serve screenshots statically (so LINE Messaging API can access them if public domain/IP is configured)
+app.use('/screenshots', express.static(path.join(__dirname, 'screenshots')));
+
 // Check DB Connections and Init Table
 checkConnections().then(() => {
     initInternalDb();
@@ -47,6 +52,27 @@ app.post('/api/auth/login', async (req, res) => {
     if (!username || !password) return res.status(400).json({ message: 'กรุณากรอกชื่อผู้ใช้งานและรหัสผ่าน' });
     const result = await verifyUserLogin(username, password);
     result.success ? res.json(result) : res.status(401).json({ message: result.message });
+});
+
+// --- LINE Webhook for Group ID Discovery ---
+app.post('/api/line/webhook', (req, res) => {
+    const events = req.body.events || [];
+    events.forEach(event => {
+        console.log(`💬 [LINE Webhook Event] Type: ${event.type}`);
+        if (event.source) {
+            console.log(`   Source Type: ${event.source.type}`);
+            if (event.source.groupId) {
+                console.log(`   👉 LINE Group ID: ${event.source.groupId}`);
+            }
+            if (event.source.roomId) {
+                console.log(`   👉 LINE Room ID: ${event.source.roomId}`);
+            }
+            if (event.source.userId) {
+                console.log(`   👉 LINE User ID: ${event.source.userId}`);
+            }
+        }
+    });
+    res.sendStatus(200);
 });
 
 // --- NHSO Tracking Routes ---
@@ -267,6 +293,31 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
 });
 
 /**
+ * Endpoint สำหรับสั่งบันทึกหน้าจอ Grafana ด้วยตนเอง (Manual Trigger)
+ */
+app.post('/api/sync/capture-grafana', authenticateToken, async (req, res) => {
+    try {
+        console.log(`📸 [Manual Trigger] Grafana Capture requested by user: ${req.user.username}`);
+        const result = await captureAndNotify();
+        if (result.success) {
+            res.json({
+                success: true,
+                message: 'บันทึกหน้าจอและส่งรายงานสำเร็จเรียบร้อยแล้ว',
+                filename: result.filename
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: `เกิดข้อผิดพลาดในการบันทึกหน้าจอ: ${result.error}`
+            });
+        }
+    } catch (error) {
+        console.error('Manual Capture Error:', error);
+        res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
+    }
+});
+
+/**
  * ดึงข้อมูล Dashboard จาก Internal DB
  */
 app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
@@ -424,6 +475,24 @@ app.delete('/api/saved-queries/:id', authenticateToken, async (req, res) => {
 // For any other requests, serve the index.html from the root
 app.use((req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// --- Grafana Screen Capture Scheduler ---
+// ตั้งเวลาทำงานอัตโนมัติ: 15.00 น. และ 20.29 น. (เวลาประเทศไทย Asia/Bangkok)
+cron.schedule('0 15 * * *', () => {
+    console.log('⏰ [Cron Scheduler] กำลังเริ่มทำงานบันทึกหน้าจอ Grafana อัตโนมัติ (15:00 น.)...');
+    captureAndNotify();
+}, {
+    scheduled: true,
+    timezone: "Asia/Bangkok"
+});
+
+cron.schedule('29 20 * * *', () => {
+    console.log('⏰ [Cron Scheduler] กำลังเริ่มทำงานบันทึกหน้าจอ Grafana อัตโนมัติ (20:29 น.)...');
+    captureAndNotify();
+}, {
+    scheduled: true,
+    timezone: "Asia/Bangkok"
 });
 
 app.listen(PORT, () => {

@@ -66,6 +66,18 @@ export const api = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
+    async triggerPortalSync(date, token) {
+        const res = await fetch(`${API_BASE}/sync/nhso-portal-download`, {
+            method: 'POST',
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ visit_date: date })
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
     async fetchDashboard(date, token) {
         const res = await fetch(`${API_BASE}/tracking/dashboard?date=${date}`, {
             headers: { 'Authorization': `Bearer ${token}` }

@@ -13,7 +13,7 @@ import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunL
 import { processCrossCheck } from './crossCheckLogic.js';
 import cron from 'node-cron';
 import { captureAndNotify } from './capture-grafana.js';
-import { downloadNhsoReport } from './download-nhso.js';
+import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
 
 dotenv.config();
 
@@ -169,6 +169,9 @@ app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (
         await saveTrackingResults(processedData);
         await executeAdvancedRunLogic(visit_date);
 
+        // Capture Grafana and send Telegram/LINE in the background
+        captureAndNotify().catch(err => console.error('❌ Error capturing Grafana after sync:', err));
+
         res.json({
             success: true,
             message: `ประมวลผลเสร็จสิ้น ${processedData.length} รายการ และอัปเดตข้อมูลสำเร็จ`,
@@ -202,6 +205,9 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);
         await executeAdvancedRunLogic(visit_date);
+
+        // Capture Grafana and send Telegram/LINE in the background
+        captureAndNotify().catch(err => console.error('❌ Error capturing Grafana after paste sync:', err));
 
         res.json({
             success: true,
@@ -316,6 +322,56 @@ app.post('/api/sync/capture-grafana', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Manual Capture Error:', error);
         res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
+    }
+});
+
+/**
+ * Endpoint สำหรับสั่งดาวน์โหลดรายงาน สปสช และ Sync แบบแมนนวลผ่านเว็บ
+ */
+app.post('/api/sync/nhso-portal-download', authenticateToken, async (req, res) => {
+    try {
+        const visit_date = req.body.visit_date || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+        console.log(`📥 [Manual Trigger] NHSO Portal Download requested for date: ${visit_date} by user: ${req.user.username}`);
+
+        const dlResult = await downloadNhsoReport();
+        if (!dlResult.success || !dlResult.filePath) {
+            return res.status(500).json({ 
+                success: false, 
+                message: `การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}` 
+            });
+        }
+
+        console.log(`📥 อ่านไฟล์รายงานที่ดาวน์โหลดได้: ${dlResult.filePath}`);
+        const fileBuffer = fs.readFileSync(dlResult.filePath);
+        const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
+        const sheetName = workbook.SheetNames[0];
+        const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { 
+            raw: false, 
+            dateNF: 'yyyy-mm-dd hh:mm:ss' 
+        });
+
+        // นำเข้าข้อมูลและประมวลผล Sync
+        await saveAuthenLog(excelData, visit_date);
+        const hosxpData = await getHosxpVisits(visit_date);
+        const processedData = processCrossCheck(hosxpData, excelData);
+        await saveTrackingResults(processedData);
+        await executeAdvancedRunLogic(visit_date);
+
+        // Keep only the latest Excel download as backup
+        cleanOldDownloads(path.join(__dirname, 'downloads'));
+
+        // Capture Grafana and send Telegram/LINE in the background
+        captureAndNotify().catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
+
+        res.json({
+            success: true,
+            message: `ดาวน์โหลดรายงานและประมวลผล Sync ข้อมูลสำเร็จแล้ว (${excelData.length} รายการ)`,
+            data: processedData
+        });
+
+    } catch (error) {
+        console.error('Manual Portal Download Sync Error:', error);
+        res.status(500).json({ success: false, message: `เกิดข้อผิดพลาดในการประมวลผล: ${error.message}` });
     }
 });
 
@@ -506,6 +562,10 @@ async function handleScheduledSyncAndCapture() {
             const processedData = processCrossCheck(hosxpData, excelData);
             await saveTrackingResults(processedData);
             await executeAdvancedRunLogic(visit_date);
+            
+            // Keep only the latest Excel download as backup
+            cleanOldDownloads(path.join(__dirname, 'downloads'));
+
             console.log('✅ [Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
         } else {
             console.warn(`⚠️ [Scheduler] การดาวน์โหลดข้อมูลอัตโนมัติไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
@@ -538,4 +598,113 @@ cron.schedule('29 20 * * *', () => {
 
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
+    startTelegramBotListener();
 });
+
+// --- Telegram Bot Command Listener (Polling) ---
+let lastUpdateId = 0;
+
+async function startTelegramBotListener() {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    
+    if (!token || !chatId || chatId === 'your_telegram_chat_id_here') {
+        console.warn('⚠️ Telegram Bot listener not started: Token or Chat ID not configured.');
+        return;
+    }
+    
+    console.log('🤖 Telegram Bot message listener started (Long Polling)...');
+    
+    // Background polling loop
+    setInterval(async () => {
+        try {
+            const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`);
+            if (!response.ok) return;
+            
+            const data = await response.json();
+            if (data.ok && data.result.length > 0) {
+                for (const update of data.result) {
+                    lastUpdateId = update.update_id;
+                    
+                    const message = update.message;
+                    if (!message || !message.text) continue;
+                    
+                    const text = message.text.trim();
+                    const fromChatId = message.chat.id.toString();
+                    
+                    // We respond to messages from the configured group/chat
+                    if (fromChatId === chatId || chatId.includes(fromChatId)) {
+                        if (text === 'เข้าระบบ' || text.toLowerCase() === '/login') {
+                            console.log(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
+                            
+                            // Send initial acknowledgment
+                            await sendTelegramMessage(token, fromChatId, '⏳ กำลังเตรียมการเข้าสู่ระบบ สปสช. และดึง QR Code ของ ThaiD...');
+                            
+                            // Run the end-to-end sync and capture in the background!
+                            runE2EPortalSyncAndCapture(fromChatId).catch(err => {
+                                console.error('Error running E2E portal sync via telegram command:', err);
+                            });
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error polling Telegram updates:', error);
+        }
+    }, 4000); // Poll every 4 seconds
+}
+
+async function sendTelegramMessage(token, chatId, text) {
+    try {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: text })
+        });
+    } catch (err) {
+        console.error('Error sending message:', err);
+    }
+}
+
+async function runE2EPortalSyncAndCapture(targetChatId) {
+    const visit_date = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+    try {
+        const dlResult = await downloadNhsoReport();
+        if (dlResult.success && dlResult.filePath) {
+            console.log(`📥 [Telegram Trigger] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
+            
+            // อ่าน Excel
+            const fileBuffer = fs.readFileSync(dlResult.filePath);
+            const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
+            const sheetName = workbook.SheetNames[0];
+            const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { 
+                raw: false, 
+                dateNF: 'yyyy-mm-dd hh:mm:ss' 
+            });
+            
+            // นำเข้าข้อมูลและประมวลผล Sync
+            await saveAuthenLog(excelData, visit_date);
+            const hosxpData = await getHosxpVisits(visit_date);
+            const processedData = processCrossCheck(hosxpData, excelData);
+            await saveTrackingResults(processedData);
+            await executeAdvancedRunLogic(visit_date);
+            console.log('✅ [Telegram Trigger] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+            
+            // เคลียร์ไฟล์ดาวน์โหลด
+            cleanOldDownloads(path.join(__dirname, 'downloads'));
+            
+            // แจ้งเตือนความสำเร็จ
+            await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, '✅ ซิงก์ข้อมูลฐานข้อมูลสำเร็จแล้ว! กำลังเตรียมบันทึกหน้าจอ Grafana...');
+        } else {
+            console.warn(`⚠️ [Telegram Trigger] การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
+            await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `❌ ดึงข้อมูลรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
+        }
+    } catch (err) {
+        console.error('❌ [Telegram Trigger] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
+        await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `❌ ข้อผิดพลาดภายในเซิร์ฟเวอร์: ${err.message}`);
+    }
+    
+    // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
+    console.log('📸 [Telegram Trigger] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
+    await captureAndNotify();
+}

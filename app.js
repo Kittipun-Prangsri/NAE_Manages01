@@ -82,6 +82,7 @@ function setupEventListeners() {
     document.getElementById('sync-btn')?.addEventListener('click', handleSyncProcess);
     document.getElementById('paste-sync-btn')?.addEventListener('click', handlePasteSync);
     document.getElementById('api-sync-btn')?.addEventListener('click', handleApiSync);
+    document.getElementById('auto-portal-btn')?.addEventListener('click', handleAutoPortalSync);
     document.getElementById('manual-capture-btn')?.addEventListener('click', handleManualCapture);
     document.getElementById('refresh-btn')?.addEventListener('click', loadDashboardData);
     visitDateInput?.addEventListener('change', loadDashboardData);
@@ -300,6 +301,35 @@ async function handleManualCapture() {
         }
     } catch (error) {
         console.error('Manual capture trigger error:', error);
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
+    } finally {
+        ui.setLoading(false);
+    }
+}
+
+async function handleAutoPortalSync() {
+    const visitDate = visitDateInput.value;
+    if (!visitDate) {
+        alert('กรุณาเลือกวันที่ต้องการดึงข้อมูลก่อน');
+        return;
+    }
+
+    if (!confirm(`คุณต้องการสั่งให้บอทดาวน์โหลดรายงานจากเว็บ สปสช. ของวันที่ ${visitDate} และประมวลผล Sync ข้อมูลโดยอัตโนมัติใช่หรือไม่?\n(คุณจะต้องสแกน QR Code ที่ได้รับใน Telegram เพื่อเข้าสู่ระบบ)`)) {
+        return;
+    }
+
+    ui.setLoading(true);
+    try {
+        const response = await api.triggerPortalSync(visitDate, appState.token);
+        if (handleApiResponse(response)) {
+            alert(response.data.message || 'ดาวน์โหลดรายงานและประมวลผลข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+            loadDashboardData();
+            loadWeeklySummary();
+        } else if (response.status !== 401 && response.status !== 403) {
+            alert(response.data.message || 'เกิดข้อผิดพลาดในการรันดาวน์โหลดรายงาน');
+        }
+    } catch (error) {
+        console.error('Auto portal sync error:', error);
         alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
     } finally {
         ui.setLoading(false);

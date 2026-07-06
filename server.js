@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -12,6 +13,7 @@ import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunL
 import { processCrossCheck } from './crossCheckLogic.js';
 import cron from 'node-cron';
 import { captureAndNotify } from './capture-grafana.js';
+import { downloadNhsoReport } from './download-nhso.js';
 
 dotenv.config();
 
@@ -477,19 +479,58 @@ app.use((req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// --- Grafana Screen Capture Scheduler ---
+// --- Grafana Screen Capture & NHSO Report Downloader Scheduler ---
+
+// ฟังก์ชันดึงรายงานและแคปหน้าจออัตโนมัติแบบต่อเนื่อง (Sequential)
+async function handleScheduledSyncAndCapture() {
+    console.log('⏰ [Scheduler] เริ่มต้นกระบวนการดาวน์โหลดข้อมูลและบันทึกหน้าจออัตโนมัติ...');
+    const visit_date = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+    
+    try {
+        const dlResult = await downloadNhsoReport();
+        if (dlResult.success && dlResult.filePath) {
+            console.log(`📥 [Scheduler] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
+            
+            // อ่านไฟล์ Excel ที่เพิ่งโหลดมา
+            const fileBuffer = fs.readFileSync(dlResult.filePath);
+            const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
+            const sheetName = workbook.SheetNames[0];
+            const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { 
+                raw: false, 
+                dateNF: 'yyyy-mm-dd hh:mm:ss' 
+            });
+            
+            // นำข้อมูลเข้าสู่ฐานข้อมูลและประมวลผลเปรียบเทียบ
+            await saveAuthenLog(excelData, visit_date);
+            const hosxpData = await getHosxpVisits(visit_date);
+            const processedData = processCrossCheck(hosxpData, excelData);
+            await saveTrackingResults(processedData);
+            await executeAdvancedRunLogic(visit_date);
+            console.log('✅ [Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+        } else {
+            console.warn(`⚠️ [Scheduler] การดาวน์โหลดข้อมูลอัตโนมัติไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
+        }
+    } catch (err) {
+        console.error('❌ [Scheduler] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
+    }
+    
+    // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
+    console.log('📸 [Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
+    await captureAndNotify();
+}
+
 // ตั้งเวลาทำงานอัตโนมัติ: 15.00 น. และ 20.29 น. (เวลาประเทศไทย Asia/Bangkok)
 cron.schedule('0 15 * * *', () => {
-    console.log('⏰ [Cron Scheduler] กำลังเริ่มทำงานบันทึกหน้าจอ Grafana อัตโนมัติ (15:00 น.)...');
-    captureAndNotify();
+    console.log('⏰ [Cron Scheduler] เริ่มต้นทำงานเวลา 15:00 น....');
+    handleScheduledSyncAndCapture();
 }, {
     scheduled: true,
     timezone: "Asia/Bangkok"
 });
 
 cron.schedule('29 20 * * *', () => {
-    console.log('⏰ [Cron Scheduler] กำลังเริ่มทำงานบันทึกหน้าจอ Grafana อัตโนมัติ (20:29 น.)...');
-    captureAndNotify();
+    console.log('⏰ [Cron Scheduler] เริ่มต้นทำงานเวลา 20:29 น....');
+    handleScheduledSyncAndCapture();
 }, {
     scheduled: true,
     timezone: "Asia/Bangkok"

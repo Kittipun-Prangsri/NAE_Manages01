@@ -6,14 +6,14 @@ import cron from 'node-cron';
 import * as xlsx from 'xlsx';
 
 // DB and Data Services
-import { checkConnections, trackerPool } from '../db.js';
+import { checkConnections, trackerPool } from '../backend/db.js';
 import { 
     getHosxpVisits, 
     saveTrackingResults, 
     saveAuthenLog, 
     executeAdvancedRunLogic 
-} from '../dataService.js';
-import { processCrossCheck } from '../crossCheckLogic.js';
+} from '../backend/dataService.js';
+import { processCrossCheck } from '../backend/crossCheckLogic.js';
 import { captureAndNotify } from './capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
 

@@ -56,11 +56,371 @@ app.post('/api/auth/login', async (req, res) => {
     result.success ? res.json(result) : res.status(401).json({ message: result.message });
 });
 
-// --- LINE Webhook for Group ID Discovery ---
+// Helper to reply LINE message using Flex Report (Free)
+async function sendLineReplyFlexSummary(replyToken, queryDate) {
+    const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    if (!token || token === 'your_line_token_here') {
+        console.error('❌ LINE token not configured.');
+        return;
+    }
+    
+    try {
+        // Query data stats
+        const [[{ total_visits }]] = await trackerPool.query(
+            'SELECT COUNT(*) as total_visits FROM visit_tracking WHERE visit_date = ?',
+            [queryDate]
+        );
+
+        const [[{ total_money }]] = await trackerPool.query(
+            'SELECT COALESCE(SUM(uc_money), 0) as total_money FROM visit_tracking WHERE visit_date = ?',
+            [queryDate]
+        );
+
+        const [[{ endpoint_count }]] = await trackerPool.query(
+            "SELECT COUNT(*) as endpoint_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'YELLOW'",
+            [queryDate]
+        );
+
+        const [[{ not_imported_count }]] = await trackerPool.query(
+            "SELECT COUNT(*) as not_imported_count FROM visit_tracking WHERE visit_date = ? AND check_claimcode = 'ยังไม่ได้นำเข้า'",
+            [queryDate]
+        );
+
+        const [[{ authen_count }]] = await trackerPool.query(
+            "SELECT COUNT(*) as authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'",
+            [queryDate]
+        );
+
+        const [rights] = await trackerPool.query(
+            'SELECT COALESCE(pttype_note, pttype) as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3',
+            [queryDate]
+        );
+
+        const [[{ ucs_total }]] = await trackerPool.query(
+            "SELECT COUNT(*) as ucs_total FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW')",
+            [queryDate]
+        );
+
+        const [ucs_departments] = await trackerPool.query(
+            "SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW') GROUP BY dept_name ORDER BY cnt DESC LIMIT 3",
+            [queryDate]
+        );
+
+        // Build right items contents dynamically
+        const rightsContents = [];
+        rights.forEach(r => {
+            rightsContents.push({
+                "type": "box",
+                "layout": "horizontal",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": r.right_name || 'ไม่ระบุสิทธิ',
+                        "color": "#ffffff",
+                        "size": "sm"
+                    },
+                    {
+                        "type": "text",
+                        "text": String(r.cnt),
+                        "color": "#52c41a",
+                        "size": "md",
+                        "align": "end",
+                        "weight": "bold"
+                    }
+                ]
+            });
+        });
+
+        // Build UCS department items dynamically
+        const ucsContents = [
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "UCS ไม่ได้ปิดสิทธิ",
+                        "color": "#ffffff",
+                        "size": "sm",
+                        "weight": "bold"
+                    },
+                    {
+                        "type": "text",
+                        "text": String(ucs_total),
+                        "color": "#ff4d4d",
+                        "size": "md",
+                        "align": "end",
+                        "weight": "bold"
+                    }
+                ]
+            }
+        ];
+
+        ucs_departments.forEach(d => {
+            ucsContents.push({
+                "type": "box",
+                "layout": "horizontal",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": ` - ${d.dept_name}`,
+                        "color": "#8c8c8c",
+                        "size": "xs"
+                    },
+                    {
+                        "type": "text",
+                        "text": String(d.cnt),
+                        "color": "#ffffff",
+                        "size": "xs",
+                        "align": "end"
+                    }
+                ]
+            });
+        });
+
+        // Construct exact bubble
+        const formattedDate = new Date(queryDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+        const flexBubble = {
+            "type": "bubble",
+            "size": "giga",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "backgroundColor": "#18191a",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "📊 สรุปข้อมูลการให้บริการ",
+                        "weight": "bold",
+                        "color": "#ffffff",
+                        "size": "xl"
+                    },
+                    {
+                        "type": "text",
+                        "text": `Dashboard Summary (${formattedDate})`,
+                        "size": "xs",
+                        "color": "#8c8c8c",
+                        "margin": "sm"
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md",
+                        "color": "#333333"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "md",
+                        "spacing": "sm",
+                        "contents": [
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    {
+                                        "type": "text",
+                                        "text": "จำนวนผู้มารับบริการ(ครั้ง)",
+                                        "color": "#ffffff",
+                                        "size": "sm",
+                                        "gravity": "center"
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": String(total_visits),
+                                        "color": "#ff4d4d",
+                                        "size": "xl",
+                                        "align": "end",
+                                        "weight": "bold"
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    {
+                                        "type": "text",
+                                        "text": "ค่ารักษาลูกหนี้ (sum)",
+                                        "color": "#ffffff",
+                                        "size": "sm",
+                                        "gravity": "center"
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": Number(total_money).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                                        "color": "#ff4d4d",
+                                        "size": "xl",
+                                        "align": "end",
+                                        "weight": "bold"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md",
+                        "color": "#333333"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "md",
+                        "spacing": "sm",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": "Visit Authen code",
+                                "color": "#8c8c8c",
+                                "size": "xs",
+                                "weight": "bold"
+                            },
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    {
+                                        "type": "box",
+                                        "layout": "vertical",
+                                        "contents": [
+                                            {
+                                                "type": "text",
+                                                "text": "ENDPOINT",
+                                                "color": "#ffffff",
+                                                "size": "xs",
+                                                "align": "center"
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": String(endpoint_count),
+                                                "color": "#ff4d4d",
+                                                "size": "md",
+                                                "align": "center",
+                                                "weight": "bold"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "type": "box",
+                                        "layout": "vertical",
+                                        "contents": [
+                                            {
+                                                "type": "text",
+                                                "text": "ยังไม่นำเข้า",
+                                                "color": "#ffffff",
+                                                "size": "xs",
+                                                "align": "center"
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": String(not_imported_count),
+                                                "color": "#ff4d4d",
+                                                "size": "md",
+                                                "align": "center",
+                                                "weight": "bold"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "type": "box",
+                                        "layout": "vertical",
+                                        "contents": [
+                                            {
+                                                "type": "text",
+                                                "text": "AUTHENCODE",
+                                                "color": "#ffffff",
+                                                "size": "xs",
+                                                "align": "center"
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": String(authen_count),
+                                                "color": "#ff4d4d",
+                                                "size": "md",
+                                                "align": "center",
+                                                "weight": "bold"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md",
+                        "color": "#333333"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "md",
+                        "spacing": "sm",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": "สิทธิการรักษา (Top 3)",
+                                "color": "#8c8c8c",
+                                "size": "xs",
+                                "weight": "bold"
+                            },
+                            ...rightsContents
+                        ]
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md",
+                        "color": "#333333"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "md",
+                        "spacing": "sm",
+                        "contents": ucsContents
+                    }
+                ]
+            }
+        };
+
+        const payload = {
+            replyToken: replyToken,
+            messages: [
+                {
+                    type: 'flex',
+                    altText: `📊 สรุปข้อมูลการให้บริการ (${queryDate})`,
+                    contents: flexBubble
+                }
+            ]
+        };
+
+        const response = await fetch('https://api.line.me/v2/bot/message/reply', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const resData = await response.json().catch(() => ({}));
+        if (response.ok) {
+            console.log('✅ Sent LINE Reply Flex Message successfully.');
+        } else {
+            console.error('❌ LINE Reply API returned error:', resData);
+        }
+    } catch (error) {
+        console.error('❌ Error replying to LINE:', error);
+    }
+}
+
+// --- LINE Webhook for Group ID Discovery & Commands ---
 app.post('/api/line/webhook', (req, res) => {
     const events = req.body.events || [];
-    events.forEach(event => {
+    events.forEach(async (event) => {
         console.log(`💬 [LINE Webhook Event] Type: ${event.type}`);
+        
+        // Log Group IDs and sources
         if (event.source) {
             console.log(`   Source Type: ${event.source.type}`);
             if (event.source.groupId) {
@@ -71,6 +431,33 @@ app.post('/api/line/webhook', (req, res) => {
             }
             if (event.source.userId) {
                 console.log(`   👉 LINE User ID: ${event.source.userId}`);
+            }
+        }
+
+        // Listen for Text Messages
+        if (event.type === 'message' && event.message && event.message.type === 'text') {
+            const text = event.message.text.trim();
+            const replyToken = event.replyToken;
+
+            if (text.startsWith('นำเข้าข้อมูล')) {
+                const parts = text.split(/\s+/);
+                // Default to today (Bangkok timezone YYYY-MM-DD)
+                let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+                
+                // Allow specifying custom date, e.g. "นำเข้าข้อมูล 2026-07-07"
+                if (parts.length > 1) {
+                    const dateMatch = parts[1].match(/^\d{4}-\d{2}-\d{2}$/);
+                    if (dateMatch) {
+                        queryDate = parts[1];
+                    }
+                }
+
+                console.log(`💬 [LINE Webhook] Command 'นำเข้าข้อมูล' received for date: ${queryDate}. Sending Reply Flex Message...`);
+                
+                // Reply asynchronously in the background
+                sendLineReplyFlexSummary(replyToken, queryDate).catch(err => {
+                    console.error('❌ Error executing LINE reply handler:', err);
+                });
             }
         }
     });

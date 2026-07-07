@@ -691,18 +691,55 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
 app.post('/api/sync/capture-grafana', authenticateToken, async (req, res) => {
     try {
         const { visit_date, channels, report_types } = req.body;
-        console.log(`📸 [Manual Trigger] Grafana Capture requested by user: ${req.user.username} for date: ${visit_date || 'today'} (Channels: ${channels ? channels.join(', ') : 'all'}, Types: ${report_types ? report_types.join(', ') : 'all'})`);
-        const result = await captureAndNotify(visit_date, channels, report_types);
+        const username = req.user.username;
+        console.log(`📸 [Manual Trigger] Grafana Capture requested by user: ${username} for date: ${visit_date || 'today'}`);
+
+        // Look up user-specific notification credentials from the internal DB
+        const [userRows] = await trackerPool.query(
+            'SELECT line_token, line_group_id, telegram_token, telegram_chat_id FROM users WHERE username = ?',
+            [username]
+        );
+
+        let userCredentials = null;
+        if (userRows.length > 0) {
+            const u = userRows[0];
+            const hasLine = u.line_token && u.line_group_id;
+            const hasTelegram = u.telegram_token && u.telegram_chat_id;
+
+            if (hasLine || hasTelegram) {
+                userCredentials = {
+                    line_token: u.line_token || null,
+                    line_group_id: u.line_group_id || null,
+                    telegram_token: u.telegram_token || null,
+                    telegram_chat_id: u.telegram_chat_id || null,
+                };
+                console.log(`📲 Using personal notification credentials for user: ${username} (LINE: ${hasLine ? 'yes' : 'no'}, Telegram: ${hasTelegram ? 'yes' : 'no'})`);
+            } else {
+                console.warn(`⚠️ User ${username} has no notification channels configured in their profile. Report will not be sent.`);
+                return res.status(400).json({
+                    success: false,
+                    message: 'ไม่พบการตั้งค่าช่องทางการแจ้งเตือน (LINE / Telegram) ในโปรไฟล์ของคุณ กรุณาตั้งค่าก่อนใช้งาน'
+                });
+            }
+        } else {
+            console.warn(`⚠️ User ${username} not found in internal DB.`);
+            return res.status(400).json({
+                success: false,
+                message: 'ไม่พบข้อมูลผู้ใช้ในระบบ กรุณาเข้าสู่ระบบใหม่อีกครั้ง'
+            });
+        }
+
+        const result = await captureAndNotify(visit_date, channels, report_types, userCredentials);
         if (result.success) {
             res.json({
                 success: true,
-                message: 'บันทึกหน้าจอและส่งรายงานสำเร็จเรียบร้อยแล้ว',
+                message: 'ส่งรายงานเรียบร้อยแล้ว',
                 filename: result.filename
             });
         } else {
             res.status(500).json({
                 success: false,
-                message: `เกิดข้อผิดพลาดในการบันทึกหน้าจอ: ${result.error}`
+                message: `เกิดข้อผิดพลาดในการส่งรายงาน: ${result.error}`
             });
         }
     } catch (error) {

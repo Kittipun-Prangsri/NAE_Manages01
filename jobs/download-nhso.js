@@ -100,11 +100,8 @@ export async function downloadNhsoReport() {
             }
         }
 
-        let retries = 3;
-        for (let attempt = 1; attempt <= retries; attempt++) {
-            if (authenticated) break;
-
-            console.log(`🔗 Navigating to NHSO portal (Attempt ${attempt}/${retries})...`);
+        if (!authenticated) {
+            console.log(`🔗 Navigating to NHSO portal...`);
             await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
             // Wait and click ThaiD
@@ -121,77 +118,76 @@ export async function downloadNhsoReport() {
                 if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
                     console.log('🎉 Detected authentication during transition!');
                     authenticated = true;
-                    break;
+                } else {
+                    throw err;
                 }
-                throw err;
             }
 
-            // Wait for ThaiD QR page to render
-            await new Promise(resolve => setTimeout(resolve, 5000));
+            if (!authenticated) {
+                // Wait for ThaiD QR page to render
+                await new Promise(resolve => setTimeout(resolve, 5000));
 
-            const thaidUrl = page.url();
-            console.log(`📍 Current URL (ThaiD Page): ${thaidUrl}`);
+                const thaidUrl = page.url();
+                console.log(`📍 Current URL (ThaiD Page): ${thaidUrl}`);
 
-            // Temporarily set a mobile viewport for large QR code rendering
-            await page.setViewport({ width: 440, height: 600 });
-            await new Promise(resolve => setTimeout(resolve, 1000));
+                // Temporarily set a mobile viewport for large QR code rendering
+                await page.setViewport({ width: 440, height: 600 });
+                await new Promise(resolve => setTimeout(resolve, 1000));
 
-            // Capture QR Code page screenshot in screenshots directory
-            const screenshotsDir = path.join(__dirname, 'screenshots');
-            if (!fs.existsSync(screenshotsDir)) {
-                fs.mkdirSync(screenshotsDir, { recursive: true });
-            }
-            const thaidQrFilename = `thaid_qr_${attempt}.png`;
-            const thaidQrPath = path.join(screenshotsDir, thaidQrFilename);
-            await page.screenshot({ path: thaidQrPath });
-
-            // Restore desktop viewport for subsequent operations
-            await page.setViewport({ width: 1440, height: 900 });
-
-            // Send QR Code to Telegram & LINE so the user can scan it
-            const caption = attempt === 1 
-                ? '📲 กรุณาสแกน QR Code เพื่อให้ระบบดาวน์โหลดรายงาน Authen Code อัตโนมัติ (จำกัดเวลา 2 นาที)'
-                : `⚠️ QR Code ก่อนหน้านี้หมดอายุแล้ว กรุณาสแกน QR Code ใหม่นี้แทน (จำกัดเวลา 2 นาที, ครั้งที่ ${attempt}/${retries})`;
-            
-            if (hasTelegram) {
-                const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
-                for (const id of chatIds) {
-                    await sendTelegramPhoto(thaidQrPath, 'thaid_qr.png', telegramToken, id, caption, thaidUrl);
+                // Capture QR Code page screenshot in screenshots directory
+                const screenshotsDir = path.join(__dirname, 'screenshots');
+                if (!fs.existsSync(screenshotsDir)) {
+                    fs.mkdirSync(screenshotsDir, { recursive: true });
                 }
-                console.log(`📲 QR Code (Attempt ${attempt}) sent to Telegram.`);
-            }
+                const thaidQrFilename = 'thaid_qr.png';
+                const thaidQrPath = path.join(screenshotsDir, thaidQrFilename);
+                await page.screenshot({ path: thaidQrPath });
 
-            if (hasLine) {
-                await sendToLineBot(thaidQrPath, thaidQrFilename, lineAccessToken, lineGroupId, imgbbApiKey, serverPublicUrl, caption, thaidUrl);
-                console.log(`📲 QR Code (Attempt ${attempt}) sent to LINE.`);
-            }
+                // Restore desktop viewport for subsequent operations
+                await page.setViewport({ width: 1440, height: 900 });
 
-            // Wait for scan (Timeout: 120 seconds)
-            const startTime = Date.now();
-            const timeoutMs = 120000;
-
-            while (Date.now() - startTime < timeoutMs) {
-                const currentUrl = page.url();
-                if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
-                    console.log(`🎉 Detected redirect to NHSO Portal! URL: ${currentUrl}`);
-                    console.log('⏳ Waiting 5 seconds for session and cookies to settle...');
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                    authenticated = true;
-                    break;
+                // Send QR Code to Telegram & LINE so the user can scan it
+                const caption = '📲 กรุณาสแกน QR Code เพื่อให้ระบบดาวน์โหลดรายงาน Authen Code อัตโนมัติ';
+                
+                if (hasTelegram) {
+                    const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
+                    for (const id of chatIds) {
+                        await sendTelegramPhoto(thaidQrPath, 'thaid_qr.png', telegramToken, id, caption, thaidUrl);
+                    }
+                    console.log(`📲 QR Code sent to Telegram.`);
                 }
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
 
-            if (authenticated) {
-                console.log('✅ Authentication successful!');
-                break;
-            }
+                if (hasLine) {
+                    await sendToLineBot(thaidQrPath, thaidQrFilename, lineAccessToken, lineGroupId, imgbbApiKey, serverPublicUrl, caption, thaidUrl);
+                    console.log(`📲 QR Code sent to LINE.`);
+                }
 
-            console.warn(`⚠️ Attempt ${attempt} timed out waiting for scan.`);
+                // Wait for scan (Timeout: 10 minutes)
+                const startTime = Date.now();
+                const timeoutMs = 600000; // 10 minutes
+
+                while (Date.now() - startTime < timeoutMs) {
+                    const currentUrl = page.url();
+                    if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
+                        console.log('🎉 Detected redirect to NHSO Portal! URL:', currentUrl);
+                        console.log('⏳ Waiting 5 seconds for session and cookies to settle...');
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        authenticated = true;
+                        break;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+
+                if (authenticated) {
+                    console.log('✅ Authentication successful!');
+                } else {
+                    console.warn('⚠️ Timed out waiting for scan.');
+                }
+            }
         }
 
         if (!authenticated) {
-            throw new Error('การยืนยันตัวตน ThaiD หมดเวลา หรือไม่สำเร็จในทุกความพยายาม');
+            throw new Error('การยืนยันตัวตน ThaiD หมดเวลา หรือไม่สำเร็จ');
         }
 
         console.log('✅ Authentication successful! Navigating to report/eclaim page...');

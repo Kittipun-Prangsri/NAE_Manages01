@@ -223,8 +223,12 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
 async function startTelegramBotListener() {
     console.log('🤖 Telegram Bot message listener started (Long Polling)...');
     
-    // Background polling loop
-    setInterval(async () => {
+    let isPolling = false;
+    
+    async function poll() {
+        if (isPolling) return;
+        isPolling = true;
+        
         try {
             // Dynamically reload .env configuration changes
             dotenv.config({ override: true });
@@ -233,46 +237,75 @@ async function startTelegramBotListener() {
             const chatId = process.env.TELEGRAM_CHAT_ID;
             
             if (!token || !chatId || chatId === 'your_telegram_chat_id_here') {
+                isPolling = false;
+                setTimeout(poll, 10000);
                 return;
             }
 
-            const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`);
-            if (!response.ok) return;
-            
-            const data = await response.json();
-            if (data.ok && data.result.length > 0) {
-                for (const update of data.result) {
-                    lastUpdateId = update.update_id;
-                    
-                    const message = update.message;
-                    if (!message || !message.text) continue;
-                    
-                    const text = message.text.trim();
-                    const fromChatId = message.chat.id.toString();
-                    
-                    // Split the comma-separated list of allowed chat IDs
-                    const allowedChatIds = chatId.split(',').map(id => id.trim()).filter(id => id);
-                    
-                    if (allowedChatIds.includes(fromChatId)) {
-                        if (text === 'เข้าระบบ' || text === 'ดึงข้อมูล' || text.toLowerCase() === '/login' || text.toLowerCase() === '/sync') {
-                            console.log(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
-                            
-                            // Send initial acknowledgment
-                            await sendTelegramMessage(token, fromChatId, '⏳ กำลังเตรียมการเข้าสู่ระบบ สปสช. และดึง QR Code ของ ThaiD...');
-                            await sendLineMessage('⏳ [Telegram Command] กำลังเตรียมการดึงข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD...');
-                            
-                            // Run the end-to-end sync and capture in the background
-                            runE2EPortalSyncAndCapture(fromChatId).catch(err => {
-                                console.error('Error running E2E portal sync via telegram command:', err);
-                            });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 35000);
+
+            try {
+                const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`, {
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    console.warn(`⚠️ [Telegram Bot] Polling response not OK: ${response.status} ${response.statusText}`);
+                    isPolling = false;
+                    setTimeout(poll, 5000);
+                    return;
+                }
+                
+                const data = await response.json();
+                if (data.ok && data.result.length > 0) {
+                    for (const update of data.result) {
+                        lastUpdateId = update.update_id;
+                        
+                        const message = update.message;
+                        if (!message || !message.text) continue;
+                        
+                        const text = message.text.trim();
+                        const fromChatId = message.chat.id.toString();
+                        
+                        // Split the comma-separated list of allowed chat IDs
+                        const allowedChatIds = chatId.split(',').map(id => id.trim()).filter(id => id);
+                        
+                        if (allowedChatIds.includes(fromChatId)) {
+                            if (text === 'เข้าระบบ' || text === 'ดึงข้อมูล' || text.toLowerCase() === '/login' || text.toLowerCase() === '/sync') {
+                                console.log(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
+                                
+                                // Send initial acknowledgment
+                                await sendTelegramMessage(token, fromChatId, '⏳ กำลังเตรียมการเข้าสู่ระบบ สปสช. และดึง QR Code ของ ThaiD...');
+                                await sendLineMessage('⏳ [Telegram Command] กำลังเตรียมการดึงข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD...');
+                                
+                                // Run the end-to-end sync and capture in the background
+                                runE2EPortalSyncAndCapture(fromChatId).catch(err => {
+                                    console.error('Error running E2E portal sync via telegram command:', err);
+                                });
+                            }
                         }
                     }
                 }
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                throw fetchError;
             }
+            
+            isPolling = false;
+            setTimeout(poll, 1000);
+            
         } catch (error) {
             console.error('Error polling Telegram updates:', error);
+            isPolling = false;
+            // Wait 10 seconds before retrying on network error/timeout to avoid hammering
+            setTimeout(poll, 10000);
         }
-    }, 4000); // Poll every 4 seconds
+    }
+    
+    poll();
 }
 
 // Start Worker Service

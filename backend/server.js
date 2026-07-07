@@ -69,9 +69,46 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
     }
     
     try {
-        // Query data stats directly from HOSxP database
-        const stats = await getHosxpSummaryStats(queryDate);
-        const { total_visits, total_money, endpoint_count, not_imported_count, authen_count, rights, ucs_total, ucs_departments } = stats;
+        // Query data stats
+        const [[{ total_visits }]] = await trackerPool.query(
+            'SELECT COUNT(*) as total_visits FROM visit_tracking WHERE visit_date = ?',
+            [queryDate]
+        );
+
+        const [[{ total_money }]] = await trackerPool.query(
+            'SELECT COALESCE(SUM(uc_money), 0) as total_money FROM visit_tracking WHERE visit_date = ?',
+            [queryDate]
+        );
+
+        const [[{ endpoint_count }]] = await trackerPool.query(
+            "SELECT COUNT(*) as endpoint_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'YELLOW'",
+            [queryDate]
+        );
+
+        const [[{ not_imported_count }]] = await trackerPool.query(
+            "SELECT COUNT(*) as not_imported_count FROM visit_tracking WHERE visit_date = ? AND check_claimcode = 'ยังไม่ได้นำเข้า'",
+            [queryDate]
+        );
+
+        const [[{ authen_count }]] = await trackerPool.query(
+            "SELECT COUNT(*) as authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'",
+            [queryDate]
+        );
+
+        const [rights] = await trackerPool.query(
+            'SELECT COALESCE(pttype_note, pttype) as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3',
+            [queryDate]
+        );
+
+        const [[{ ucs_total }]] = await trackerPool.query(
+            "SELECT COUNT(*) as ucs_total FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW')",
+            [queryDate]
+        );
+
+        const [ucs_departments] = await trackerPool.query(
+            "SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW') GROUP BY dept_name ORDER BY cnt DESC LIMIT 3",
+            [queryDate]
+        );
 
         // Build right items contents dynamically
         const rightsContents = [];
@@ -787,61 +824,32 @@ async function runManualPortalSyncInBackground(visit_date) {
     captureAndNotify(visit_date).catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
 }
 
-/**
- * ดึงข้อมูล Dashboard จาก Internal DB
- */
 app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
     try {
         const { date, status } = req.query;
-        if (!date) {
-            return res.status(400).json({ message: 'กรุณาระบุวันที่ (date)' });
+        let query = 'SELECT * FROM visit_tracking WHERE 1=1';
+        const params = [];
+
+        if (date) {
+            query += ' AND visit_date = ?';
+            params.push(date);
         }
-
-        // ดึงข้อมูลผู้ป่วยจาก HOSxP และเชื่อมตาราง temp_authen_code
-        const hosxpData = await getHosxpVisits(date);
-        
-        // แปลงข้อมูลและคำนวณสถานะสี (RED, YELLOW, GREEN) แบบ Real-time
-        let mappedData = hosxpData.map(patient => {
-            const authenStatus = !!patient.nhso_claim_code;
-            const endpointStatus = authenStatus && (String(patient.authen_code_type || '').toUpperCase() === 'ENDPOINT');
-            
-            let colorStatus = 'RED';
-            if (authenStatus) {
-                colorStatus = endpointStatus ? 'GREEN' : 'YELLOW';
-            }
-
-            return {
-                vn: patient.vn,
-                hn: patient.hn || '',
-                cid: patient.cid,
-                cid_check: patient.cid_check,
-                full_name: patient.fullName,
-                visit_date: patient.visitDate,
-                pttype: patient.pttype,
-                pcode: patient.pcode,
-                uc_money: patient.uc_money,
-                claim_code: patient.claim_code,
-                nhso_claim_code: patient.nhso_claim_code,
-                authen_code_type: patient.authen_code_type,
-                pttype_note: patient.pttype_note,
-                department: patient.department,
-                authen_status: authenStatus,
-                endpoint_status: endpointStatus,
-                color_status: colorStatus,
-                staff: patient.staff,
-                check_claimcode: patient.check_claimcode
-            };
-        });
-
-        // ถ้ามีการกรองด้วยสถานะ (RED, YELLOW, GREEN)
         if (status) {
-            mappedData = mappedData.filter(item => item.color_status === status);
+            query += ' AND color_status = ?';
+            params.push(status);
         }
 
-        let hosxpStats = await getHosxpTotalVisits(date);
+        query += ' ORDER BY color_status ASC, full_name ASC';
+
+        const [rows] = await trackerPool.query(query, params);
+        
+        let hosxpStats = null;
+        if (date) {
+            hosxpStats = await getHosxpTotalVisits(date);
+        }
 
         res.json({
-            trackingData: mappedData,
+            trackingData: rows,
             hosxpStats: hosxpStats
         });
     } catch (error) {
@@ -867,19 +875,11 @@ app.get('/api/dashboard/live-data', authenticateToken, async (req, res) => {
         // Fetch HOSxP stats for the date (total visits, total persons, total uc money)
         const hosxpStats = await getHosxpTotalVisits(visit_date);
 
-        // Fetch pending count directly from HOSxP and temp_authen_code
-        const [[{ pending_count }]] = await hosxpPool.query(`
-            SELECT COUNT(v.vn) as pending_count
-            FROM vn_stat v
-            LEFT OUTER JOIN temp_authen_code td ON td.cid = v.cid 
-                AND td.status_use <> 'C' 
-                AND td.dateser = v.vstdate
-                AND td.flag = 'D'
-            LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
-            WHERE v.vstdate = ?
-              AND py.hipdata_code IN ('UCS', 'OFC')
-              AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')
-        `, [visit_date]);
+        // Fetch pending count from the internal tracking DB (where authen is not completed yet)
+        const [[{ pending_count }]] = await trackerPool.query(
+            "SELECT COUNT(*) as pending_count FROM visit_tracking WHERE visit_date = ? AND color_status IN ('RED', 'YELLOW')",
+            [visit_date]
+        );
 
         res.json({
             success: true,
@@ -920,24 +920,19 @@ app.get('/api/geojson', authenticateToken, async (req, res) => {
  */
 app.get('/api/tracking/summary', authenticateToken, async (req, res) => {
     try {
-        const [rows] = await hosxpPool.query(`
+        const query = `
             SELECT 
-                v.vstdate as visit_date,
-                SUM(CASE WHEN td.claimcode IS NULL THEN 1 ELSE 0 END) as red,
-                SUM(CASE WHEN td.claimcode IS NOT NULL AND (td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT') THEN 1 ELSE 0 END) as yellow,
-                SUM(CASE WHEN td.claimcode IS NOT NULL AND UPPER(td.authen_code_type) = 'ENDPOINT' THEN 1 ELSE 0 END) as green,
-                COUNT(v.vn) as total
-            FROM vn_stat v
-            LEFT OUTER JOIN temp_authen_code td ON td.cid = v.cid 
-                AND td.status_use <> 'C' 
-                AND td.dateser = v.vstdate
-                AND td.flag = 'D'
-            LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
-            WHERE v.vstdate >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-              AND py.hipdata_code IN ('UCS', 'OFC')
-            GROUP BY v.vstdate
-            ORDER BY v.vstdate DESC
-        `);
+                visit_date, 
+                SUM(CASE WHEN color_status = 'RED' THEN 1 ELSE 0 END) as red,
+                SUM(CASE WHEN color_status = 'YELLOW' THEN 1 ELSE 0 END) as yellow,
+                SUM(CASE WHEN color_status = 'GREEN' THEN 1 ELSE 0 END) as green,
+                COUNT(*) as total
+            FROM visit_tracking 
+            WHERE visit_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+            GROUP BY visit_date 
+            ORDER BY visit_date DESC
+        `;
+        const [rows] = await trackerPool.query(query);
         res.json(rows);
     } catch (error) {
         res.status(500).json({ message: 'ไม่สามารถดึงข้อมูลสรุปได้' });

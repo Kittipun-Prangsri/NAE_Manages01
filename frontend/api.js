@@ -96,6 +96,13 @@ export const api = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
+    async fetchVisitsTodayByTambon(token) {
+        const res = await fetch(`${API_BASE}/visits/today-by-tambon`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
     async fetchSummary(token) {
         const res = await fetch(`${API_BASE}/tracking/summary`, {
             headers: { 'Authorization': `Bearer ${token}` }

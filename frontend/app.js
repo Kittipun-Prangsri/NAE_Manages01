@@ -577,7 +577,12 @@ async function loadLiveDashboardData() {
     try {
         const response = await api.fetchLiveDashboardData(date, appState.token);
         if (handleApiResponse(response)) {
-            ui.renderLiveDashboard(response.data);
+            // Fetch today's tambon counts from the new Controllers/Services/Repositories endpoint
+            const tambonRes = await api.fetchVisitsTodayByTambon(appState.token);
+            if (tambonRes.ok) {
+                response.data.tambonVisits = tambonRes.data;
+            }
+            ui.renderLiveDashboard(response.data, appState.token);
         }
     } catch (error) {
         console.error('❌ Failed to load live dashboard data:', error);

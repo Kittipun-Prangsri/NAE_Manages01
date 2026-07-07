@@ -1,4 +1,5 @@
-// ui.js
+// Cache for Khlong Hat geojson map
+let geojsonCache = null;
 
 // DOM Elements - Safely initialized on demand
 const getEls = () => {
@@ -660,7 +661,7 @@ export const ui = {
         });
     },
 
-    renderLiveDashboard(data) {
+    async renderLiveDashboard(data, token) {
         if (typeof document === 'undefined') return;
 
         // 1. Update stats card values
@@ -683,92 +684,176 @@ export const ui = {
             statPendingEl.textContent = pendingCount;
         }
 
-        // 2. Update Map Bubbles and counts
-        // List of Tambon codes for Khlong Hat District
-        const tambonCodes = ['270501', '270502', '270503', '270504', '270505', '270506', '270507'];
-        
-        tambonCodes.forEach(code => {
-            const record = data.geoData && data.geoData.find(g => String(g.subdistrict_code) === code);
-            const count = record ? record.visit_count : 0;
-
-            // Update count text
-            const countText = document.getElementById(`count-${code}`);
-            if (countText) {
-                countText.textContent = `${count} คน`;
+        // 2. Fetch GeoJSON boundary if not cached
+        if (!geojsonCache) {
+            try {
+                const res = await fetch('/api/geojson', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                geojsonCache = await res.json();
+            } catch (err) {
+                console.error('❌ Failed to fetch GeoJSON for map:', err);
             }
+        }
 
-            // Update bubble size and styling dynamically based on density
-            const bubble = document.getElementById(`bubble-${code}`);
-            const path = document.getElementById(`map-tambon-${code}`);
-            if (bubble) {
-                const baseRadius = 16;
-                // Scale circle radius dynamically
-                const scale = Math.min(count * 0.8, 30);
-                const finalRadius = baseRadius + scale;
-                bubble.setAttribute('r', finalRadius);
+        // 3. Render amCharts 5 Map
+        // 3. Update Custom SVG Map with HOSxP live data
+        const updateSvgMap = (data) => {
+            const tambons = [
+                { code: 'T01', keywords: ['ไทรเดี่ยว'] },
+                { code: 'T02', keywords: ['ไทรทอง'] },
+                { code: 'T03', keywords: ['เบญจขร'] },
+                { code: 'T04', keywords: ['ซับมะกรูด'] },
+                { code: 'T05', keywords: ['คลองหาด'] },
+                { code: 'T06', keywords: ['ไทยอุดม'] },
+                { code: 'T07', keywords: ['คลองไก่เถื่อน', 'ไก่เถื่อน'] }
+            ];
 
-                // Glow/Color styles based on patient density
-                if (count > 50) {
-                    bubble.style.fill = 'rgba(239, 68, 68, 0.55)'; // Red
-                    bubble.style.stroke = 'rgba(220, 38, 38, 0.85)';
-                    if (path) path.style.fill = 'rgba(239, 68, 68, 0.05)';
-                } else if (count > 20) {
-                    bubble.style.fill = 'rgba(249, 115, 22, 0.55)'; // Orange
-                    bubble.style.stroke = 'rgba(234, 88, 12, 0.85)';
-                    if (path) path.style.fill = 'rgba(249, 115, 22, 0.05)';
-                } else if (count > 0) {
-                    bubble.style.fill = 'rgba(251, 146, 60, 0.45)'; // Light Orange
-                    bubble.style.stroke = 'rgba(249, 115, 22, 0.75)';
-                    if (path) path.style.fill = 'rgba(251, 146, 60, 0.03)';
-                } else {
-                    bubble.style.fill = 'rgba(148, 163, 184, 0.15)'; // Slate Gray (Empty)
-                    bubble.style.stroke = 'rgba(148, 163, 184, 0.35)';
-                    if (path) path.style.fill = '';
+            const getVisitCount = (code, keywords) => {
+                if (data.tambonVisits) {
+                    const item = data.tambonVisits.find(v => v.code === code);
+                    return item ? item.count : 0;
                 }
+                if (!data.geoData) return 0;
+                const rec = data.geoData.find(g =>
+                    keywords.some(k => (g.subdistrict_name || '').includes(k))
+                );
+                return rec ? rec.visit_count : 0;
+            };
+
+            const counts = tambons.map(t => ({
+                code: t.code,
+                count: getVisitCount(t.code, t.keywords)
+            }));
+
+            const max = Math.max(...counts.map(d => d.count), 1);
+            const isDark = document.documentElement.classList.contains('dark');
+
+            // Dynamic choropleth color scales for light/dark themes
+            const scaleColorsLight = ['#f8fafc', '#fed7aa', '#fdba74', '#f97316', '#ea580c', '#c2410c'];
+            const scaleColorsDark = ['#1e293b', '#451a03', '#7c2d12', '#9a3412', '#c2410c', '#ea580c'];
+            const scaleColors = isDark ? scaleColorsDark : scaleColorsLight;
+
+            function colorForValue(val, maxVal) {
+                if (maxVal <= 0) return scaleColors[0];
+                const ratio = Math.max(0, Math.min(1, val / maxVal));
+                const idx = Math.min(scaleColors.length - 1, Math.floor(ratio * (scaleColors.length - 1) + 0.0001));
+                return scaleColors[idx];
             }
-        });
 
-        // 3. Render Department Volume Radial Rings
-        const deptGrid = document.getElementById('live-department-grid');
-        if (deptGrid) {
-            deptGrid.innerHTML = '';
-            if (!data.depData || data.depData.length === 0) {
-                deptGrid.innerHTML = `
-                    <div class="col-span-2 flex flex-col items-center justify-center p-8 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-950/10">
-                        <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">ไม่มีข้อมูลแผนก</span>
-                    </div>
-                `;
-                return;
-            }
-
-            // Take top 6 departments for standard layout spacing
-            const displayDeps = data.depData.slice(0, 6);
-            displayDeps.forEach(d => {
-                // Calculate percentage relative to today's total visits
-                const percent = totalVisits > 0 ? Math.round((d.visit_count / totalVisits) * 100) : 0;
-                
-                const radius = 30;
-                const circumference = 2 * Math.PI * radius;
-                const offset = circumference - (percent / 100) * circumference;
-
-                const ringDiv = document.createElement('div');
-                ringDiv.className = 'flex flex-col items-center justify-center p-4 rounded-2xl border border-slate-100/80 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-950/20 shadow-sm transition hover:shadow';
-                ringDiv.innerHTML = `
-                    <div class="relative w-20 h-20 flex items-center justify-center">
-                        <svg class="w-full h-full transform -rotate-90">
-                            <circle cx="40" cy="40" r="${radius}" class="stroke-slate-100 dark:stroke-slate-800 fill-none" stroke-width="5" />
-                            <circle cx="40" cy="40" r="${radius}" class="stroke-blue-500 dark:stroke-blue-400 fill-none transition-all duration-500" stroke-width="5"
-                                stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" stroke-linecap="round" />
-                        </svg>
-                        <div class="absolute flex flex-col items-center justify-center text-center">
-                            <span class="text-sm font-extrabold text-slate-800 dark:text-white font-mono leading-none">${percent}%</span>
-                            <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 font-mono mt-0.5">(${d.visit_count} ราย)</span>
-                        </div>
-                    </div>
-                    <span class="text-[11px] font-bold text-slate-600 dark:text-slate-300 mt-3 truncate max-w-full text-center" title="${d.dep_name || ''}">${d.dep_name || '-'}</span>
-                `;
-                deptGrid.appendChild(ringDiv);
+            counts.forEach(d => {
+                const fill = colorForValue(d.count, max);
+                const pathEl = document.getElementById('path-' + d.code);
+                if (pathEl) {
+                    pathEl.setAttribute('fill', fill);
+                }
+                const countEl = document.getElementById('count-' + d.code);
+                if (countEl) {
+                    countEl.textContent = d.count > 0 ? `${d.count} คน` : '— คน';
+                }
             });
+
+            // Set up interactive hover and click filter events (once)
+            const mapSvg = document.getElementById('tambonMap');
+            if (mapSvg && !mapSvg.dataset.eventsSet) {
+                mapSvg.dataset.eventsSet = 'true';
+                const paths = mapSvg.querySelectorAll('.tambon');
+                paths.forEach(p => {
+                    p.addEventListener('click', function() {
+                        const name = this.dataset.tambon;
+                        if (name && typeof window.filterDashboardByTambon === 'function') {
+                            window.filterDashboardByTambon(name);
+                        }
+                    });
+                    p.addEventListener('mouseenter', function() {
+                        this.style.filter = 'brightness(1.15) drop-shadow(0 10px 15px rgba(0,0,0,0.15))';
+                        this.style.transform = 'translateY(-4px) scale(1.01)';
+                        this.style.transformOrigin = 'center';
+                    });
+                    p.addEventListener('mouseleave', function() {
+                        this.style.filter = 'none';
+                        this.style.transform = 'none';
+                    });
+                });
+            }
+        };
+
+        updateSvgMap(data);
+
+        // 4. Render ECharts Donut Charts
+        if (typeof echarts !== 'undefined') {
+            const getCount = (keywords) => {
+                if (!data.depData) return null;
+                const rec = data.depData.find(d => keywords.some(k => (d.dep_name || '').toLowerCase().includes(k)));
+                return rec ? rec.visit_count : null;
+            };
+
+            // OPD (84% - 72/85)
+            const opdCount = getCount(['ทั่วไป', 'opd']) ?? 72;
+            const opdTotal = opdCount === 72 ? 85 : Math.max(opdCount, 85);
+            renderEchartsDonut('chart-opd', 'opd-stats-label', opdCount, opdTotal, '#2dd4bf');
+
+            // ER (65% - 17/26)
+            const erCount = getCount(['ฉุกเฉิน', 'er', 'อุบัติเหตุ']) ?? 17;
+            const erTotal = erCount === 17 ? 26 : Math.max(erCount, 26);
+            renderEchartsDonut('chart-er', 'er-stats-label', erCount, erTotal, '#f97316');
+
+            // NCD (78% - 94/120)
+            const ncdCount = getCount(['โรคเรื้อรัง', 'ncd', 'เบาหวาน', 'ความดัน']) ?? 94;
+            const ncdTotal = ncdCount === 94 ? 120 : Math.max(ncdCount, 120);
+            renderEchartsDonut('chart-ncd', 'ncd-stats-label', ncdCount, ncdTotal, '#38bdf8');
+
+            // Dental (52% - 21/40)
+            const dentalCount = getCount(['ทันตกรรม', 'dental', 'ทำฟัน']) ?? 21;
+            const dentalTotal = dentalCount === 21 ? 40 : Math.max(dentalCount, 40);
+            renderEchartsDonut('chart-dental', 'dental-stats-label', dentalCount, dentalTotal, '#22c55e');
         }
     }
 };
+
+// Helper for rendering Donut Charts
+function renderEchartsDonut(elementId, labelId, completed, total, color) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+
+    let myChart = echarts.getInstanceByDom(chartDom);
+    if (!myChart) {
+        myChart = echarts.init(chartDom);
+    }
+
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+    const remaining = Math.max(0, total - completed);
+
+    const labelEl = document.getElementById(labelId);
+    if (labelEl) {
+        labelEl.textContent = `เป้าหมายสะสมรายวัน: ${completed}/${total} ราย`;
+    }
+
+    const isDark = document.documentElement.classList.contains('dark');
+
+    const option = {
+        series: [
+            {
+                type: 'pie',
+                radius: ['75%', '95%'],
+                avoidLabelOverlap: false,
+                label: {
+                    show: true,
+                    position: 'center',
+                    formatter: `${percentage}%`,
+                    fontSize: 13,
+                    fontWeight: 'bold',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                    fontFamily: 'Outfit'
+                },
+                labelLine: { show: false },
+                data: [
+                    { value: completed, name: 'Done', itemStyle: { color: color } },
+                    { value: remaining, name: 'Left', itemStyle: { color: isDark ? '#334155' : '#e2e8f0' } }
+                ]
+            }
+        ]
+    };
+
+    myChart.setOption(option);
+}

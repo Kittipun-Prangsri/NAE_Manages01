@@ -11,7 +11,7 @@ export default defineConfig({
     port: 5174,
     proxy: {
       '/api/': {
-        target: 'http://127.0.0.1:3005',
+        target: 'http://localhost:3005',
         changeOrigin: true,
       },
       // style.css is served directly by Vite (no proxy needed)

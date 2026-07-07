@@ -7,6 +7,7 @@
     <title>NHSO Tracking System - NAE Manages</title>
     <link rel="stylesheet" href="/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
 </head>
 
 <body class="min-h-screen">
@@ -382,134 +383,130 @@
                 <!-- Live Dashboard Grid -->
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     <!-- Map Card (Left) -->
-                    <div class="lg:col-span-7 glass-panel p-6 rounded-2xl bg-white/80 dark:bg-slate-900/50 shadow-sm border border-slate-100/50 dark:border-slate-800/40">
-                        <div class="flex justify-between items-center mb-6">
+                    <div class="lg:col-span-7 glass-panel p-6 rounded-2xl bg-white/80 dark:bg-slate-900/50 shadow-sm border border-slate-100/50 dark:border-slate-800/40 relative">
+                        <div class="flex justify-between items-center mb-4">
                             <div>
                                 <h3 class="font-extrabold text-base text-slate-800 dark:text-white flex items-center space-x-2">
                                     <i class="fas fa-map-marked-alt text-blue-500"></i>
-                                    <span>แผนที่ความหนาแน่นของผู้ป่วย</span>
+                                    <span>แผนที่ความหนาแน่นของผู้ป่วยในอำเภอคลองหาด</span>
                                 </h3>
                                 <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">จำแนกตามที่อยู่อาศัยรายตำบล อำเภอคลองหาด</p>
                             </div>
                             <span class="px-2.5 py-1 text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 rounded-full border border-blue-500/10">วันนี้</span>
                         </div>
 
-                        <!-- Map Render Container -->
-                        <div class="w-full flex flex-col items-center justify-center py-4 bg-slate-50/50 dark:bg-slate-950/10 rounded-2xl border border-slate-100/50 dark:border-slate-800/30 p-4">
-                            <style>
-                                .tambon-path {
-                                    transition: fill 0.3s ease, stroke 0.3s ease, filter 0.3s ease;
-                                }
-                                .tambon-path:hover {
-                                    fill-opacity: 0.85;
-                                    stroke: #3b82f6 !important;
-                                    stroke-width: 3px !important;
-                                    filter: drop-shadow(0 4px 8px rgba(59, 130, 246, 0.25));
-                                }
-                                .map-bubble {
-                                    transition: r 0.3s ease, fill 0.3s ease, stroke 0.3s ease;
-                                }
-                            </style>
-                            <svg viewBox="0 0 600 950" class="w-full max-h-[500px] mx-auto select-none">
-                                <!-- SVG paths for 7 Tambons (Smooth Organic Curves) -->
-                                <path id="map-tambon-270504" d="M 90 200 C 120 180, 150 120, 180 100 C 200 90, 220 70, 250 65 C 290 60, 310 40, 330 30 C 340 70, 350 130, 360 180 C 310 200, 270 240, 210 260 C 180 250, 160 240, 140 240 C 120 230, 100 210, 90 200 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
-                                <path id="map-tambon-270505" d="M 330 30 C 370 35, 430 40, 500 40 C 510 80, 520 140, 520 190 C 490 190, 470 190, 460 195 C 430 210, 400 230, 370 250 C 360 210, 350 190, 350 180 C 340 130, 330 70, 330 30 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
-                                <path id="map-tambon-270507" d="M 370 250 C 400 230, 430 210, 460 195 C 475 210, 490 220, 490 235 C 480 270, 470 310, 470 340 C 450 370, 430 400, 410 430 C 370 380, 320 340, 285 305 C 310 290, 340 270, 370 250 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
-                                <path id="map-tambon-270503" d="M 210 260 C 240 280, 260 290, 285 305 C 300 340, 315 390, 320 425 C 290 440, 275 450, 260 460 C 210 410, 160 370, 130 330 C 150 310, 180 280, 210 260 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
-                                <path id="map-tambon-270502" d="M 260 460 C 275 450, 290 440, 320 425 C 340 425, 360 420, 370 420 C 385 490, 400 560, 410 635 C 360 700, 310 760, 260 820 C 245 805, 230 790, 230 790 C 220 700, 220 600, 230 500 C 240 480, 250 470, 260 460 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
-                                <path id="map-tambon-270501" d="M 370 420 C 390 420, 410 410, 430 400 C 470 415, 510 430, 560 450 C 565 520, 570 590, 570 660 C 510 650, 460 640, 410 635 C 400 560, 385 490, 370 420 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
-                                <path id="map-tambon-270506" d="M 410 635 C 460 640, 510 650, 570 660 C 565 670, 560 680, 560 685 C 545 720, 535 760, 525 800 C 505 850, 495 900, 485 950 C 460 950, 430 950, 415 950 C 395 920, 375 890, 360 870 C 320 850, 290 835, 260 820 C 310 760, 360 700, 410 635 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
+                        <!-- SVG Map of Amphoe Khlong Hat -->
+                        <div id="map-chart" class="w-full h-[550px] flex items-center justify-center relative overflow-hidden">
+                            <svg id="tambonMap" viewBox="0 0 1180 1992" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:100%; max-height:550px;">
+                                <!-- ไทรเดี่ยว (T01) -->
+                                <path id="path-T01" data-tambon="ไทรเดี่ยว" class="tambon" d="M618,183 L588,202 L550,173 L426,159 L399,138 L339,164 L257,217 L198,211 L160,270 L59,227 L101,313 L140,321 L188,372 L191,420 L204,465 L232,475 L294,512 L344,491 L391,523 L421,510 L490,461 L544,463 L636,389 L653,302 L619,243 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- ไทรทอง (T02) -->
+                                <path id="path-T02" data-tambon="ไทรทอง" class="tambon" d="M979,70 L912,85 L865,57 L780,57 L618,182 L624,250 L655,300 L639,390 L545,466 L491,462 L425,511 L547,593 L644,613 L707,584 L720,513 L643,482 L652,432 L700,427 L732,362 L895,383 L909,380 L943,349 L939,305 L988,178 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- เบญจขร (T03) -->
+                                <path id="path-T03" data-tambon="เบญจขร" class="tambon" d="M734,365 L698,431 L655,433 L646,477 L723,512 L711,584 L682,598 L687,625 L673,625 L672,602 L639,614 L551,598 L551,646 L622,701 L637,739 L606,790 L621,839 L659,847 L741,827 L800,875 L826,824 L860,819 L843,798 L852,714 L871,668 L909,650 L915,489 L937,453 L906,385 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- ซับมะกรูด (T04) -->
+                                <path id="path-T04" data-tambon="ซับมะกรูด" class="tambon" d="M229,477 L281,581 L218,672 L257,687 L262,740 L434,928 L480,898 L529,931 L593,913 L656,849 L617,840 L604,788 L635,743 L619,702 L547,646 L548,597 L423,513 L389,525 L341,494 L291,514 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- คลองหาด (T05) -->
+                                <path id="path-T05" data-tambon="คลองหาด" class="tambon" d="M437,930 L485,957 L469,990 L523,1053 L623,1074 L688,1133 L692,1183 L742,1201 L783,1295 L921,1430 L1006,1430 L1090,1371 L1112,1333 L1121,1220 L1100,1157 L1111,1116 L1086,1094 L1104,906 L892,953 L852,865 L861,825 L827,828 L802,877 L736,829 L660,850 L594,916 L528,934 L483,900 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- ไทยอุดม (T06) -->
+                                <path id="path-T06" data-tambon="ไทยอุดม" class="tambon" d="M468,994 L480,1190 L464,1261 L427,1272 L417,1301 L423,1562 L445,1601 L508,1636 L569,1596 L620,1518 L618,1481 L671,1448 L715,1371 L743,1376 L780,1295 L740,1204 L689,1185 L684,1133 L622,1077 L522,1056 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- คลองไก่เถื่อน (T07) -->
+                                <path id="path-T07" data-tambon="คลองไก่เถื่อน" class="tambon" d="M782,1299 L746,1377 L717,1373 L673,1451 L620,1483 L623,1519 L571,1599 L510,1639 L523,1660 L580,1657 L670,1715 L676,1735 L655,1747 L701,1782 L725,1845 L794,1888 L788,1918 L862,1933 L917,1887 L969,1779 L1049,1877 L1075,1873 L1107,1791 L1065,1702 L1068,1653 L1034,1611 L1092,1440 L1089,1376 L1007,1433 L920,1433 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
 
-                                <!-- Group for Bubble overlays -->
-                                <!-- Sai Diao (ไทรเดี่ยว) -->
-                                <g class="cursor-pointer">
-                                    <circle id="bubble-270504" cx="210" cy="160" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
-                                    <text x="210" y="164" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">ไทรเดี่ยว</text>
-                                    <text id="count-270504" x="210" y="182" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
-                                </g>
+                                <!-- Labels -->
+                                <text x="391" y="307" class="tlabel" text-anchor="middle">ไทรเดี่ยว</text>
+                                <text x="391" y="345" class="tcount" id="count-T01" text-anchor="middle">— คน</text>
 
-                                <!-- Sai Thong (ไทรทอง) -->
-                                <g class="cursor-pointer">
-                                    <circle id="bubble-270505" cx="420" cy="120" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
-                                    <text x="420" y="124" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">ไทรทอง</text>
-                                    <text id="count-270505" x="420" y="142" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
-                                </g>
+                                <text x="749" y="293" class="tlabel" text-anchor="middle">ไทรทอง</text>
+                                <text x="749" y="331" class="tcount" id="count-T02" text-anchor="middle">— คน</text>
 
-                                <!-- Benjakhorn (เบญจขร) -->
-                                <g class="cursor-pointer">
-                                    <circle id="bubble-270507" cx="400" cy="310" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
-                                    <text x="400" y="314" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">เบญจขร</text>
-                                    <text id="count-270507" x="400" y="332" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
-                                </g>
+                                <text x="765" y="621" class="tlabel" text-anchor="middle">เบญจขร</text>
+                                <text x="765" y="659" class="tcount" id="count-T03" text-anchor="middle">— คน</text>
 
-                                <!-- Sap Makrut (ซับมะกรูด) -->
-                                <g class="cursor-pointer">
-                                    <circle id="bubble-270503" cx="230" cy="370" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
-                                    <text x="230" y="374" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">ซับมะกรูด</text>
-                                    <text id="count-270503" x="230" y="392" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
-                                </g>
+                                <text x="435" y="725" class="tlabel" text-anchor="middle">ซับมะกรูด</text>
+                                <text x="435" y="763" class="tcount" id="count-T04" text-anchor="middle">— คน</text>
 
-                                <!-- Thai Udom (ไทยอุดม) -->
-                                <g class="cursor-pointer">
-                                    <circle id="bubble-270502" cx="300" cy="620" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
-                                    <text x="300" y="624" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">ไทยอุดม</text>
-                                    <text id="count-270502" x="300" y="642" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
-                                </g>
+                                <text x="856" y="1106" class="tlabel" text-anchor="middle">คลองหาด</text>
+                                <text x="856" y="1144" class="tcount" id="count-T05" text-anchor="middle">— คน</text>
 
-                                <!-- Khlong Hat (คลองหาด) -->
-                                <g class="cursor-pointer">
-                                    <circle id="bubble-270501" cx="460" cy="530" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
-                                    <text x="460" y="534" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">คลองหาด</text>
-                                    <text id="count-270501" x="460" y="552" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
-                                </g>
+                                <text x="568" y="1338" class="tlabel" text-anchor="middle">ไทยอุดม</text>
+                                <text x="568" y="1376" class="tcount" id="count-T06" text-anchor="middle">— คน</text>
 
-                                <!-- Khlong Kai Thuean (คลองไก่เถื่อน) -->
-                                <g class="cursor-pointer">
-                                    <circle id="bubble-270506" cx="440" cy="800" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
-                                    <text x="440" y="804" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">คลองไก่เถื่อน</text>
-                                    <text id="count-270506" x="440" y="822" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
-                                </g>
+                                <text x="846" y="1645" class="tlabel" text-anchor="middle">คลองไก่เถื่อน</text>
+                                <text x="846" y="1683" class="tcount" id="count-T07" text-anchor="middle">— คน</text>
                             </svg>
+                        </div>
 
-                            <!-- Map Legend -->
-                            <div class="mt-6 flex flex-wrap gap-4 items-center justify-center border-t border-slate-100 dark:border-slate-800/40 pt-4 text-xs font-bold text-slate-500 dark:text-slate-400 w-full">
-                                <span class="flex items-center space-x-1.5">
-                                    <span class="w-3 h-3 rounded-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700"></span>
-                                    <span>0 คน (ไม่มีคนไข้)</span>
-                                </span>
-                                <span class="flex items-center space-x-1.5">
-                                    <span class="w-3 h-3 rounded-full bg-orange-400/45 border border-orange-500"></span>
-                                    <span>1 - 20 คน</span>
-                                </span>
-                                <span class="flex items-center space-x-1.5">
-                                    <span class="w-3 h-3 rounded-full bg-orange-500/55 border border-orange-600"></span>
-                                    <span>21 - 50 คน</span>
-                                </span>
-                                <span class="flex items-center space-x-1.5">
-                                    <span class="w-3 h-3 rounded-full bg-red-500/55 border border-red-600"></span>
-                                    <span>> 50 คน (หนาแน่นสูง)</span>
-                                </span>
+                        <!-- Map Legend -->
+                        <div class="absolute bottom-6 left-6 bg-white/95 dark:bg-slate-900/95 border border-slate-100 dark:border-slate-800/40 rounded-xl shadow-md p-3 flex flex-col gap-1.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300 z-10">
+                            <div class="text-[9px] font-bold text-slate-400 mb-0.5 uppercase tracking-wide">ความหนาแน่น</div>
+                            <div class="flex items-center gap-2">
+                                <span class="w-3 h-3 rounded-full bg-red-500 shadow-sm"></span>
+                                <span>สูง (&gt; 70 คน)</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="w-3 h-3 rounded-full bg-orange-400 shadow-sm"></span>
+                                <span>ปานกลาง (40–70 คน)</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="w-3 h-3 rounded-full bg-sky-400 shadow-sm"></span>
+                                <span>น้อย (&lt; 40 คน)</span>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Department Volume Card (Right) -->
+                    <!-- Department Donut Charts Card (Right) -->
                     <div class="lg:col-span-5 glass-panel p-6 rounded-2xl bg-white/80 dark:bg-slate-900/50 shadow-sm border border-slate-100/50 dark:border-slate-800/40 flex flex-col">
                         <div class="flex justify-between items-center mb-6">
                             <div>
                                 <h3 class="font-extrabold text-base text-slate-800 dark:text-white flex items-center space-x-2">
-                                    <i class="fas fa-hospital-user text-emerald-500"></i>
-                                    <span>ปริมาณคนไข้ตามแผนก</span>
+                                    <i class="fas fa-chart-pie text-emerald-500"></i>
+                                    <span>ปริมาณคนไข้ตามแผนกบริการ (Donut Charts)</span>
                                 </h3>
                                 <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">แสดงสัดส่วนผู้เข้ารับบริการวันนี้แบบเรียลไทม์</p>
                             </div>
                         </div>
 
-                        <!-- Radial Progress Grid (Style 2 Option) -->
-                        <div id="live-department-grid" class="grid grid-cols-2 gap-4 flex-1">
-                            <!-- Dynamically Rendered Department Radial Rings -->
-                            <div class="flex flex-col items-center justify-center p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-950/10">
-                                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">ไม่มีข้อมูลแผนก</span>
+                        <!-- Vertical Donut Cards stack -->
+                        <div class="flex flex-col gap-4 flex-1 justify-center">
+                            <!-- 1. OPD -->
+                            <div class="flex items-center bg-slate-50/40 dark:bg-slate-950/20 border border-slate-100/80 dark:border-slate-800/80 rounded-2xl p-4 gap-4 shadow-sm hover:shadow transition">
+                                <div id="chart-opd" style="width: 80px; height: 80px; flex-shrink: 0;"></div>
+                                <div class="flex flex-col flex-1">
+                                    <span class="text-xs font-bold text-slate-800 dark:text-white">Outpatient Dept. (OPD)</span>
+                                    <span id="opd-stats-label" class="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-0.5">โหลดข้อมูล...</span>
+                                    <span class="self-start text-[8px] font-extrabold px-1.5 py-0.5 mt-1.5 rounded bg-teal-500/10 text-teal-600 dark:text-teal-400 uppercase">สิทธิ์ สปสช. (UCS)</span>
+                                </div>
+                            </div>
+
+                            <!-- 2. ER -->
+                            <div class="flex items-center bg-slate-50/40 dark:bg-slate-950/20 border border-slate-100/80 dark:border-slate-800/80 rounded-2xl p-4 gap-4 shadow-sm hover:shadow transition">
+                                <div id="chart-er" style="width: 80px; height: 80px; flex-shrink: 0;"></div>
+                                <div class="flex flex-col flex-1">
+                                    <span class="text-xs font-bold text-slate-800 dark:text-white">Emergency Room (ER)</span>
+                                    <span id="er-stats-label" class="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-0.5">โหลดข้อมูล...</span>
+                                    <span class="self-start text-[8px] font-extrabold px-1.5 py-0.5 mt-1.5 rounded bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase">เคสฉุกเฉินด่วน</span>
+                                </div>
+                            </div>
+
+                            <!-- 3. NCD -->
+                            <div class="flex items-center bg-slate-50/40 dark:bg-slate-950/20 border border-slate-100/80 dark:border-slate-800/80 rounded-2xl p-4 gap-4 shadow-sm hover:shadow transition">
+                                <div id="chart-ncd" style="width: 80px; height: 80px; flex-shrink: 0;"></div>
+                                <div class="flex flex-col flex-1">
+                                    <span class="text-xs font-bold text-slate-800 dark:text-white">NCD Clinic</span>
+                                    <span id="ncd-stats-label" class="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-0.5">โหลดข้อมูล...</span>
+                                    <span class="self-start text-[8px] font-extrabold px-1.5 py-0.5 mt-1.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 uppercase">คลินิกโรคเรื้อรัง</span>
+                                </div>
+                            </div>
+
+                            <!-- 4. Dental -->
+                            <div class="flex items-center bg-slate-50/40 dark:bg-slate-950/20 border border-slate-100/80 dark:border-slate-800/80 rounded-2xl p-4 gap-4 shadow-sm hover:shadow transition">
+                                <div id="chart-dental" style="width: 80px; height: 80px; flex-shrink: 0;"></div>
+                                <div class="flex flex-col flex-1">
+                                    <span class="text-xs font-bold text-slate-800 dark:text-white">Dental Clinic</span>
+                                    <span id="dental-stats-label" class="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-0.5">โหลดข้อมูล...</span>
+                                    <span class="self-start text-[8px] font-extrabold px-1.5 py-0.5 mt-1.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 uppercase">ทันตกรรมทั่วไป</span>
+                                </div>
                             </div>
                         </div>
                     </div>

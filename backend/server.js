@@ -9,11 +9,12 @@ import * as xlsx from 'xlsx';
 import { checkConnections, trackerPool, hosxpPool } from './db.js';
 import { initInternalDb } from './initDb.js';
 import { verifyUserLogin, authenticateToken } from './auth.js';
-import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic, checkNhsoStatusViaApi, getHosxpTotalVisits, getLiveDashboardGeo, getLiveDashboardDeps } from './dataService.js';
+import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic, checkNhsoStatusViaApi, getHosxpTotalVisits, getLiveDashboardGeo, getLiveDashboardDeps, getHosxpSummaryStats } from './dataService.js';
 import { processCrossCheck } from './crossCheckLogic.js';
 import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
+import visitRoutes from './routes/visitRoutes.js';
 
 dotenv.config();
 
@@ -27,6 +28,9 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Visit routes
+app.use('/api/visits', authenticateToken, visitRoutes);
 
 // Serve specific frontend files
 app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/app.js')));
@@ -65,46 +69,9 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
     }
     
     try {
-        // Query data stats
-        const [[{ total_visits }]] = await trackerPool.query(
-            'SELECT COUNT(*) as total_visits FROM visit_tracking WHERE visit_date = ?',
-            [queryDate]
-        );
-
-        const [[{ total_money }]] = await trackerPool.query(
-            'SELECT COALESCE(SUM(uc_money), 0) as total_money FROM visit_tracking WHERE visit_date = ?',
-            [queryDate]
-        );
-
-        const [[{ endpoint_count }]] = await trackerPool.query(
-            "SELECT COUNT(*) as endpoint_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'YELLOW'",
-            [queryDate]
-        );
-
-        const [[{ not_imported_count }]] = await trackerPool.query(
-            "SELECT COUNT(*) as not_imported_count FROM visit_tracking WHERE visit_date = ? AND check_claimcode = 'ยังไม่ได้นำเข้า'",
-            [queryDate]
-        );
-
-        const [[{ authen_count }]] = await trackerPool.query(
-            "SELECT COUNT(*) as authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'",
-            [queryDate]
-        );
-
-        const [rights] = await trackerPool.query(
-            'SELECT COALESCE(pttype_note, pttype) as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3',
-            [queryDate]
-        );
-
-        const [[{ ucs_total }]] = await trackerPool.query(
-            "SELECT COUNT(*) as ucs_total FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW')",
-            [queryDate]
-        );
-
-        const [ucs_departments] = await trackerPool.query(
-            "SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW') GROUP BY dept_name ORDER BY cnt DESC LIMIT 3",
-            [queryDate]
-        );
+        // Query data stats directly from HOSxP database
+        const stats = await getHosxpSummaryStats(queryDate);
+        const { total_visits, total_money, endpoint_count, not_imported_count, authen_count, rights, ucs_total, ucs_departments } = stats;
 
         // Build right items contents dynamically
         const rightsContents = [];
@@ -826,29 +793,55 @@ async function runManualPortalSyncInBackground(visit_date) {
 app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
     try {
         const { date, status } = req.query;
-        let query = 'SELECT * FROM visit_tracking WHERE 1=1';
-        const params = [];
-
-        if (date) {
-            query += ' AND visit_date = ?';
-            params.push(date);
-        }
-        if (status) {
-            query += ' AND color_status = ?';
-            params.push(status);
+        if (!date) {
+            return res.status(400).json({ message: 'กรุณาระบุวันที่ (date)' });
         }
 
-        query += ' ORDER BY color_status ASC, full_name ASC';
-
-        const [rows] = await trackerPool.query(query, params);
+        // ดึงข้อมูลผู้ป่วยจาก HOSxP และเชื่อมตาราง temp_authen_code
+        const hosxpData = await getHosxpVisits(date);
         
-        let hosxpStats = null;
-        if (date) {
-            hosxpStats = await getHosxpTotalVisits(date);
+        // แปลงข้อมูลและคำนวณสถานะสี (RED, YELLOW, GREEN) แบบ Real-time
+        let mappedData = hosxpData.map(patient => {
+            const authenStatus = !!patient.nhso_claim_code;
+            const endpointStatus = authenStatus && (String(patient.authen_code_type || '').toUpperCase() === 'ENDPOINT');
+            
+            let colorStatus = 'RED';
+            if (authenStatus) {
+                colorStatus = endpointStatus ? 'GREEN' : 'YELLOW';
+            }
+
+            return {
+                vn: patient.vn,
+                hn: patient.hn || '',
+                cid: patient.cid,
+                cid_check: patient.cid_check,
+                full_name: patient.fullName,
+                visit_date: patient.visitDate,
+                pttype: patient.pttype,
+                pcode: patient.pcode,
+                uc_money: patient.uc_money,
+                claim_code: patient.claim_code,
+                nhso_claim_code: patient.nhso_claim_code,
+                authen_code_type: patient.authen_code_type,
+                pttype_note: patient.pttype_note,
+                department: patient.department,
+                authen_status: authenStatus,
+                endpoint_status: endpointStatus,
+                color_status: colorStatus,
+                staff: patient.staff,
+                check_claimcode: patient.check_claimcode
+            };
+        });
+
+        // ถ้ามีการกรองด้วยสถานะ (RED, YELLOW, GREEN)
+        if (status) {
+            mappedData = mappedData.filter(item => item.color_status === status);
         }
+
+        let hosxpStats = await getHosxpTotalVisits(date);
 
         res.json({
-            trackingData: rows,
+            trackingData: mappedData,
             hosxpStats: hosxpStats
         });
     } catch (error) {
@@ -874,11 +867,19 @@ app.get('/api/dashboard/live-data', authenticateToken, async (req, res) => {
         // Fetch HOSxP stats for the date (total visits, total persons, total uc money)
         const hosxpStats = await getHosxpTotalVisits(visit_date);
 
-        // Fetch pending count from the internal tracking DB (where authen is not completed yet)
-        const [[{ pending_count }]] = await trackerPool.query(
-            "SELECT COUNT(*) as pending_count FROM visit_tracking WHERE visit_date = ? AND color_status IN ('RED', 'YELLOW')",
-            [visit_date]
-        );
+        // Fetch pending count directly from HOSxP and temp_authen_code
+        const [[{ pending_count }]] = await hosxpPool.query(`
+            SELECT COUNT(v.vn) as pending_count
+            FROM vn_stat v
+            LEFT OUTER JOIN temp_authen_code td ON td.cid = v.cid 
+                AND td.status_use <> 'C' 
+                AND td.dateser = v.vstdate
+                AND td.flag = 'D'
+            LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+            WHERE v.vstdate = ?
+              AND py.hipdata_code IN ('UCS', 'OFC')
+              AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')
+        `, [visit_date]);
 
         res.json({
             success: true,
@@ -895,23 +896,48 @@ app.get('/api/dashboard/live-data', authenticateToken, async (req, res) => {
 });
 
 /**
+ * ดึงไฟล์ GeoJSON ของตำบลในอำเภอคลองหาด
+ */
+app.get('/api/geojson', authenticateToken, async (req, res) => {
+    try {
+        const geojsonPath = path.join(__dirname, 'khlonghat.geojson');
+        fs.readFile(geojsonPath, 'utf8', (err, data) => {
+            if (err) {
+                console.error('Error reading GeoJSON:', err);
+                return res.status(500).json({ error: 'ไม่พบไฟล์ขอบเขตแผนที่ระดับตำบล' });
+            }
+            res.setHeader('Content-Type', 'application/json');
+            res.send(data);
+        });
+    } catch (error) {
+        console.error('❌ Error serving geojson:', error);
+        res.status(500).json({ message: 'เกิดข้อผิดพลาดในการโหลดแผนที่' });
+    }
+});
+
+/**
  * ดึงข้อมูลสรุปรายวัน (Weekly Summary)
  */
 app.get('/api/tracking/summary', authenticateToken, async (req, res) => {
     try {
-        const query = `
+        const [rows] = await hosxpPool.query(`
             SELECT 
-                visit_date, 
-                SUM(CASE WHEN color_status = 'RED' THEN 1 ELSE 0 END) as red,
-                SUM(CASE WHEN color_status = 'YELLOW' THEN 1 ELSE 0 END) as yellow,
-                SUM(CASE WHEN color_status = 'GREEN' THEN 1 ELSE 0 END) as green,
-                COUNT(*) as total
-            FROM visit_tracking 
-            WHERE visit_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-            GROUP BY visit_date 
-            ORDER BY visit_date DESC
-        `;
-        const [rows] = await trackerPool.query(query);
+                v.vstdate as visit_date,
+                SUM(CASE WHEN td.claimcode IS NULL THEN 1 ELSE 0 END) as red,
+                SUM(CASE WHEN td.claimcode IS NOT NULL AND (td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT') THEN 1 ELSE 0 END) as yellow,
+                SUM(CASE WHEN td.claimcode IS NOT NULL AND UPPER(td.authen_code_type) = 'ENDPOINT' THEN 1 ELSE 0 END) as green,
+                COUNT(v.vn) as total
+            FROM vn_stat v
+            LEFT OUTER JOIN temp_authen_code td ON td.cid = v.cid 
+                AND td.status_use <> 'C' 
+                AND td.dateser = v.vstdate
+                AND td.flag = 'D'
+            LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+            WHERE v.vstdate >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+              AND py.hipdata_code IN ('UCS', 'OFC')
+            GROUP BY v.vstdate
+            ORDER BY v.vstdate DESC
+        `);
         res.json(rows);
     } catch (error) {
         res.status(500).json({ message: 'ไม่สามารถดึงข้อมูลสรุปได้' });
@@ -1337,8 +1363,12 @@ let lastUpdateId = 0;
 async function startTelegramBotListener() {
     console.log('🤖 Telegram Bot message listener started (Long Polling)...');
     
-    // Background polling loop
-    setInterval(async () => {
+    let isPolling = false;
+    
+    async function poll() {
+        if (isPolling) return;
+        isPolling = true;
+        
         try {
             // Dynamically reload .env configuration changes
             dotenv.config({ override: true });
@@ -1347,46 +1377,73 @@ async function startTelegramBotListener() {
             const chatId = process.env.TELEGRAM_CHAT_ID;
             
             if (!token || !chatId || chatId === 'your_telegram_chat_id_here') {
+                isPolling = false;
+                setTimeout(poll, 10000);
                 return;
             }
 
-            const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`);
-            if (!response.ok) return;
-            
-            const data = await response.json();
-            if (data.ok && data.result.length > 0) {
-                for (const update of data.result) {
-                    lastUpdateId = update.update_id;
-                    
-                    const message = update.message;
-                    if (!message || !message.text) continue;
-                    
-                    const text = message.text.trim();
-                    const fromChatId = message.chat.id.toString();
-                    
-                    // Split the comma-separated list of allowed chat IDs
-                    const allowedChatIds = chatId.split(',').map(id => id.trim()).filter(id => id);
-                    
-                    if (allowedChatIds.includes(fromChatId)) {
-                        if (text === 'เข้าระบบ' || text === 'ดึงข้อมูล' || text.toLowerCase() === '/login' || text.toLowerCase() === '/sync') {
-                            console.log(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
-                            
-                            // Send initial acknowledgment
-                            await sendTelegramMessage(token, fromChatId, '⏳ กำลังเตรียมการเข้าสู่ระบบ สปสช. และดึง QR Code ของ ThaiD...');
-                            await sendLineMessage('⏳ [Telegram Command] กำลังเตรียมการดึงข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD...');
-                            
-                            // Run the end-to-end sync and capture in the background!
-                            runE2EPortalSyncAndCapture(fromChatId).catch(err => {
-                                console.error('Error running E2E portal sync via telegram command:', err);
-                            });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 35000);
+
+            try {
+                const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`, {
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    isPolling = false;
+                    setTimeout(poll, 5000);
+                    return;
+                }
+                
+                const data = await response.json();
+                if (data.ok && data.result.length > 0) {
+                    for (const update of data.result) {
+                        lastUpdateId = update.update_id;
+                        
+                        const message = update.message;
+                        if (!message || !message.text) continue;
+                        
+                        const text = message.text.trim();
+                        const fromChatId = message.chat.id.toString();
+                        
+                        // Split the comma-separated list of allowed chat IDs
+                        const allowedChatIds = chatId.split(',').map(id => id.trim()).filter(id => id);
+                        
+                        if (allowedChatIds.includes(fromChatId)) {
+                            if (text === 'เข้าระบบ' || text === 'ดึงข้อมูล' || text.toLowerCase() === '/login' || text.toLowerCase() === '/sync') {
+                                console.log(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
+                                
+                                // Send initial acknowledgment
+                                await sendTelegramMessage(token, fromChatId, '⏳ กำลังเตรียมการเข้าสู่ระบบ สปสช. และดึง QR Code ของ ThaiD...');
+                                await sendLineMessage('⏳ [Telegram Command] กำลังเตรียมการดึงข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD...');
+                                
+                                // Run the end-to-end sync and capture in the background!
+                                runE2EPortalSyncAndCapture(fromChatId).catch(err => {
+                                    console.error('Error running E2E portal sync via telegram command:', err);
+                                });
+                            }
                         }
                     }
                 }
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                throw fetchError;
             }
+            
+            isPolling = false;
+            setTimeout(poll, 1000);
+            
         } catch (error) {
             console.error('Error polling Telegram updates:', error);
+            isPolling = false;
+            setTimeout(poll, 10000);
         }
-    }, 4000); // Poll every 4 seconds
+    }
+    
+    poll();
 }
 
 async function sendTelegramMessage(token, chatId, text) {

@@ -1,0 +1,17 @@
+[
+  { "state": "Mueang Sa Kaeo", "city": "Mueang Sa Kaeo", "latitude": 13.8122, "longitude": 102.0697, "store_name": "Sakaeo BigC Store", "count": 1 },
+  { "state": "Mueang Sa Kaeo", "city": "Mueang Sa Kaeo", "latitude": 13.8214, "longitude": 102.0801, "store_name": "Sakaeo Plaza Mall", "count": 1 },
+  { "state": "Mueang Sa Kaeo", "city": "Tha Yaek", "latitude": 13.8654, "longitude": 102.0121, "store_name": "Tha Yaek Market Store", "count": 1 },
+  { "state": "Khlong Hat", "city": "Khlong Hat", "latitude": 13.4353, "longitude": 102.3121, "store_name": "Khlong Hat Central Store", "count": 1 },
+  { "state": "Khlong Hat", "city": "Khlong Hat", "latitude": 13.4024, "longitude": 102.2987, "store_name": "Khlong Hat Lotus Express", "count": 1 },
+  { "state": "Khlong Hat", "city": "Sai Diao", "latitude": 13.5601, "longitude": 102.1321, "store_name": "Sai Diao Market Store", "count": 1 },
+  { "state": "Aranyaprathet", "city": "Aranyaprathet", "latitude": 13.6932, "longitude": 102.5021, "store_name": "Aran Border Market Store", "count": 1 },
+  { "state": "Aranyaprathet", "city": "Aranyaprathet", "latitude": 13.6804, "longitude": 102.5214, "store_name": "Rong Kluea Market Branch", "count": 1 },
+  { "state": "Aranyaprathet", "city": "Fak Huai", "latitude": 13.7121, "longitude": 102.4874, "store_name": "Fak Huai Super Store", "count": 1 },
+  { "state": "Watthana Nakhon", "city": "Watthana Nakhon", "latitude": 13.7912, "longitude": 102.3124, "store_name": "Watthana Center Store", "count": 1 },
+  { "state": "Watthana Nakhon", "city": "Chong Kum", "latitude": 13.8821, "longitude": 102.3564, "store_name": "Chong Kum Park Store", "count": 1 },
+  { "state": "Wang Nam Yen", "city": "Wang Nam Yen", "latitude": 13.4321, "longitude": 102.1812, "store_name": "Wang Nam Yen Main Street Store", "count": 1 },
+  { "state": "Khao Chakan", "city": "Khao Chakan", "latitude": 13.5821, "longitude": 102.0912, "store_name": "Khao Chakan Mountain View Store", "count": 1 },
+  { "state": "Khok Sung", "city": "Khok Sung", "latitude": 13.8821, "longitude": 102.6121, "store_name": "Khok Sung Border Post Store", "count": 1 },
+  { "state": "Ta Phraya", "city": "Ta Phraya", "latitude": 14.1012, "longitude": 102.7321, "store_name": "Ta Phraya City Hall Store", "count": 1 }
+]

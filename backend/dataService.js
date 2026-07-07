@@ -8,6 +8,7 @@ export async function getHosxpVisits(visitDate) {
     const query = `
         SELECT 
             IF(ov.an IS NULL, v.vn, 'Admit') AS vn,
+            v.hn,
             CONCAT('cid_', v.cid) AS cid_check,
             v.cid,
             CONCAT(p.pname, p.fname, ' ', p.lname) as fullName,
@@ -363,10 +364,11 @@ export async function getLiveDashboardGeo(visitDate) {
             COUNT(v.vn) as visit_count
         FROM vn_stat v
         JOIN patient p ON p.hn = v.hn
-        LEFT JOIN thaiaddress t ON t.chwpart = p.chwpart AND t.amppart = p.amppart AND t.tmbpart = p.tmbpart AND t.codepart = CONCAT(p.chwpart, p.amppart, p.tmbpart)
+        LEFT JOIN thaiaddress t ON t.chwpart = p.chwpart AND t.amppart = p.amppart AND t.tmbpart = p.tmbpart
         WHERE v.vstdate = ?
           AND p.chwpart = '27'
           AND p.amppart = '05'
+          AND p.tmbpart <> '00'
         GROUP BY p.tmbpart, t.name
         ORDER BY visit_count DESC
     `;
@@ -404,4 +406,146 @@ export async function getLiveDashboardDeps(visitDate) {
         return [];
     }
 }
+
+/**
+ * ดึงข้อมูลสรุปทางสถิติทั้งหมดโดยตรงจากฐานข้อมูล HOSxP และ temp_authen_code
+ */
+export async function getHosxpSummaryStats(visitDate) {
+    const totalVisitsQuery = `
+        SELECT COUNT(v.vn) as total_visits
+        FROM vn_stat v
+        LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+        WHERE v.vstdate = ?
+          AND py.hipdata_code IN ('UCS', 'OFC')
+    `;
+
+    const totalMoneyQuery = `
+        SELECT COALESCE(SUM(v.uc_money), 0) as total_money
+        FROM vn_stat v
+        LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+        WHERE v.vstdate = ?
+          AND py.hipdata_code IN ('UCS', 'OFC')
+    `;
+
+    const endpointCountQuery = `
+        SELECT COUNT(v.vn) as endpoint_count
+        FROM vn_stat v
+        LEFT OUTER JOIN temp_authen_code td ON td.cid = v.cid 
+            AND td.status_use <> 'C' 
+            AND td.dateser = v.vstdate
+            AND td.flag = 'D'
+        LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+        WHERE v.vstdate = ?
+          AND py.hipdata_code IN ('UCS', 'OFC')
+          AND td.claimcode IS NOT NULL
+          AND (td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')
+    `;
+
+    const notImportedCountQuery = `
+        SELECT COUNT(v.vn) as not_imported_count
+        FROM vn_stat v
+        LEFT OUTER JOIN temp_authen_code td ON td.cid = v.cid 
+            AND td.status_use <> 'C' 
+            AND td.dateser = v.vstdate
+            AND td.flag = 'D'
+        LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+        WHERE v.vstdate = ?
+          AND py.hipdata_code IN ('UCS', 'OFC')
+          AND td.claimcode IS NULL
+    `;
+
+    const authenCountQuery = `
+        SELECT COUNT(v.vn) as authen_count
+        FROM vn_stat v
+        LEFT OUTER JOIN temp_authen_code td ON td.cid = v.cid 
+            AND td.status_use <> 'C' 
+            AND td.dateser = v.vstdate
+            AND td.flag = 'D'
+        LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+        WHERE v.vstdate = ?
+          AND py.hipdata_code IN ('UCS', 'OFC')
+          AND td.claimcode IS NOT NULL
+          AND UPPER(td.authen_code_type) = 'ENDPOINT'
+    `;
+
+    const rightsQuery = `
+        SELECT COALESCE(vp.pttype_note, vp.pttype) as right_name, COUNT(v.vn) as cnt
+        FROM vn_stat v
+        LEFT OUTER JOIN visit_pttype vp ON vp.vn = v.vn
+        LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+        WHERE v.vstdate = ?
+          AND py.hipdata_code IN ('UCS', 'OFC')
+        GROUP BY right_name
+        ORDER BY cnt DESC
+        LIMIT 3
+    `;
+
+    const ucsTotalQuery = `
+        SELECT COUNT(v.vn) as ucs_total
+        FROM vn_stat v
+        LEFT OUTER JOIN temp_authen_code td ON td.cid = v.cid 
+            AND td.status_use <> 'C' 
+            AND td.dateser = v.vstdate
+            AND td.flag = 'D'
+        LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+        WHERE v.vstdate = ?
+          AND py.hipdata_code = 'UCS'
+          AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')
+    `;
+
+    const ucsDepartmentsQuery = `
+        SELECT COALESCE(CONVERT(k.department USING utf8), 'ไม่ระบุจุดบริการ') as dept_name, COUNT(v.vn) as cnt
+        FROM vn_stat v
+        LEFT OUTER JOIN temp_authen_code td ON td.cid = v.cid 
+            AND td.status_use <> 'C' 
+            AND td.dateser = v.vstdate
+            AND td.flag = 'D'
+        LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+        LEFT OUTER JOIN ovst ov ON ov.vn = v.vn
+        LEFT OUTER JOIN kskdepartment k ON k.depcode = ov.main_dep
+        WHERE v.vstdate = ?
+          AND py.hipdata_code = 'UCS'
+          AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')
+        GROUP BY dept_name
+        ORDER BY cnt DESC
+        LIMIT 3
+    `;
+
+    try {
+        const [
+            [[{ total_visits }]],
+            [[{ total_money }]],
+            [[{ endpoint_count }]],
+            [[{ not_imported_count }]],
+            [[{ authen_count }]],
+            [rights],
+            [[{ ucs_total }]],
+            [ucs_departments]
+        ] = await Promise.all([
+            hosxpPool.query(totalVisitsQuery, [visitDate]),
+            hosxpPool.query(totalMoneyQuery, [visitDate]),
+            hosxpPool.query(endpointCountQuery, [visitDate]),
+            hosxpPool.query(notImportedCountQuery, [visitDate]),
+            hosxpPool.query(authenCountQuery, [visitDate]),
+            hosxpPool.query(rightsQuery, [visitDate]),
+            hosxpPool.query(ucsTotalQuery, [visitDate]),
+            hosxpPool.query(ucsDepartmentsQuery, [visitDate])
+        ]);
+
+        return {
+            total_visits: total_visits || 0,
+            total_money: total_money || 0,
+            endpoint_count: endpoint_count || 0,
+            not_imported_count: not_imported_count || 0,
+            authen_count: authen_count || 0,
+            rights: rights || [],
+            ucs_total: ucs_total || 0,
+            ucs_departments: ucs_departments || []
+        };
+    } catch (error) {
+        console.error('❌ HOSxP Summary Stats Query Error:', error);
+        throw error;
+    }
+}
+
 

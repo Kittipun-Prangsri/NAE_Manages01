@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { trackerPool } from '../backend/db.js';
+import { getHosxpSummaryStats } from '../backend/dataService.js';
 
 dotenv.config();
 
@@ -14,61 +14,7 @@ const __dirname = path.dirname(__filename);
  * Fetch data summary statistics from internal tracker database
  */
 async function fetchSummaryStats(queryDate) {
-    // 1. Total visits
-    const [[{ total_visits }]] = await trackerPool.query(
-        'SELECT COUNT(*) as total_visits FROM visit_tracking WHERE visit_date = ?',
-        [queryDate]
-    );
-
-    // 2. Total money
-    const [[{ total_money }]] = await trackerPool.query(
-        'SELECT COALESCE(SUM(uc_money), 0) as total_money FROM visit_tracking WHERE visit_date = ?',
-        [queryDate]
-    );
-
-    // 3. Status counts
-    const [[{ endpoint_count }]] = await trackerPool.query(
-        "SELECT COUNT(*) as endpoint_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'YELLOW'",
-        [queryDate]
-    );
-
-    const [[{ not_imported_count }]] = await trackerPool.query(
-        "SELECT COUNT(*) as not_imported_count FROM visit_tracking WHERE visit_date = ? AND check_claimcode = 'ยังไม่ได้นำเข้า'",
-        [queryDate]
-    );
-
-    const [[{ authen_count }]] = await trackerPool.query(
-        "SELECT COUNT(*) as authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'",
-        [queryDate]
-    );
-
-    // 4. Top 3 rights
-    const [rights] = await trackerPool.query(
-        'SELECT COALESCE(pttype_note, pttype) as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3',
-        [queryDate]
-    );
-
-    // 5. UCS outstanding
-    const [[{ ucs_total }]] = await trackerPool.query(
-        "SELECT COUNT(*) as ucs_total FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW')",
-        [queryDate]
-    );
-
-    const [ucs_departments] = await trackerPool.query(
-        "SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW') GROUP BY dept_name ORDER BY cnt DESC LIMIT 3",
-        [queryDate]
-    );
-
-    return {
-        total_visits,
-        total_money,
-        endpoint_count,
-        not_imported_count,
-        authen_count,
-        rights,
-        ucs_total,
-        ucs_departments
-    };
+    return await getHosxpSummaryStats(queryDate);
 }
 
 /**

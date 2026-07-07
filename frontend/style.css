@@ -321,8 +321,45 @@ body::before {
   transition: all 0.2s ease;
 }
 
+
 .btn-secondary-soft:hover {
   background-color: rgba(59, 130, 246, 0.15);
   transform: translateY(-1px);
 }
 
+/* ===== Custom SVG Map - Khlong Hat District ===== */
+path.tambon {
+  stroke: #ffffff;
+  stroke-width: 6px;
+  cursor: pointer;
+  transition: filter 0.25s ease, transform 0.25s ease, fill 0.3s ease;
+}
+
+path.tambon:hover {
+  filter: brightness(1.08) drop-shadow(0 12px 20px rgba(0,0,0,0.15));
+  transform: translateY(-2px);
+}
+
+text.tlabel {
+  font-family: 'Kanit', 'Sarabun', sans-serif;
+  font-weight: 700;
+  font-size: 36px;
+  fill: #ffffff;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.45);
+  stroke-width: 6px;
+  pointer-events: none;
+  user-select: none;
+}
+
+text.tcount {
+  font-family: 'Kanit', 'Sarabun', sans-serif;
+  font-weight: 500;
+  font-size: 28px;
+  fill: #ffffff;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 5px;
+  pointer-events: none;
+  user-select: none;
+}

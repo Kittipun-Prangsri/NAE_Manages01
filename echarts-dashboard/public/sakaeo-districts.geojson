@@ -1,0 +1,140 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "id": "Mueang Sa Kaeo",
+      "type": "Feature",
+      "properties": { "name": "เมืองสระแก้ว" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [101.90, 13.90],
+          [101.90, 13.70],
+          [102.20, 13.70],
+          [102.20, 13.90],
+          [101.90, 13.90]
+        ]]
+      }
+    },
+    {
+      "id": "Watthana Nakhon",
+      "type": "Feature",
+      "properties": { "name": "วัฒนานคร" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [102.20, 13.90],
+          [102.20, 13.70],
+          [102.40, 13.70],
+          [102.40, 13.90],
+          [102.20, 13.90]
+        ]]
+      }
+    },
+    {
+      "id": "Aranyaprathet",
+      "type": "Feature",
+      "properties": { "name": "อรัญประเทศ" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [102.40, 13.80],
+          [102.40, 13.60],
+          [102.60, 13.60],
+          [102.60, 13.80],
+          [102.40, 13.80]
+        ]]
+      }
+    },
+    {
+      "id": "Ta Phraya",
+      "type": "Feature",
+      "properties": { "name": "ตาพระยา" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [102.50, 14.20],
+          [102.50, 14.00],
+          [102.80, 14.00],
+          [102.80, 14.20],
+          [102.50, 14.20]
+        ]]
+      }
+    },
+    {
+      "id": "Khok Sung",
+      "type": "Feature",
+      "properties": { "name": "โคกสูง" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [102.50, 14.00],
+          [102.50, 13.80],
+          [102.70, 13.80],
+          [102.70, 14.00],
+          [102.50, 14.00]
+        ]]
+      }
+    },
+    {
+      "id": "Khlong Hat",
+      "type": "Feature",
+      "properties": { "name": "คลองหาด" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [102.20, 13.50],
+          [102.20, 13.30],
+          [102.40, 13.30],
+          [102.40, 13.50],
+          [102.20, 13.50]
+        ]]
+      }
+    },
+    {
+      "id": "Wang Nam Yen",
+      "type": "Feature",
+      "properties": { "name": "วังน้ำเย็น" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [102.10, 13.50],
+          [102.10, 13.30],
+          [102.20, 13.30],
+          [102.20, 13.50],
+          [102.10, 13.50]
+        ]]
+      }
+    },
+    {
+      "id": "Wang Sombun",
+      "type": "Feature",
+      "properties": { "name": "วังสมบูรณ์" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [102.00, 13.30],
+          [102.00, 13.10],
+          [102.20, 13.10],
+          [102.20, 13.30],
+          [102.00, 13.30]
+        ]]
+      }
+    },
+    {
+      "id": "Khao Chakan",
+      "type": "Feature",
+      "properties": { "name": "เขาฉกรรจ์" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [101.90, 13.70],
+          [101.90, 13.50],
+          [102.20, 13.50],
+          [102.20, 13.70],
+          [101.90, 13.70]
+        ]]
+      }
+    }
+  ]
+}

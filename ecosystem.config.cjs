@@ -6,7 +6,8 @@ module.exports = {
       watch: false,
       env: {
         NODE_ENV: 'development',
-        PORT: 3005
+        PORT: 3005,
+        DISABLE_BACKGROUND_JOBS: 'true'
       }
     },
     {

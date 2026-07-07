@@ -29,15 +29,15 @@ app.use(cors());
 app.use(express.json());
 
 // Serve specific frontend files
-app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'app.js')));
-app.get('/api.js', (req, res) => res.sendFile(path.join(__dirname, 'api.js')));
-app.get('/ui.js', (req, res) => res.sendFile(path.join(__dirname, 'ui.js')));
-app.get('/utils.js', (req, res) => res.sendFile(path.join(__dirname, 'utils.js')));
-app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, 'style.css')));
+app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/app.js')));
+app.get('/api.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/api.js')));
+app.get('/ui.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/ui.js')));
+app.get('/utils.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/utils.js')));
+app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, '../frontend/style.css')));
 
 // Serve static files from 'dist' if they exist (only in production)
 if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, 'dist')));
+    app.use(express.static(path.join(__dirname, '../dist')));
 }
 
 // Serve screenshots statically (so LINE Messaging API can access them if public domain/IP is configured)
@@ -766,7 +766,11 @@ app.delete('/api/admin/schedules/:id', authenticateToken, requireAdmin, async (r
 
 // For any other requests, serve the index.html from the root
 app.use((req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    if (process.env.NODE_ENV === 'production') {
+        res.sendFile(path.join(__dirname, '../dist/index.html'));
+    } else {
+        res.sendFile(path.join(__dirname, '../frontend/index.html'));
+    }
 });
 
 // --- Grafana Screen Capture & NHSO Report Downloader Scheduler ---

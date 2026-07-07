@@ -4,11 +4,11 @@
   "type": "module",
   "main": "script.js",
   "scripts": {
-    "dev": "concurrently \"vite\" \"nodemon server.js\"",
+    "dev": "concurrently \"vite\" \"nodemon backend/server.js\"",
     "dev:frontend": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "node server.js",
+    "start": "node backend/server.js",
     "worker": "node jobs/worker.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

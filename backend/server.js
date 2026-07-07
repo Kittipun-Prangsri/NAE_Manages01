@@ -12,8 +12,8 @@ import { verifyUserLogin, authenticateToken } from './auth.js';
 import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic, checkNhsoStatusViaApi, getHosxpTotalVisits } from './dataService.js';
 import { processCrossCheck } from './crossCheckLogic.js';
 import cron from 'node-cron';
-import { captureAndNotify } from './jobs/capture-grafana.js';
-import { downloadNhsoReport, cleanOldDownloads } from './jobs/download-nhso.js';
+import { captureAndNotify } from '../jobs/capture-grafana.js';
+import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
 
 dotenv.config();
 
@@ -29,15 +29,15 @@ app.use(cors());
 app.use(express.json());
 
 // Serve specific frontend files
-app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, 'app.js')));
-app.get('/api.js', (req, res) => res.sendFile(path.join(__dirname, 'api.js')));
-app.get('/ui.js', (req, res) => res.sendFile(path.join(__dirname, 'ui.js')));
-app.get('/utils.js', (req, res) => res.sendFile(path.join(__dirname, 'utils.js')));
-app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, 'style.css')));
+app.get('/app.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/app.js')));
+app.get('/api.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/api.js')));
+app.get('/ui.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/ui.js')));
+app.get('/utils.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/utils.js')));
+app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, '../frontend/style.css')));
 
 // Serve static files from 'dist' if they exist (only in production)
 if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, 'dist')));
+    app.use(express.static(path.join(__dirname, '../dist')));
 }
 
 // Serve screenshots statically (so LINE Messaging API can access them if public domain/IP is configured)
@@ -169,8 +169,7 @@ app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (
         await saveTrackingResults(processedData);
         await executeAdvancedRunLogic(visit_date);
 
-        // Capture Grafana and send Telegram/LINE in the background
-        captureAndNotify().catch(err => console.error('❌ Error capturing Grafana after sync:', err));
+        // (Auto-capture disabled in favor of frontend pop-up selection)
 
         res.json({
             success: true,
@@ -206,8 +205,7 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
         await saveTrackingResults(processedData);
         await executeAdvancedRunLogic(visit_date);
 
-        // Capture Grafana and send Telegram/LINE in the background
-        captureAndNotify().catch(err => console.error('❌ Error capturing Grafana after paste sync:', err));
+        // (Auto-capture disabled in favor of frontend pop-up selection)
 
         res.json({
             success: true,
@@ -305,8 +303,9 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
  */
 app.post('/api/sync/capture-grafana', authenticateToken, async (req, res) => {
     try {
-        console.log(`📸 [Manual Trigger] Grafana Capture requested by user: ${req.user.username}`);
-        const result = await captureAndNotify();
+        const { visit_date, channels, report_types } = req.body;
+        console.log(`📸 [Manual Trigger] Grafana Capture requested by user: ${req.user.username} for date: ${visit_date || 'today'} (Channels: ${channels ? channels.join(', ') : 'all'}, Types: ${report_types ? report_types.join(', ') : 'all'})`);
+        const result = await captureAndNotify(visit_date, channels, report_types);
         if (result.success) {
             res.json({
                 success: true,
@@ -394,7 +393,7 @@ async function runManualPortalSyncInBackground(visit_date) {
     await sendLineMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`);
 
     // Capture Grafana and send Telegram/LINE in the background
-    captureAndNotify().catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
+    captureAndNotify(visit_date).catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
 }
 
 /**
@@ -766,7 +765,11 @@ app.delete('/api/admin/schedules/:id', authenticateToken, requireAdmin, async (r
 
 // For any other requests, serve the index.html from the root
 app.use((req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    if (process.env.NODE_ENV === 'production') {
+        res.sendFile(path.join(__dirname, '../dist/index.html'));
+    } else {
+        res.sendFile(path.join(__dirname, '../frontend/index.html'));
+    }
 });
 
 // --- Grafana Screen Capture & NHSO Report Downloader Scheduler ---
@@ -810,7 +813,7 @@ async function handleScheduledSyncAndCapture() {
     
     // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
     console.log('📸 [Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
-    await captureAndNotify();
+    await captureAndNotify(visit_date);
 }
 
 // --- Dynamic Cron Scheduler Configurator ---
@@ -1010,5 +1013,5 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
     
     // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
     console.log('📸 [Telegram Trigger] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
-    await captureAndNotify();
+    await captureAndNotify(visit_date);
 }

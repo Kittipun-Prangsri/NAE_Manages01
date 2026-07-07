@@ -1,8 +1,8 @@
 import { downloadNhsoReport, cleanOldDownloads } from './jobs/download-nhso.js';
 import { captureAndNotify } from './jobs/capture-grafana.js';
-import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic } from './dataService.js';
-import { processCrossCheck } from './crossCheckLogic.js';
-import { checkConnections } from './db.js';
+import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic } from './backend/dataService.js';
+import { processCrossCheck } from './backend/crossCheckLogic.js';
+import { checkConnections } from './backend/db.js';
 import * as xlsx from 'xlsx';
 import fs from 'fs';
 import path from 'path';

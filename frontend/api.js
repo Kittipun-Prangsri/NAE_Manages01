@@ -58,10 +58,14 @@ export const api = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
-    async triggerCapture(token) {
+    async triggerCapture(date, channels, reportTypes, token) {
         const res = await fetch(`${API_BASE}/sync/capture-grafana`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ visit_date: date, channels, report_types: reportTypes })
         });
         return { ok: res.ok, status: res.status, data: await res.json() };
     },

@@ -298,9 +298,9 @@ async function handleApiSync() {
     try {
         const response = await api.processSyncDirect(visitDate, appState.token);
         if (handleApiResponse(response)) {
-            alert(response.data.message);
             loadDashboardData();
             loadWeeklySummary();
+            openCaptureSelectionModal(visitDate, response.data.message);
         } else if (response.status !== 401 && response.status !== 403) {
             alert(response.data.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ API');
         }
@@ -312,25 +312,91 @@ async function handleApiSync() {
     }
 }
 
-async function handleManualCapture() {
-    if (!confirm('คุณต้องการสั่งบันทึกหน้าจอ Grafana และจัดส่งรายงานไปยัง LINE/Telegram ทันทีหรือไม่?')) {
-        return;
+function openCaptureSelectionModal(visitDate, successMessage = '') {
+    const modal = document.getElementById('capture-selection-modal');
+    if (!modal) return;
+
+    modal.classList.remove('hidden');
+
+    const textElem = modal.querySelector('p');
+    if (textElem) {
+        if (successMessage) {
+            textElem.innerText = `${successMessage}\n\nคุณต้องการจัดส่งรายงานข้อมูลสรุปไปยังช่องทางใด?`;
+        } else {
+            textElem.innerText = `คุณต้องการจัดส่งรายงานข้อมูลสรุปของวันที่ ${visitDate} ไปยังช่องทางใด?`;
+        }
     }
 
-    ui.setLoading(true);
-    try {
-        const response = await api.triggerCapture(appState.token);
-        if (handleApiResponse(response)) {
-            alert(response.data.message || 'บันทึกหน้าจอและจัดส่งรายงานสำเร็จแล้ว');
-        } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'เกิดข้อผิดพลาดในการบันทึกหน้าจอ');
+    const sendBtn = document.getElementById('send-capture-btn');
+    const skipBtn = document.getElementById('skip-capture-btn');
+    const closeBtn = document.getElementById('close-capture-modal');
+
+    // Clone buttons to clear existing listeners
+    const cleanSendBtn = sendBtn.cloneNode(true);
+    const cleanSkipBtn = skipBtn.cloneNode(true);
+    const cleanCloseBtn = closeBtn.cloneNode(true);
+
+    sendBtn.parentNode.replaceChild(cleanSendBtn, sendBtn);
+    skipBtn.parentNode.replaceChild(cleanSkipBtn, skipBtn);
+    closeBtn.parentNode.replaceChild(cleanCloseBtn, closeBtn);
+
+    cleanCloseBtn.addEventListener('click', () => {
+        modal.classList.add('hidden');
+    });
+
+    cleanSkipBtn.addEventListener('click', () => {
+        modal.classList.add('hidden');
+    });
+
+    cleanSendBtn.addEventListener('click', async () => {
+        const lineChecked = document.getElementById('capture-target-line').checked;
+        const telegramChecked = document.getElementById('capture-target-telegram').checked;
+        const summaryChecked = document.getElementById('capture-type-summary').checked;
+        const screenshotChecked = document.getElementById('capture-type-screenshot').checked;
+
+        const channels = [];
+        if (lineChecked) channels.push('line');
+        if (telegramChecked) channels.push('telegram');
+
+        if (channels.length === 0) {
+            alert('กรุณาเลือกอย่างน้อย 1 ช่องทางสำหรับการส่งรายงาน');
+            return;
         }
-    } catch (error) {
-        console.error('Manual capture trigger error:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
-    } finally {
-        ui.setLoading(false);
+
+        const reportTypes = [];
+        if (summaryChecked) reportTypes.push('summary');
+        if (screenshotChecked) reportTypes.push('screenshot');
+
+        if (reportTypes.length === 0) {
+            alert('กรุณาเลือกรูปแบบรายงานอย่างน้อย 1 รูปแบบ');
+            return;
+        }
+
+        modal.classList.add('hidden');
+        ui.setLoading(true);
+        try {
+            const response = await api.triggerCapture(visitDate, channels, reportTypes, appState.token);
+            if (handleApiResponse(response)) {
+                alert(response.data.message || 'ส่งรายงานเรียบร้อยแล้ว');
+            } else if (response.status !== 401 && response.status !== 403) {
+                alert(response.data.message || 'เกิดข้อผิดพลาดในการบันทึกหน้าจอ/ส่งรายงาน');
+            }
+        } catch (error) {
+            console.error('Trigger capture error:', error);
+            alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
+        } finally {
+            ui.setLoading(false);
+        }
+    });
+}
+
+async function handleManualCapture() {
+    const visitDate = visitDateInput?.value;
+    if (!visitDate) {
+        alert('กรุณาระบุวันที่ที่ต้องการบันทึกหน้าจอ');
+        return;
     }
+    openCaptureSelectionModal(visitDate);
 }
 
 async function handleAutoPortalSync() {
@@ -387,9 +453,9 @@ async function handlePasteSync() {
             ui.setLoading(true);
             const response = await api.processSyncJson(visitDate, jsonData, appState.token);
             if (handleApiResponse(response)) {
-                alert(response.data.message);
                 loadDashboardData();
                 loadWeeklySummary();
+                openCaptureSelectionModal(visitDate, response.data.message);
             } else if (response.status !== 401 && response.status !== 403) {
                 alert(response.data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
             }
@@ -449,10 +515,10 @@ async function handleSyncProcess() {
     try {
         const response = await api.processSync(visitDate, file, appState.token);
         if (handleApiResponse(response)) {
-            alert(response.data.message);
             // โหลดข้อมูลล่าสุดมาแสดงในตาราง
             loadDashboardData();
             loadWeeklySummary();
+            openCaptureSelectionModal(visitDate, response.data.message);
         } else if (response.status !== 401 && response.status !== 403) {
             alert(response.data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
         }

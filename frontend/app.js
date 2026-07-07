@@ -18,7 +18,8 @@ const getInitialState = () => {
             querySortDesc: false,
             trackerSortBy: '',
             trackerSortDesc: false,
-            trackerSearchFilter: ''
+            trackerSearchFilter: '',
+            liveDashboardInterval: null
         };
     }
     return {
@@ -31,7 +32,8 @@ const getInitialState = () => {
         querySortDesc: false,
         trackerSortBy: '',
         trackerSortDesc: false,
-        trackerSearchFilter: ''
+        trackerSearchFilter: '',
+        liveDashboardInterval: null
     };
 };
 
@@ -119,6 +121,7 @@ function setupEventListeners() {
 
     // Tab Switcher Events
     document.getElementById('tab-tracker')?.addEventListener('click', () => handleTabSwitch('tab-tracker'));
+    document.getElementById('tab-live-dashboard')?.addEventListener('click', () => handleTabSwitch('tab-live-dashboard'));
     document.getElementById('tab-grafana')?.addEventListener('click', () => handleTabSwitch('tab-grafana'));
     document.getElementById('tab-embed-grafana')?.addEventListener('click', () => handleTabSwitch('tab-embed-grafana'));
     document.getElementById('tab-admin')?.addEventListener('click', () => handleTabSwitch('tab-admin'));
@@ -567,6 +570,20 @@ async function loadDashboardData() {
     }
 }
 
+async function loadLiveDashboardData() {
+    const date = visitDateInput.value || new Date().toISOString().split('T')[0];
+    if (!appState.token) return;
+
+    try {
+        const response = await api.fetchLiveDashboardData(date, appState.token);
+        if (handleApiResponse(response)) {
+            ui.renderLiveDashboard(response.data);
+        }
+    } catch (error) {
+        console.error('❌ Failed to load live dashboard data:', error);
+    }
+}
+
 function getFilteredAndSortedTrackerData() {
     let data = [...appState.rawTableData];
 
@@ -657,8 +674,19 @@ function setupBackToTop() {
 
 // จัดการสลับหน้าจอ Tab
 function handleTabSwitch(tabId) {
+    // Clear any active live dashboard refresh interval first
+    if (appState.liveDashboardInterval) {
+        clearInterval(appState.liveDashboardInterval);
+        appState.liveDashboardInterval = null;
+    }
+
     ui.switchTab(tabId);
-    if (tabId === 'tab-grafana') {
+
+    if (tabId === 'tab-live-dashboard') {
+        loadLiveDashboardData();
+        // Start auto-refresh polling every 30 seconds
+        appState.liveDashboardInterval = setInterval(loadLiveDashboardData, 30000);
+    } else if (tabId === 'tab-grafana') {
         const dateInput = document.getElementById('query-visit-date');
         if (!dateInput.value) {
             dateInput.value = visitDateInput.value || new Date().toISOString().split('T')[0];
@@ -1178,6 +1206,36 @@ async function handleAdminQuickLogin(e) {
         ui.setLoading(false);
     }
 }
+
+// Filter tracker table by subdistrict when clicking a map bubble
+window.filterDashboardByTambon = function(code) {
+    const tambonNames = {
+        '270501': 'คลองหาด',
+        '270502': 'ไทยอุดม',
+        '270503': 'ซับมะกรูด',
+        '270504': 'ไทรเดี่ยว',
+        '270505': 'ไทรทอง',
+        '270506': 'คลองไก่เถื่อน',
+        '270507': 'เบญจขร'
+    };
+    const name = tambonNames[code];
+    if (!name) return;
+
+    // Set search filter
+    appState.trackerSearchFilter = name;
+    
+    // Update Search input element value
+    const searchInput = document.getElementById('tracker-search');
+    if (searchInput) {
+        searchInput.value = name;
+    }
+
+    // Switch tab to the Tracker view
+    handleTabSwitch('tab-tracker');
+    
+    // Load tracking data
+    loadDashboardData();
+};
 
 // Start App
 init();

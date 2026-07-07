@@ -109,6 +109,10 @@
                     <i class="fas fa-tasks"></i>
                     <span>ระบบตรวจสอบ (NHSO Tracker)</span>
                 </button>
+                <button id="tab-live-dashboard" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase">
+                    <i class="fas fa-chart-pie"></i>
+                    <span>แดชบอร์ดเรียลไทม์ (Live Dashboard)</span>
+                </button>
                 <button id="tab-grafana" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase">
                     <i class="fas fa-chart-line"></i>
                     <span>ตารางวิเคราะห์คำสั่ง SQL (Grafana Panel)</span>
@@ -337,6 +341,179 @@
                         </div>
                     </div>
                     </div>
+            </div>
+
+            <!-- Live Dashboard View Container -->
+            <div id="live-dashboard-view-container" class="hidden space-y-6">
+                <!-- Live KPI Row -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                    <div class="glass-panel p-6 rounded-2xl flex items-center justify-between border-l-4 border-blue-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
+                        <div>
+                            <p class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">ผู้มารับบริการวันนี้ (Total Cases)</p>
+                            <h3 id="live-stat-total" class="text-3xl font-extrabold text-slate-800 dark:text-white mt-1">0</h3>
+                            <p class="text-[10px] text-emerald-600 font-bold mt-1"><i class="fas fa-caret-up"></i> ดึงจาก HOSxP เรียลไทม์</p>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-500">
+                            <i class="fas fa-users text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="glass-panel p-6 rounded-2xl flex items-center justify-between border-l-4 border-emerald-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
+                        <div>
+                            <p class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">แผนกที่กำลังให้บริการ (Active Depts)</p>
+                            <h3 id="live-stat-depts" class="text-3xl font-extrabold text-slate-800 dark:text-white mt-1">0</h3>
+                            <p class="text-[10px] text-emerald-600 font-bold mt-1"><i class="fas fa-clock animate-pulse"></i> เปิดรับบริการจริง</p>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-500">
+                            <i class="fas fa-hospital-user text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="glass-panel p-6 rounded-2xl flex items-center justify-between border-l-4 border-amber-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
+                        <div>
+                            <p class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">ค้างตรวจสอบ Authen (Pending)</p>
+                            <h3 id="live-stat-pending" class="text-3xl font-extrabold text-slate-800 dark:text-white mt-1">0</h3>
+                            <p class="text-[10px] text-amber-500 font-bold mt-1">สิทธิ์ สปสช. ประจำวันนี้</p>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center text-amber-500">
+                            <i class="fas fa-exclamation-triangle text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Dashboard Grid -->
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <!-- Map Card (Left) -->
+                    <div class="lg:col-span-7 glass-panel p-6 rounded-2xl bg-white/80 dark:bg-slate-900/50 shadow-sm border border-slate-100/50 dark:border-slate-800/40">
+                        <div class="flex justify-between items-center mb-6">
+                            <div>
+                                <h3 class="font-extrabold text-base text-slate-800 dark:text-white flex items-center space-x-2">
+                                    <i class="fas fa-map-marked-alt text-blue-500"></i>
+                                    <span>แผนที่ความหนาแน่นของผู้ป่วย</span>
+                                </h3>
+                                <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">จำแนกตามที่อยู่อาศัยรายตำบล อำเภอคลองหาด</p>
+                            </div>
+                            <span class="px-2.5 py-1 text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 rounded-full border border-blue-500/10">วันนี้</span>
+                        </div>
+
+                        <!-- Map Render Container -->
+                        <div class="w-full flex flex-col items-center justify-center py-4 bg-slate-50/50 dark:bg-slate-950/10 rounded-2xl border border-slate-100/50 dark:border-slate-800/30 p-4">
+                            <style>
+                                .tambon-path {
+                                    transition: fill 0.3s ease, stroke 0.3s ease, filter 0.3s ease;
+                                }
+                                .tambon-path:hover {
+                                    fill-opacity: 0.85;
+                                    stroke: #3b82f6 !important;
+                                    stroke-width: 3px !important;
+                                    filter: drop-shadow(0 4px 8px rgba(59, 130, 246, 0.25));
+                                }
+                                .map-bubble {
+                                    transition: r 0.3s ease, fill 0.3s ease, stroke 0.3s ease;
+                                }
+                            </style>
+                            <svg viewBox="0 0 600 950" class="w-full max-h-[500px] mx-auto select-none">
+                                <!-- SVG paths for 7 Tambons (Smooth Organic Curves) -->
+                                <path id="map-tambon-270504" d="M 90 200 C 120 180, 150 120, 180 100 C 200 90, 220 70, 250 65 C 290 60, 310 40, 330 30 C 340 70, 350 130, 360 180 C 310 200, 270 240, 210 260 C 180 250, 160 240, 140 240 C 120 230, 100 210, 90 200 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
+                                <path id="map-tambon-270505" d="M 330 30 C 370 35, 430 40, 500 40 C 510 80, 520 140, 520 190 C 490 190, 470 190, 460 195 C 430 210, 400 230, 370 250 C 360 210, 350 190, 350 180 C 340 130, 330 70, 330 30 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
+                                <path id="map-tambon-270507" d="M 370 250 C 400 230, 430 210, 460 195 C 475 210, 490 220, 490 235 C 480 270, 470 310, 470 340 C 450 370, 430 400, 410 430 C 370 380, 320 340, 285 305 C 310 290, 340 270, 370 250 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
+                                <path id="map-tambon-270503" d="M 210 260 C 240 280, 260 290, 285 305 C 300 340, 315 390, 320 425 C 290 440, 275 450, 260 460 C 210 410, 160 370, 130 330 C 150 310, 180 280, 210 260 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
+                                <path id="map-tambon-270502" d="M 260 460 C 275 450, 290 440, 320 425 C 340 425, 360 420, 370 420 C 385 490, 400 560, 410 635 C 360 700, 310 760, 260 820 C 245 805, 230 790, 230 790 C 220 700, 220 600, 230 500 C 240 480, 250 470, 260 460 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
+                                <path id="map-tambon-270501" d="M 370 420 C 390 420, 410 410, 430 400 C 470 415, 510 430, 560 450 C 565 520, 570 590, 570 660 C 510 650, 460 640, 410 635 C 400 560, 385 490, 370 420 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
+                                <path id="map-tambon-270506" d="M 410 635 C 460 640, 510 650, 570 660 C 565 670, 560 680, 560 685 C 545 720, 535 760, 525 800 C 505 850, 495 900, 485 950 C 460 950, 430 950, 415 950 C 395 920, 375 890, 360 870 C 320 850, 290 835, 260 820 C 310 760, 360 700, 410 635 Z" class="tambon-path fill-white dark:fill-slate-900/40 stroke-slate-200 dark:stroke-slate-700 stroke-2 cursor-pointer" />
+
+                                <!-- Group for Bubble overlays -->
+                                <!-- Sai Diao (ไทรเดี่ยว) -->
+                                <g class="cursor-pointer">
+                                    <circle id="bubble-270504" cx="210" cy="160" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
+                                    <text x="210" y="164" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">ไทรเดี่ยว</text>
+                                    <text id="count-270504" x="210" y="182" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
+                                </g>
+
+                                <!-- Sai Thong (ไทรทอง) -->
+                                <g class="cursor-pointer">
+                                    <circle id="bubble-270505" cx="420" cy="120" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
+                                    <text x="420" y="124" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">ไทรทอง</text>
+                                    <text id="count-270505" x="420" y="142" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
+                                </g>
+
+                                <!-- Benjakhorn (เบญจขร) -->
+                                <g class="cursor-pointer">
+                                    <circle id="bubble-270507" cx="400" cy="310" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
+                                    <text x="400" y="314" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">เบญจขร</text>
+                                    <text id="count-270507" x="400" y="332" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
+                                </g>
+
+                                <!-- Sap Makrut (ซับมะกรูด) -->
+                                <g class="cursor-pointer">
+                                    <circle id="bubble-270503" cx="230" cy="370" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
+                                    <text x="230" y="374" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">ซับมะกรูด</text>
+                                    <text id="count-270503" x="230" y="392" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
+                                </g>
+
+                                <!-- Thai Udom (ไทยอุดม) -->
+                                <g class="cursor-pointer">
+                                    <circle id="bubble-270502" cx="300" cy="620" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
+                                    <text x="300" y="624" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">ไทยอุดม</text>
+                                    <text id="count-270502" x="300" y="642" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
+                                </g>
+
+                                <!-- Khlong Hat (คลองหาด) -->
+                                <g class="cursor-pointer">
+                                    <circle id="bubble-270501" cx="460" cy="530" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
+                                    <text x="460" y="534" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">คลองหาด</text>
+                                    <text id="count-270501" x="460" y="552" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
+                                </g>
+
+                                <!-- Khlong Kai Thuean (คลองไก่เถื่อน) -->
+                                <g class="cursor-pointer">
+                                    <circle id="bubble-270506" cx="440" cy="800" r="16" class="map-bubble fill-orange-400/45 dark:fill-orange-400/35 stroke-orange-500 stroke-2" />
+                                    <text x="440" y="804" text-anchor="middle" class="fill-slate-800 dark:fill-slate-100 font-extrabold text-[11px] pointer-events-none font-sans">คลองไก่เถื่อน</text>
+                                    <text id="count-270506" x="440" y="822" text-anchor="middle" class="fill-slate-500 dark:fill-slate-400 font-bold text-[9px] pointer-events-none font-mono">0 คน</text>
+                                </g>
+                            </svg>
+
+                            <!-- Map Legend -->
+                            <div class="mt-6 flex flex-wrap gap-4 items-center justify-center border-t border-slate-100 dark:border-slate-800/40 pt-4 text-xs font-bold text-slate-500 dark:text-slate-400 w-full">
+                                <span class="flex items-center space-x-1.5">
+                                    <span class="w-3 h-3 rounded-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700"></span>
+                                    <span>0 คน (ไม่มีคนไข้)</span>
+                                </span>
+                                <span class="flex items-center space-x-1.5">
+                                    <span class="w-3 h-3 rounded-full bg-orange-400/45 border border-orange-500"></span>
+                                    <span>1 - 20 คน</span>
+                                </span>
+                                <span class="flex items-center space-x-1.5">
+                                    <span class="w-3 h-3 rounded-full bg-orange-500/55 border border-orange-600"></span>
+                                    <span>21 - 50 คน</span>
+                                </span>
+                                <span class="flex items-center space-x-1.5">
+                                    <span class="w-3 h-3 rounded-full bg-red-500/55 border border-red-600"></span>
+                                    <span>> 50 คน (หนาแน่นสูง)</span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Department Volume Card (Right) -->
+                    <div class="lg:col-span-5 glass-panel p-6 rounded-2xl bg-white/80 dark:bg-slate-900/50 shadow-sm border border-slate-100/50 dark:border-slate-800/40 flex flex-col">
+                        <div class="flex justify-between items-center mb-6">
+                            <div>
+                                <h3 class="font-extrabold text-base text-slate-800 dark:text-white flex items-center space-x-2">
+                                    <i class="fas fa-hospital-user text-emerald-500"></i>
+                                    <span>ปริมาณคนไข้ตามแผนก</span>
+                                </h3>
+                                <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">แสดงสัดส่วนผู้เข้ารับบริการวันนี้แบบเรียลไทม์</p>
+                            </div>
+                        </div>
+
+                        <!-- Radial Progress Grid (Style 2 Option) -->
+                        <div id="live-department-grid" class="grid grid-cols-2 gap-4 flex-1">
+                            <!-- Dynamically Rendered Department Radial Rings -->
+                            <div class="flex flex-col items-center justify-center p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-950/10">
+                                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">ไม่มีข้อมูลแผนก</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Grafana Custom SQL View Container -->

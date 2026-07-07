@@ -350,3 +350,58 @@ export async function checkNhsoStatusViaApi(cid, date, serviceCode, token) {
         return null;
     }
 }
+
+/**
+ * ดึงข้อมูลความหนาแน่นของผู้ป่วยแยกตามตำบลในอำเภอคลองหาด (สระแก้ว)
+ */
+export async function getLiveDashboardGeo(visitDate) {
+    const query = `
+        SELECT 
+            p.tmbpart as subdistrict_code,
+            CONVERT(t.name USING utf8) as subdistrict_name,
+            COUNT(DISTINCT v.hn) as unique_patients,
+            COUNT(v.vn) as visit_count
+        FROM vn_stat v
+        JOIN patient p ON p.hn = v.hn
+        LEFT JOIN thaiaddress t ON t.chwpart = p.chwpart AND t.amppart = p.amppart AND t.tmbpart = p.tmbpart AND t.codepart = CONCAT(p.chwpart, p.amppart, p.tmbpart)
+        WHERE v.vstdate = ?
+          AND p.chwpart = '27'
+          AND p.amppart = '05'
+        GROUP BY p.tmbpart, t.name
+        ORDER BY visit_count DESC
+    `;
+    try {
+        const [rows] = await hosxpPool.query(query, [visitDate]);
+        return rows;
+    } catch (error) {
+        console.error('❌ HOSxP Geo Query Error:', error);
+        return [];
+    }
+}
+
+/**
+ * ดึงข้อมูลสถิติคนไข้แยกตามแผนกสำหรับหน้า Dashboard
+ */
+export async function getLiveDashboardDeps(visitDate) {
+    const query = `
+        SELECT 
+            ov.main_dep as dep_code,
+            CONVERT(k.department USING utf8) as dep_name,
+            COUNT(DISTINCT ov.hn) as unique_patients,
+            COUNT(ov.vn) as visit_count
+        FROM ovst ov
+        LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
+        WHERE ov.vstdate = ?
+        GROUP BY ov.main_dep, k.department
+        ORDER BY visit_count DESC
+        LIMIT 10
+    `;
+    try {
+        const [rows] = await hosxpPool.query(query, [visitDate]);
+        return rows;
+    } catch (error) {
+        console.error('❌ HOSxP Department Query Error:', error);
+        return [];
+    }
+}
+

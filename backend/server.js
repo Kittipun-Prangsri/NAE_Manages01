@@ -9,7 +9,7 @@ import * as xlsx from 'xlsx';
 import { checkConnections, trackerPool, hosxpPool } from './db.js';
 import { initInternalDb } from './initDb.js';
 import { verifyUserLogin, authenticateToken } from './auth.js';
-import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic, checkNhsoStatusViaApi, getHosxpTotalVisits } from './dataService.js';
+import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic, checkNhsoStatusViaApi, getHosxpTotalVisits, getLiveDashboardGeo, getLiveDashboardDeps } from './dataService.js';
 import { processCrossCheck } from './crossCheckLogic.js';
 import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
@@ -854,6 +854,43 @@ app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Dashboard Fetch Error:', error);
         res.status(500).json({ message: 'ไม่สามารถดึงข้อมูล Dashboard ได้' });
+    }
+});
+
+/**
+ * ดึงข้อมูลสรุปแบบเรียลไทม์ (แผนที่ความหนาแน่นคนไข้รายตำบล + ปริมาณคนไข้ตามแผนก)
+ */
+app.get('/api/dashboard/live-data', authenticateToken, async (req, res) => {
+    try {
+        const visit_date = req.query.date || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+        console.log(`📊 [Live Dashboard] Fetching live data for date: ${visit_date} by user: ${req.user.username}`);
+
+        // Fetch subdistrict density map data (from HOSxP)
+        const geoData = await getLiveDashboardGeo(visit_date);
+
+        // Fetch department volumes (from HOSxP)
+        const depData = await getLiveDashboardDeps(visit_date);
+
+        // Fetch HOSxP stats for the date (total visits, total persons, total uc money)
+        const hosxpStats = await getHosxpTotalVisits(visit_date);
+
+        // Fetch pending count from the internal tracking DB (where authen is not completed yet)
+        const [[{ pending_count }]] = await trackerPool.query(
+            "SELECT COUNT(*) as pending_count FROM visit_tracking WHERE visit_date = ? AND color_status IN ('RED', 'YELLOW')",
+            [visit_date]
+        );
+
+        res.json({
+            success: true,
+            visit_date,
+            geoData,
+            depData,
+            hosxpStats,
+            pending_count: pending_count || 0
+        });
+    } catch (error) {
+        console.error('❌ Error fetching live dashboard data:', error);
+        res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Dashboard' });
     }
 });
 

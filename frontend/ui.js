@@ -316,11 +316,13 @@ export const ui = {
 
     switchTab(tabId) {
         const tabTracker = document.getElementById('tab-tracker');
+        const tabLiveDashboard = document.getElementById('tab-live-dashboard');
         const tabGrafana = document.getElementById('tab-grafana');
         const tabEmbedGrafana = document.getElementById('tab-embed-grafana');
         const tabAdmin = document.getElementById('tab-admin');
         
         const trackerView = document.getElementById('tracker-view-container');
+        const liveDashboardView = document.getElementById('live-dashboard-view-container');
         const grafanaView = document.getElementById('grafana-view-container');
         const embedGrafanaView = document.getElementById('embed-grafana-view-container');
         const adminView = document.getElementById('admin-view-container');
@@ -330,12 +332,14 @@ export const ui = {
 
         // Reset all tabs to inactive
         if (tabTracker) tabTracker.className = inactiveClass;
+        if (tabLiveDashboard) tabLiveDashboard.className = inactiveClass;
         if (tabGrafana) tabGrafana.className = inactiveClass;
         if (tabEmbedGrafana) tabEmbedGrafana.className = inactiveClass;
         if (tabAdmin) tabAdmin.className = inactiveClass;
 
         // Hide all views
         if (trackerView) trackerView.classList.add('hidden');
+        if (liveDashboardView) liveDashboardView.classList.add('hidden');
         if (grafanaView) grafanaView.classList.add('hidden');
         if (embedGrafanaView) embedGrafanaView.classList.add('hidden');
         if (adminView) adminView.classList.add('hidden');
@@ -344,6 +348,9 @@ export const ui = {
         if (tabId === 'tab-tracker' && tabTracker && trackerView) {
             tabTracker.className = activeClass;
             trackerView.classList.remove('hidden');
+        } else if (tabId === 'tab-live-dashboard' && tabLiveDashboard && liveDashboardView) {
+            tabLiveDashboard.className = activeClass;
+            liveDashboardView.classList.remove('hidden');
         } else if (tabId === 'tab-grafana' && tabGrafana && grafanaView) {
             tabGrafana.className = activeClass;
             grafanaView.classList.remove('hidden');
@@ -651,5 +658,117 @@ export const ui = {
             });
             tbody.appendChild(tr);
         });
+    },
+
+    renderLiveDashboard(data) {
+        if (typeof document === 'undefined') return;
+
+        // 1. Update stats card values
+        const totalVisits = (data.hosxpStats && data.hosxpStats.totalVisits) || 0;
+        const totalPersons = (data.hosxpStats && data.hosxpStats.totalPersons) || 0;
+        const activeDepts = (data.depData && data.depData.length) || 0;
+        const pendingCount = data.pending_count || 0;
+
+        const statTotalEl = document.getElementById('live-stat-total');
+        const statDeptsEl = document.getElementById('live-stat-depts');
+        const statPendingEl = document.getElementById('live-stat-pending');
+
+        if (statTotalEl) {
+            statTotalEl.innerHTML = `${totalPersons} <span class="text-lg text-slate-400 font-medium">/ ${totalVisits}</span>`;
+        }
+        if (statDeptsEl) {
+            statDeptsEl.textContent = activeDepts;
+        }
+        if (statPendingEl) {
+            statPendingEl.textContent = pendingCount;
+        }
+
+        // 2. Update Map Bubbles and counts
+        // List of Tambon codes for Khlong Hat District
+        const tambonCodes = ['270501', '270502', '270503', '270504', '270505', '270506', '270507'];
+        
+        tambonCodes.forEach(code => {
+            const record = data.geoData && data.geoData.find(g => String(g.subdistrict_code) === code);
+            const count = record ? record.visit_count : 0;
+
+            // Update count text
+            const countText = document.getElementById(`count-${code}`);
+            if (countText) {
+                countText.textContent = `${count} คน`;
+            }
+
+            // Update bubble size and styling dynamically based on density
+            const bubble = document.getElementById(`bubble-${code}`);
+            const path = document.getElementById(`map-tambon-${code}`);
+            if (bubble) {
+                const baseRadius = 16;
+                // Scale circle radius dynamically
+                const scale = Math.min(count * 0.8, 30);
+                const finalRadius = baseRadius + scale;
+                bubble.setAttribute('r', finalRadius);
+
+                // Glow/Color styles based on patient density
+                if (count > 50) {
+                    bubble.style.fill = 'rgba(239, 68, 68, 0.55)'; // Red
+                    bubble.style.stroke = 'rgba(220, 38, 38, 0.85)';
+                    if (path) path.style.fill = 'rgba(239, 68, 68, 0.05)';
+                } else if (count > 20) {
+                    bubble.style.fill = 'rgba(249, 115, 22, 0.55)'; // Orange
+                    bubble.style.stroke = 'rgba(234, 88, 12, 0.85)';
+                    if (path) path.style.fill = 'rgba(249, 115, 22, 0.05)';
+                } else if (count > 0) {
+                    bubble.style.fill = 'rgba(251, 146, 60, 0.45)'; // Light Orange
+                    bubble.style.stroke = 'rgba(249, 115, 22, 0.75)';
+                    if (path) path.style.fill = 'rgba(251, 146, 60, 0.03)';
+                } else {
+                    bubble.style.fill = 'rgba(148, 163, 184, 0.15)'; // Slate Gray (Empty)
+                    bubble.style.stroke = 'rgba(148, 163, 184, 0.35)';
+                    if (path) path.style.fill = '';
+                }
+            }
+        });
+
+        // 3. Render Department Volume Radial Rings
+        const deptGrid = document.getElementById('live-department-grid');
+        if (deptGrid) {
+            deptGrid.innerHTML = '';
+            if (!data.depData || data.depData.length === 0) {
+                deptGrid.innerHTML = `
+                    <div class="col-span-2 flex flex-col items-center justify-center p-8 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-950/10">
+                        <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">ไม่มีข้อมูลแผนก</span>
+                    </div>
+                `;
+                return;
+            }
+
+            // Take top 6 departments for standard layout spacing
+            const displayDeps = data.depData.slice(0, 6);
+            displayDeps.forEach(d => {
+                // Calculate percentage relative to today's total visits
+                const percent = totalVisits > 0 ? Math.round((d.visit_count / totalVisits) * 100) : 0;
+                
+                const radius = 30;
+                const circumference = 2 * Math.PI * radius;
+                const offset = circumference - (percent / 100) * circumference;
+
+                const ringDiv = document.createElement('div');
+                ringDiv.className = 'flex flex-col items-center justify-center p-4 rounded-2xl border border-slate-100/80 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-950/20 shadow-sm transition hover:shadow';
+                ringDiv.innerHTML = `
+                    <div class="relative w-20 h-20 flex items-center justify-center">
+                        <svg class="w-full h-full transform -rotate-90">
+                            <circle cx="40" cy="40" r="${radius}" class="stroke-slate-100 dark:stroke-slate-800 fill-none" stroke-width="5" />
+                            <circle cx="40" cy="40" r="${radius}" class="stroke-blue-500 dark:stroke-blue-400 fill-none transition-all duration-500" stroke-width="5"
+                                stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" stroke-linecap="round" />
+                        </svg>
+                        <div class="absolute flex flex-col items-center justify-center text-center">
+                            <span class="text-sm font-extrabold text-slate-800 dark:text-white font-mono leading-none">${percent}%</span>
+                            <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 font-mono mt-0.5">(${d.visit_count} ราย)</span>
+                        </div>
+                    </div>
+                    <span class="text-[11px] font-bold text-slate-600 dark:text-slate-300 mt-3 truncate max-w-full text-center" title="${d.dep_name || ''}">${d.dep_name || '-'}</span>
+                `;
+                deptGrid.appendChild(ringDiv);
+            });
+        }
     }
 };

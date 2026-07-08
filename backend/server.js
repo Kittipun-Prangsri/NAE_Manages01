@@ -550,15 +550,15 @@ app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (
         });
 
         await saveAuthenLog(excelData, visit_date);
+        await executeAdvancedRunLogic(visit_date);
         const hosxpData = await getHosxpVisits(visit_date);
 
         if (hosxpData.length === 0) {
-            return res.status(404).json({ message: 'บันทึก Log สำเร็จ แต่ไม่พบข้อมูลผู้ป่วยใน HOSxP สำหรับวันที่ระบุ' });
+            return res.status(404).json({ message: 'บันทึก Log และประมวลผลระบบสำเร็จ แต่ไม่พบข้อมูลผู้ป่วยใน HOSxP สำหรับวันที่ระบุ' });
         }
 
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);
-        await executeAdvancedRunLogic(visit_date);
 
         // (Auto-capture disabled in favor of frontend pop-up selection)
 
@@ -586,15 +586,15 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
         const excelData = data; // ใช้ข้อมูลจาก JSON ที่ส่งมาโดยตรง
 
         await saveAuthenLog(excelData, visit_date);
+        await executeAdvancedRunLogic(visit_date);
         const hosxpData = await getHosxpVisits(visit_date);
 
         if (hosxpData.length === 0) {
-            return res.status(404).json({ message: 'บันทึก Log สำเร็จ แต่ไม่พบข้อมูลผู้ป่วยใน HOSxP สำหรับวันที่ระบุ' });
+            return res.status(404).json({ message: 'บันทึก Log และประมวลผลระบบสำเร็จ แต่ไม่พบข้อมูลผู้ป่วยใน HOSxP สำหรับวันที่ระบุ' });
         }
 
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);
-        await executeAdvancedRunLogic(visit_date);
 
         // (Auto-capture disabled in favor of frontend pop-up selection)
 
@@ -666,9 +666,10 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
 
         if (apiResults.length > 0) {
             await saveAuthenLog(apiResults, visit_date);
-            const processedData = processCrossCheck(hosxpData, apiResults);
-            await saveTrackingResults(processedData);
             await executeAdvancedRunLogic(visit_date);
+            const updatedHosxpData = await getHosxpVisits(visit_date);
+            const processedData = processCrossCheck(updatedHosxpData, apiResults);
+            await saveTrackingResults(processedData);
             
             res.json({
                 success: true,
@@ -805,10 +806,10 @@ async function runManualPortalSyncInBackground(visit_date) {
 
     // นำเข้าข้อมูลและประมวลผล Sync
     await saveAuthenLog(excelData, visit_date);
+    await executeAdvancedRunLogic(visit_date);
     const hosxpData = await getHosxpVisits(visit_date);
     const processedData = processCrossCheck(hosxpData, excelData);
     await saveTrackingResults(processedData);
-    await executeAdvancedRunLogic(visit_date);
     console.log('✅ [Background Portal Sync] Database sync completed.');
 
     // Keep only the latest Excel download as backup
@@ -1277,10 +1278,10 @@ async function handleScheduledSyncAndCapture() {
             
             // นำข้อมูลเข้าสู่ฐานข้อมูลและประมวลผลเปรียบเทียบ
             await saveAuthenLog(excelData, visit_date);
+            await executeAdvancedRunLogic(visit_date);
             const hosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(hosxpData, excelData);
             await saveTrackingResults(processedData);
-            await executeAdvancedRunLogic(visit_date);
             
             // Keep only the latest Excel download as backup
             cleanOldDownloads(path.join(__dirname, 'downloads'));
@@ -1501,10 +1502,10 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             
             // นำเข้าข้อมูลและประมวลผล Sync
             await saveAuthenLog(excelData, visit_date);
+            await executeAdvancedRunLogic(visit_date);
             const hosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(hosxpData, excelData);
             await saveTrackingResults(processedData);
-            await executeAdvancedRunLogic(visit_date);
             console.log('✅ [Telegram Trigger] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
             
             // เคลียร์ไฟล์ดาวน์โหลด

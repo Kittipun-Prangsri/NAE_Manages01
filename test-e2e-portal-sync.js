@@ -39,10 +39,10 @@ async function testE2ESyncAndCapture() {
 
         console.log(`💾 Step 3: Importing and Syncing in Database...`);
         await saveAuthenLog(excelData, visit_date);
+        await executeAdvancedRunLogic(visit_date);
         const hosxpData = await getHosxpVisits(visit_date);
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);
-        await executeAdvancedRunLogic(visit_date);
         console.log('✅ Sync completed in Database.');
 
         console.log('🧹 Step 4: Cleaning up Excel downloads...');

@@ -50,10 +50,10 @@ async function handleScheduledSyncAndCapture() {
             
             // นำข้อมูลเข้าสู่ฐานข้อมูลและประมวลผลเปรียบเทียบ
             await saveAuthenLog(excelData, visit_date);
+            await executeAdvancedRunLogic(visit_date);
             const hosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(hosxpData, excelData);
             await saveTrackingResults(processedData);
-            await executeAdvancedRunLogic(visit_date);
             
             // Keep only the latest Excel download as backup
             cleanOldDownloads(downloadsDir);
@@ -189,10 +189,10 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             
             // นำเข้าข้อมูลและประมวลผล Sync
             await saveAuthenLog(excelData, visit_date);
+            await executeAdvancedRunLogic(visit_date);
             const hosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(hosxpData, excelData);
             await saveTrackingResults(processedData);
-            await executeAdvancedRunLogic(visit_date);
             console.log('✅ [Telegram Trigger] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
             
             // เคลียร์ไฟล์ดาวน์โหลด

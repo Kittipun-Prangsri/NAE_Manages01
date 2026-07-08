@@ -135,7 +135,7 @@ export async function executeAdvancedRunLogic(visitDate) {
         -- 2. ล้างข้อมูลเก่าของวันที่นั้นในตาราง Temp (เพื่อป้องกันการทำงานซ้ำ)
         DELETE FROM temp_authen_code WHERE dateser = @target_date;
 
-        -- 3. Import ข้อมูลและแปลงวันที่เป็น ค.ศ. ทันที
+        -- 3. Import ข้อมูลและแปลงวันที่เป็น ค.ศ. ทันที (รองรับทั้งปี พ.ศ. และ ค.ศ. เผื่อการนำเข้าแบบแมนนวล)
         INSERT INTO temp_authen_code (
             cid, name, claimcode, status_use, service, 
             authen_code_type, date_service, date_authen, dateser
@@ -143,15 +143,17 @@ export async function executeAdvancedRunLogic(visitDate) {
         SELECT 
             \`เลขบัตร\`, \`ชื่อ-สกุล\`, \`CLAIM CODE\`, \`รหัสการเข้ารับบริการ\`, \`บริการ\`, 
             \`ช่องทางการขอ Authen Code\`, \`วันที่เข้ารับบริการ\`, \`วันที่บันทึก Authen Code\`,
-            @target_date -- ใช้ค่าตัวแปรโดยตรงเพื่อความแม่นยำ
+            @target_date
         FROM authencode
-        WHERE DATE(\`วันที่เข้ารับบริการ\`) = @thai_date;
+        WHERE DATE(\`วันที่เข้ารับบริการ\`) = @thai_date 
+           OR DATE(\`วันที่เข้ารับบริการ\`) = @target_date;
 
-        -- 4. Mark ตัวเลือกที่ดีที่สุด (Flag 'D') 
-        -- เลือก E ล่าสุด ถ้าไม่มีเอา P ล่าสุด ของแต่ละ CID ในวันนั้น
+        -- 4. Mark ตัวเลือกที่ดีที่สุด (Flag 'D')
+        -- ใช้การ JOIN ด้วย primary key 'id' แทนการใช้ claimcode (เพื่อป้องกันปัญหาค่า NULL)
+        -- และข้ามเฉพาะเคสที่ถูกยกเลิก (status_use = 'C') แทนการจำกัดเฉพาะ 'E'
         UPDATE temp_authen_code t
         JOIN (
-            SELECT cid, claimcode,
+            SELECT id,
                 ROW_NUMBER() OVER (
                     PARTITION BY cid 
                     ORDER BY 
@@ -159,11 +161,11 @@ export async function executeAdvancedRunLogic(visitDate) {
                         date_authen DESC
                 ) as ranking
             FROM temp_authen_code
-            WHERE dateser = @target_date AND status_use = 'E'
-        ) ranking_table ON t.cid = ranking_table.cid AND t.claimcode = ranking_table.claimcode
+            WHERE dateser = @target_date 
+              AND (status_use IS NULL OR status_use <> 'C')
+        ) ranking_table ON t.id = ranking_table.id
         SET t.flag = 'D'
-        WHERE ranking_table.ranking = 1 
-        AND t.dateser = @target_date;
+        WHERE ranking_table.ranking = 1;
 
         -- 5. Update ข้อมูลเข้าตารางหลัก (visit_pttype)
         UPDATE visit_pttype vp

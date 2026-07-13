@@ -742,6 +742,45 @@ export const ui = {
         });
     },
 
+    updateLiveRefreshState(state) {
+        if (typeof document === 'undefined') return;
+        const stateEl = document.getElementById('live-refresh-state');
+        const timeEl = document.getElementById('live-update-time');
+        if (!stateEl) return;
+
+        if (state === 'syncing') {
+            stateEl.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-500/10';
+            stateEl.innerHTML = '<i class="fas fa-sync-alt animate-spin text-[10px]"></i> กำลังอัปเดต';
+            return;
+        }
+
+        if (state === 'failed') {
+            stateEl.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-500/10';
+            stateEl.innerHTML = '<i class="fas fa-exclamation-triangle text-[10px]"></i> อัปเดตไม่สำเร็จ';
+            return;
+        }
+
+        stateEl.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10';
+        stateEl.innerHTML = '<i class="fas fa-circle text-[7px]"></i> ออนไลน์';
+        if (timeEl) {
+            timeEl.textContent = new Date().toLocaleTimeString('th-TH', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+        }
+    },
+
+    resizeLiveCharts() {
+        if (typeof echarts === 'undefined') return;
+        ['chart-opd', 'chart-er', 'chart-ncd', 'chart-dental'].forEach(id => {
+            const element = document.getElementById(id);
+            const chart = element ? echarts.getInstanceByDom(element) : null;
+            if (chart) chart.resize();
+        });
+    },
+
     async renderLiveDashboard(data, token) {
         if (typeof document === 'undefined') return;
 
@@ -763,6 +802,39 @@ export const ui = {
         }
         if (statPendingEl) {
             statPendingEl.textContent = pendingCount;
+        }
+
+        const topDeptEl = document.getElementById('live-top-depts');
+        if (topDeptEl) {
+            const escapeHtml = (value) => String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+            const departments = [...(data.depData || [])]
+                .sort((a, b) => Number(b.visit_count || 0) - Number(a.visit_count || 0))
+                .slice(0, 5);
+            const maxDeptCount = Math.max(...departments.map(d => Number(d.visit_count || 0)), 1);
+
+            topDeptEl.innerHTML = departments.length === 0
+                ? '<div class="text-xs text-slate-400 font-semibold">ยังไม่มีข้อมูลแผนก</div>'
+                : departments.map((dept, index) => {
+                    const count = Number(dept.visit_count || 0);
+                    const width = Math.max(8, Math.round((count / maxDeptCount) * 100));
+                    const name = escapeHtml(dept.dep_name || dept.dep_code || 'ไม่ระบุแผนก');
+                    return `
+                        <div class="tv-dept-row">
+                            <div class="flex items-center justify-between gap-3">
+                                <span class="tv-dept-name">${index + 1}. ${name}</span>
+                                <span class="tv-dept-count">${count.toLocaleString()} ราย</span>
+                            </div>
+                            <div class="tv-dept-bar-track">
+                                <div class="tv-dept-bar" style="width: ${width}%"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
         }
 
         // 2. Fetch GeoJSON boundary if not cached
@@ -889,6 +961,7 @@ export const ui = {
             const dentalTotal = dentalCount === 21 ? 40 : Math.max(dentalCount, 40);
             renderEchartsDonut('chart-dental', 'dental-stats-label', dentalCount, dentalTotal, '#22c55e');
         }
+        this.resizeLiveCharts();
     }
 };
 

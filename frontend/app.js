@@ -19,7 +19,8 @@ const getInitialState = () => {
             trackerSortBy: '',
             trackerSortDesc: false,
             trackerSearchFilter: '',
-            liveDashboardInterval: null
+            liveDashboardInterval: null,
+            isTvMode: false
         };
     }
     return {
@@ -33,7 +34,8 @@ const getInitialState = () => {
         trackerSortBy: '',
         trackerSortDesc: false,
         trackerSearchFilter: '',
-        liveDashboardInterval: null
+        liveDashboardInterval: null,
+        isTvMode: localStorage.getItem('live_tv_mode') === 'true'
     };
 };
 
@@ -48,6 +50,7 @@ function init() {
     if (typeof document === 'undefined') return;
     
     ui.initTheme();
+    applyLiveTvMode(appState.isTvMode);
 
     // Fetch elements safely
     visitDateInput = document.getElementById('visit-date');
@@ -78,6 +81,9 @@ function setupEventListeners() {
     // Theme & UX
     document.getElementById('theme-toggle')?.addEventListener('click', ui.toggleTheme);
     document.getElementById('toggle-list-btn')?.addEventListener('click', ui.togglePatientList);
+    document.getElementById('live-tv-toggle')?.addEventListener('click', handleLiveTvToggle);
+    document.getElementById('live-fullscreen-btn')?.addEventListener('click', handleLiveFullscreen);
+    document.addEventListener('fullscreenchange', updateFullscreenButton);
     setupBackToTop();
 
     // Authentication
@@ -743,6 +749,7 @@ async function loadLiveDashboardData() {
     if (!appState.token) return;
 
     try {
+        ui.updateLiveRefreshState('syncing');
         const response = await api.fetchLiveDashboardData(date, appState.token);
         if (handleApiResponse(response)) {
             // Fetch today's tambon counts from the new Controllers/Services/Repositories endpoint
@@ -751,9 +758,13 @@ async function loadLiveDashboardData() {
                 response.data.tambonVisits = tambonRes.data;
             }
             ui.renderLiveDashboard(response.data, appState.token);
+            ui.updateLiveRefreshState('success');
+        } else {
+            ui.updateLiveRefreshState('failed');
         }
     } catch (error) {
         console.error('❌ Failed to load live dashboard data:', error);
+        ui.updateLiveRefreshState('failed');
     }
 }
 
@@ -841,6 +852,56 @@ function setupBackToTop() {
         }
     });
     btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+}
+
+function applyLiveTvMode(isEnabled) {
+    if (typeof document === 'undefined') return;
+    document.body.classList.toggle('tv-mode', isEnabled);
+    const tvBtn = document.getElementById('live-tv-toggle');
+    if (tvBtn) {
+        tvBtn.classList.toggle('is-active', isEnabled);
+        const icon = tvBtn.querySelector('i');
+        const label = tvBtn.querySelector('span');
+        if (icon) icon.className = isEnabled ? 'fas fa-desktop' : 'fas fa-tv';
+        if (label) label.textContent = isEnabled ? 'ออกจาก TV Mode' : 'TV Mode';
+    }
+    if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('live_tv_mode', isEnabled ? 'true' : 'false');
+    }
+    setTimeout(() => ui.resizeLiveCharts(), 150);
+}
+
+function handleLiveTvToggle() {
+    appState.isTvMode = !appState.isTvMode;
+    applyLiveTvMode(appState.isTvMode);
+}
+
+function updateFullscreenButton() {
+    const button = document.getElementById('live-fullscreen-btn');
+    if (!button) return;
+    const icon = button.querySelector('i');
+    const label = button.querySelector('span');
+    const isFullscreen = Boolean(document.fullscreenElement);
+    if (icon) icon.className = isFullscreen ? 'fas fa-compress' : 'fas fa-expand';
+    if (label) label.textContent = isFullscreen ? 'ออกเต็มจอ' : 'เต็มจอ';
+}
+
+async function handleLiveFullscreen() {
+    const target = document.getElementById('dashboard-section') || document.documentElement;
+    try {
+        if (!document.fullscreenElement) {
+            await target.requestFullscreen();
+            if (!appState.isTvMode) {
+                appState.isTvMode = true;
+                applyLiveTvMode(true);
+            }
+        } else {
+            await document.exitFullscreen();
+        }
+        updateFullscreenButton();
+    } catch (error) {
+        console.error('Fullscreen request failed:', error);
+    }
 }
 
 // --- Grafana SQL Dashboard Handlers ---

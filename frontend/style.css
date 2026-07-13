@@ -418,3 +418,201 @@ text.tcount {
   100% { transform: translateY(0); }
 }
 
+/* ===== Live Dashboard TV Mode ===== */
+.tv-only {
+  display: none;
+}
+
+.tv-mode {
+  background: #0b1120;
+}
+
+.tv-mode .navbar-theme {
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+}
+
+.tv-mode #dashboard-section > nav .hidden.md\:flex,
+.tv-mode #dashboard-section > nav #admin-login-btn,
+.tv-mode #dashboard-section > nav #theme-toggle,
+.tv-mode #dashboard-section > nav #logout-btn {
+  display: none !important;
+}
+
+.tv-mode main {
+  max-width: none;
+  padding: 1rem 1.5rem 1.5rem;
+}
+
+.tv-mode #dashboard-section main > .flex.space-x-2 {
+  opacity: 0.2;
+  transform: scale(0.96);
+  transform-origin: left top;
+  margin-bottom: -0.75rem;
+}
+
+.tv-mode #dashboard-section main > .flex.space-x-2:hover {
+  opacity: 1;
+  transform: scale(1);
+  margin-bottom: 0;
+}
+
+.tv-mode #live-dashboard-view-container {
+  gap: 1rem;
+}
+
+.tv-mode #live-dashboard-view-container .glass-panel {
+  border-color: rgba(148, 163, 184, 0.18);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+}
+
+.tv-mode .live-tv-toolbar {
+  padding: 1rem 1.25rem;
+}
+
+.tv-mode #live-tv-toggle {
+  background: rgba(16, 185, 129, 0.14);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.22);
+}
+
+.tv-mode .live-kpi-grid {
+  gap: 1rem;
+}
+
+.tv-mode .live-kpi-card {
+  padding: 1.25rem 1.5rem;
+  min-height: 150px;
+}
+
+.tv-mode .live-kpi-card p:first-child {
+  font-size: 0.8rem;
+}
+
+.tv-mode .live-kpi-card h3 {
+  font-size: clamp(3.2rem, 5.6vw, 6.2rem) !important;
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
+.tv-mode .live-kpi-card h3 span {
+  font-size: clamp(1.5rem, 2.2vw, 2.6rem) !important;
+}
+
+.tv-mode .live-kpi-card .w-12 {
+  width: 4.75rem;
+  height: 4.75rem;
+}
+
+.tv-mode .live-kpi-card .w-12 i {
+  font-size: 2.15rem;
+}
+
+.tv-mode .live-dashboard-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(420px, 0.65fr);
+  gap: 1rem;
+}
+
+.tv-mode .live-map-card,
+.tv-mode .live-dept-card {
+  padding: 1.25rem;
+}
+
+.tv-mode .live-map-card h3,
+.tv-mode .live-dept-card h3 {
+  font-size: 1.15rem;
+}
+
+.tv-mode #map-chart {
+  height: calc(100vh - 385px);
+  min-height: 520px;
+}
+
+.tv-mode #tambonMap {
+  max-height: none !important;
+}
+
+.tv-mode text.tlabel {
+  font-size: 42px;
+  stroke-width: 7px;
+}
+
+.tv-mode text.tcount {
+  font-size: 34px;
+  font-weight: 700;
+  stroke-width: 6px;
+}
+
+.tv-mode .tv-only {
+  display: block !important;
+}
+
+.tv-mode .live-donut-stack {
+  gap: 0.7rem;
+}
+
+.tv-mode .live-donut-stack > div {
+  padding: 0.85rem 1rem;
+  border-radius: 0.85rem;
+}
+
+.tv-mode #chart-opd,
+.tv-mode #chart-er,
+.tv-mode #chart-ncd,
+.tv-mode #chart-dental {
+  width: 104px !important;
+  height: 104px !important;
+}
+
+.tv-dept-row {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.18);
+}
+
+.dark .tv-dept-row,
+.tv-mode .tv-dept-row {
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.tv-dept-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.tv-dept-count {
+  font-size: 0.95rem;
+  font-weight: 900;
+  color: #34d399;
+  white-space: nowrap;
+}
+
+.tv-dept-bar-track {
+  margin-top: 0.55rem;
+  height: 0.45rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.22);
+}
+
+.tv-dept-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #22c55e, #06b6d4);
+}
+
+@media (max-width: 1180px) {
+  .tv-mode .live-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tv-mode #map-chart {
+    height: 560px;
+  }
+}

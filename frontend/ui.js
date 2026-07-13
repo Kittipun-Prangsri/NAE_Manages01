@@ -520,6 +520,87 @@ export const ui = {
         });
     },
 
+    renderAdminSyncRuns(runs) {
+        if (typeof document === 'undefined') return;
+        const body = document.getElementById('admin-sync-runs-table-body');
+        if (!body) return;
+
+        const formatDateTime = (value) => {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return String(value);
+            return date.toLocaleString('th-TH', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        };
+
+        const formatVisitDate = (value) => {
+            if (!value) return '-';
+            return String(value).split('T')[0];
+        };
+
+        const escapeHtml = (value) => String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
+        body.innerHTML = '';
+        if (!runs || runs.length === 0) {
+            body.innerHTML = `
+                <tr>
+                    <td colspan="9" class="py-8 text-center text-slate-500 dark:text-slate-400 font-bold bg-transparent">
+                        <i class="fas fa-history text-3xl mb-2 block"></i>
+                        ยังไม่มีประวัติการ Sync ข้อมูล
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        runs.forEach(run => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200 bg-transparent';
+
+            const statusClass = run.status === 'success'
+                ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+                : run.status === 'failed'
+                    ? 'bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400'
+                    : 'bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400';
+            const statusIcon = run.status === 'success'
+                ? 'fa-check-circle'
+                : run.status === 'failed'
+                    ? 'fa-times-circle'
+                    : 'fa-spinner fa-spin';
+            const message = run.error || run.message || '-';
+            const safeMessage = escapeHtml(message);
+
+            tr.innerHTML = `
+                <td class="py-3.5 px-4 font-mono font-bold text-slate-500 dark:text-slate-400">#${run.id}</td>
+                <td class="py-3.5 px-4 font-semibold text-blue-600 dark:text-blue-400">${escapeHtml(run.source || '-')}</td>
+                <td class="py-3.5 px-4 font-mono">${escapeHtml(formatVisitDate(run.visit_date))}</td>
+                <td class="py-3.5 px-4">
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${statusClass}">
+                        <i class="fas ${statusIcon}"></i>
+                        ${escapeHtml(run.status || '-')}
+                    </span>
+                </td>
+                <td class="py-3.5 px-4">${escapeHtml(run.username || '-')}</td>
+                <td class="py-3.5 px-4 text-right font-mono font-semibold">${Number(run.total_records || 0).toLocaleString()}</td>
+                <td class="py-3.5 px-4 truncate max-w-[260px]" title="${safeMessage}">${safeMessage}</td>
+                <td class="py-3.5 px-4 text-slate-500 dark:text-slate-400">${escapeHtml(formatDateTime(run.started_at))}</td>
+                <td class="py-3.5 px-4 text-slate-500 dark:text-slate-400">${escapeHtml(formatDateTime(run.finished_at))}</td>
+            `;
+
+            body.appendChild(tr);
+        });
+    },
+
     renderSavedQueriesDropdown(queries, selectedId = '') {
         const select = document.getElementById('query-template-select');
         if (!select) return;

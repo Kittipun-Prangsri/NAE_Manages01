@@ -9,27 +9,53 @@ if (!process.env.JWT_SECRET) {
     console.warn('⚠️ Warning: JWT_SECRET is not defined in .env. Using fallback.');
 }
 const JWT_SECRET = process.env.JWT_SECRET || 'default_secret';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '12h';
+const DEV_LOGIN_PASSWORD = process.env.HOSXP_DEV_LOGIN_PASSWORD || '';
+
+export function hasOfficerPassword(userRecord) {
+    return Boolean(userRecord?.officer_login_password || userRecord?.officer_login_password_md5);
+}
+
+export function matchesOfficerPassword(userRecord, password) {
+    if (!userRecord || !password) return false;
+
+    const hashedPassword = crypto.createHash('md5').update(password).digest('hex').toLowerCase();
+    const storedMd5 = String(userRecord.officer_login_password_md5 || '').toLowerCase();
+    const storedPlain = String(userRecord.officer_login_password || '');
+
+    return Boolean((storedMd5 && storedMd5 === hashedPassword) || (storedPlain && storedPlain === password));
+}
+
+export function hasOpduserPassword(userRecord) {
+    return Boolean(userRecord?.password || userRecord?.passweb || userRecord?.password_text);
+}
+
+export function matchesOpduserPassword(userRecord, password) {
+    if (!userRecord || !password) return false;
+
+    const hashedPassword = crypto.createHash('md5').update(password).digest('hex').toLowerCase();
+    const storedPassweb = String(userRecord.passweb || '').toLowerCase();
+    const storedPassword = String(userRecord.password || '');
+    const storedPasswordText = String(userRecord.password_text || '');
+
+    return Boolean(
+        (storedPassweb && storedPassweb === hashedPassword) ||
+        (storedPasswordText && storedPasswordText === password) ||
+        (storedPassword && storedPassword === password)
+    );
+}
+
+function canUseDevLoginPassword(password) {
+    return process.env.NODE_ENV !== 'production' && DEV_LOGIN_PASSWORD && password === DEV_LOGIN_PASSWORD;
+}
 
 export async function verifyUserLogin(username, password) {
     try {
-        // --- Added admin/admin bypass ---
-        if (username === 'admin' && password === 'admin') {
-            const adminData = {
-                username: 'admin',
-                full_name: 'System Administrator',
-                role: 'admin',
-                department: 'IT Center'
-            };
-            const token = jwt.sign(adminData, JWT_SECRET);
-            return { success: true, token, user: adminData };
-        }
-        // --------------------------------
-
         if (!username || !password) {
             return { success: false, message: 'กรุณากรอกชื่อผู้ใช้งานและรหัสผ่าน' };
         }
 
-        // Query the officer table from the HOSxP database using requested fields
+        // Query the officer table first for staff metadata.
         const [rows] = await hosxpPool.query(
             `SELECT officer_name, officer_group_list_text, officer_login_name, officer_login_password, officer_login_password_md5 
              FROM officer 
@@ -37,22 +63,31 @@ export async function verifyUserLogin(username, password) {
             [username]
         );
 
-        if (rows.length === 0) {
+        const [opduserRows] = await hosxpPool.query(
+            `SELECT loginname, name, groupname, password, passweb, password_text
+             FROM opduser
+             WHERE loginname = ?
+             LIMIT 1`,
+            [username]
+        );
+
+        const officerRecord = rows[0] || null;
+        const opduserRecord = opduserRows[0] || null;
+
+        if (!officerRecord && !opduserRecord) {
             return { success: false, message: 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง' };
         }
 
-        const userRecord = rows[0];
-        
-        // Check password using officer_login_password_md5
-        const hashedPassword = crypto.createHash('md5').update(password).digest('hex');
+        const matchedOfficer = matchesOfficerPassword(officerRecord, password);
+        const matchedOpduser = matchesOpduserPassword(opduserRecord, password);
 
-        // Note: officer_login_password_md5 might be stored in lowercase or uppercase depending on HOSxP version
-        const storedMd5 = (userRecord.officer_login_password_md5 || '').toLowerCase();
-        
-        // Allow bypass if password is '1234'
-        const isMasterPassword = password === '1234';
-        
-        if (!isMasterPassword && storedMd5 !== hashedPassword.toLowerCase() && userRecord.officer_login_password !== password) {
+        if (!hasOfficerPassword(officerRecord) && !hasOpduserPassword(opduserRecord)) {
+            if (!canUseDevLoginPassword(password)) {
+                console.warn(`⚠️ Login failed: HOSxP user has no password set: ${username}`);
+                return { success: false, message: 'บัญชี HOSxP นี้ยังไม่ได้ตั้งรหัสผ่าน กรุณาตั้งรหัสผ่านใน HOSxP หรือกำหนด HOSXP_DEV_LOGIN_PASSWORD เฉพาะเครื่องพัฒนา' };
+            }
+            console.warn(`⚠️ Development login override used for HOSxP user without password: ${username}`);
+        } else if (!matchedOfficer && !matchedOpduser) {
             console.warn(`⚠️ Login failed: Invalid password for user: ${username}`);
             return { success: false, message: 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง' };
         }
@@ -60,8 +95,9 @@ export async function verifyUserLogin(username, password) {
         console.log(`✅ Login successful for user: ${username}`);
         
         // Get name and department (group text)
-        const fullName = userRecord.officer_name || userRecord.officer_login_name;
-        const department = userRecord.officer_group_list_text || 'ไม่ระบุกลุ่มงาน';
+        const loginName = officerRecord?.officer_login_name || opduserRecord?.loginname || username;
+        const fullName = officerRecord?.officer_name || opduserRecord?.name || loginName;
+        const department = officerRecord?.officer_group_list_text || opduserRecord?.groupname || 'ไม่ระบุกลุ่มงาน';
 
         // --- Sync with Internal users table ---
         let role = 'user';
@@ -89,14 +125,14 @@ export async function verifyUserLogin(username, password) {
         }
 
         const userData = {
-            username: userRecord.officer_login_name,
+            username: loginName,
             full_name: fullName,
             role: role,
             department: department
         };
 
         // Generate JWT
-        const token = jwt.sign(userData, JWT_SECRET);
+        const token = jwt.sign(userData, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
         return { success: true, token, user: userData };
         

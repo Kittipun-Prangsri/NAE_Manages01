@@ -16,6 +16,7 @@ import {
 import { processCrossCheck } from '../backend/crossCheckLogic.js';
 import { captureAndNotify } from './capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
+import { keepAliveNhsoSession } from './keep-alive-nhso.js';
 
 dotenv.config();
 
@@ -324,8 +325,24 @@ async function startWorker() {
         
         // Start Telegram message listener
         startTelegramBotListener();
+
+        // Setup recurring keep-alive task (every 30 minutes: '*/30 * * * *')
+        cron.schedule('*/30 * * * *', () => {
+            console.log('⏰ [Worker-Cron] Automatically triggering NHSO session keep-alive refresh...');
+            keepAliveNhsoSession().catch(err => {
+                console.error('❌ [Worker-Cron] NHSO session keep-alive error:', err);
+            });
+        }, {
+            scheduled: true,
+            timezone: "Asia/Bangkok"
+        });
+
+        // Trigger session keep-alive once immediately on startup
+        keepAliveNhsoSession().catch(err => {
+            console.error('❌ [Worker-Cron] Initial NHSO session keep-alive error:', err);
+        });
         
-        console.log('✅ Background Cron Scheduler and Telegram Polling are fully active.');
+        console.log('✅ Background Cron Scheduler, Session Keep-Alive, and Telegram Polling are fully active.');
     } catch (err) {
         console.error('❌ Failed to start Worker Service:', err);
         process.exit(1);

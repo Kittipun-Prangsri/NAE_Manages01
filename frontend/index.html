@@ -73,7 +73,7 @@
                 <div>
                     <span class="text-lg font-bold tracking-tight flex items-baseline">
                         NHSO Tracker 
-                        <span class="ml-2 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-md">v1.1</span>
+                        <span class="ml-2 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-md">ver.2</span>
                     </span>
                     <p class="text-[10px] text-slate-500 dark:text-slate-400 font-medium">National Health Security Office Monitoring</p>
                 </div>
@@ -672,12 +672,15 @@
             <!-- Admin Panel View Container -->
             <div id="admin-view-container" class="hidden space-y-6">
                 <!-- Admin Sub-Navigation Tabs -->
-                <div class="flex space-x-1.5 p-1 bg-slate-100/80 dark:bg-slate-900/60 backdrop-blur-md rounded-xl max-w-sm">
+                <div class="flex space-x-1.5 p-1 bg-slate-100/80 dark:bg-slate-900/60 backdrop-blur-md rounded-xl max-w-xl">
                     <button id="admin-subtab-users" class="flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center bg-white dark:bg-slate-800 shadow-sm text-blue-600 dark:text-blue-400">
                         <i class="fas fa-users mr-1"></i> จัดการผู้ใช้
                     </button>
                     <button id="admin-subtab-schedules" class="flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
                         <i class="fas fa-clock mr-1"></i> ตั้งเวลาทำงาน
+                    </button>
+                    <button id="admin-subtab-sync-runs" class="flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                        <i class="fas fa-history mr-1"></i> ประวัติ Sync
                     </button>
                 </div>
 
@@ -758,6 +761,47 @@
                                 </thead>
                                 <tbody id="admin-schedule-table-body" class="text-xs divide-y divide-slate-100 dark:divide-slate-800/80 bg-transparent">
                                     <!-- Schedules list will be dynamically loaded here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Sync Runs Sub-View -->
+                <div id="admin-subview-sync-runs" class="hidden space-y-6">
+                    <div class="glass-panel p-6 rounded-2xl">
+                        <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                            <div>
+                                <h2 class="font-bold text-lg flex items-center space-x-2">
+                                    <i class="fas fa-history text-emerald-500"></i>
+                                    <span>ประวัติการ Sync ข้อมูล</span>
+                                </h2>
+                                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">ตรวจสอบแหล่งที่มา วันที่ ผู้สั่งงาน จำนวนรายการ และ error ล่าสุดของการนำเข้าข้อมูล</p>
+                            </div>
+                            <button id="refresh-sync-runs-btn" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-200 font-bold px-4 py-2.5 rounded-xl flex items-center justify-center space-x-2 transition cursor-pointer text-xs">
+                                <i class="fas fa-sync-alt"></i>
+                                <span>รีเฟรช</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel rounded-2xl overflow-hidden flex flex-col">
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse min-w-[1000px]">
+                                <thead class="bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+                                    <tr>
+                                        <th class="py-3 px-4 w-20">ID</th>
+                                        <th class="py-3 px-4 w-36">แหล่งข้อมูล</th>
+                                        <th class="py-3 px-4 w-32">วันที่บริการ</th>
+                                        <th class="py-3 px-4 w-28">สถานะ</th>
+                                        <th class="py-3 px-4 w-32">ผู้สั่งงาน</th>
+                                        <th class="py-3 px-4 w-28 text-right">จำนวน</th>
+                                        <th class="py-3 px-4">ข้อความ</th>
+                                        <th class="py-3 px-4 w-44">เริ่ม</th>
+                                        <th class="py-3 px-4 w-44">จบ</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-sync-runs-table-body" class="text-xs divide-y divide-slate-100 dark:divide-slate-800/80 bg-transparent">
                                 </tbody>
                             </table>
                         </div>
@@ -951,6 +995,81 @@
                         ส่งรายงานทันที
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+    <!-- Sync Progress Modal -->
+    <div id="sync-progress-modal" class="fixed inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 hidden transition-opacity duration-300">
+        <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-2xl flex flex-col max-w-md w-full border border-slate-100 dark:border-slate-800/50 text-slate-800 dark:text-slate-100">
+            <div class="flex justify-between items-center mb-4 border-b border-slate-200 dark:border-slate-800 pb-2">
+                <h3 class="font-bold text-base flex items-center space-x-2 text-slate-900 dark:text-white">
+                    <i class="fas fa-sync-alt animate-spin text-emerald-500" id="sync-progress-icon"></i>
+                    <span>One-Stop Auto Sync (ThaiD)</span>
+                </h3>
+            </div>
+            
+            <div class="space-y-4 my-4 font-semibold text-xs text-slate-500 dark:text-slate-400">
+                <!-- Step 1 -->
+                <div id="step-browser" class="flex items-center space-x-3 transition-all duration-300 p-2 rounded-xl">
+                    <span class="w-6 h-6 rounded-full border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] bg-slate-50 dark:bg-slate-800" id="icon-browser">
+                        <i class="fas fa-chrome"></i>
+                    </span>
+                    <div>
+                        <div class="text-slate-800 dark:text-slate-200 font-bold" id="title-browser">สตาร์ทเบราว์เซอร์สเกรปข้อมูล</div>
+                        <div class="text-[10px] text-slate-400 dark:text-slate-500" id="desc-browser">เริ่มต้นบราวเซอร์ตรวจสอบเซสชันสิทธิ์...</div>
+                    </div>
+                </div>
+                <!-- Step 2 -->
+                <div id="step-auth" class="flex items-center space-x-3 transition-all duration-300 p-2 rounded-xl">
+                    <span class="w-6 h-6 rounded-full border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] bg-slate-50 dark:bg-slate-800" id="icon-auth">
+                        <i class="fas fa-key"></i>
+                    </span>
+                    <div>
+                        <div class="text-slate-800 dark:text-slate-200 font-bold" id="title-auth">เข้าสู่ระบบ สปสช. (ThaiD)</div>
+                        <div class="text-[10px] text-slate-400 dark:text-slate-500" id="desc-auth">ใช้เซสชันเดิม หรือรอสแกนยืนยันด้วยแอป...</div>
+                    </div>
+                </div>
+                <!-- Step 3 -->
+                <div id="step-download" class="flex items-center space-x-3 transition-all duration-300 p-2 rounded-xl">
+                    <span class="w-6 h-6 rounded-full border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] bg-slate-50 dark:bg-slate-800" id="icon-download">
+                        <i class="fas fa-cloud-download-alt"></i>
+                    </span>
+                    <div>
+                        <div class="text-slate-800 dark:text-slate-200 font-bold" id="title-download">ดึงข้อมูลและดาวน์โหลดรายงาน</div>
+                        <div class="text-[10px] text-slate-400 dark:text-slate-500" id="desc-download">ดึงรายงาน Excel อัตโนมัติ...</div>
+                    </div>
+                </div>
+                <!-- Step 4 -->
+                <div id="step-sync" class="flex items-center space-x-3 transition-all duration-300 p-2 rounded-xl">
+                    <span class="w-6 h-6 rounded-full border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] bg-slate-50 dark:bg-slate-800" id="icon-sync">
+                        <i class="fas fa-database"></i>
+                    </span>
+                    <div>
+                        <div class="text-slate-800 dark:text-slate-200 font-bold" id="title-sync">นำเข้าและประมวลผลฐานข้อมูล</div>
+                        <div class="text-[10px] text-slate-400 dark:text-slate-500" id="desc-sync">อัปเดต HOSxP และจัดประเภทเปรียบเทียบสิทธิ์...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ThaiD QR Display Box -->
+            <div id="sync-qr-container" class="hidden flex flex-col items-center justify-center border border-slate-200 dark:border-slate-800 rounded-xl p-4 bg-slate-50 dark:bg-slate-900/60 my-3 text-center">
+                <div class="text-[10px] font-bold text-blue-600 dark:text-blue-400 mb-2 uppercase tracking-wide animate-pulse">📲 กรุณาสแกนด้วยแอป ThaiD บนมือถือ</div>
+                <div class="relative w-48 h-48 bg-white p-2 rounded-lg shadow border border-slate-200">
+                    <img id="sync-qr-image" src="" alt="ThaiD QR Code" class="w-full h-full object-contain">
+                </div>
+                <div class="text-[9px] text-slate-400 dark:text-slate-500 mt-2 max-w-xs">คุณยังสามารถสแกนจาก QR Code ที่ถูกส่งไปยัง LINE / Telegram ได้เช่นกัน</div>
+            </div>
+
+            <!-- Status Logs Info -->
+            <div class="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200/50 dark:border-slate-800/80 my-3 text-[11px] font-medium font-mono text-slate-600 dark:text-slate-400 flex items-start space-x-2">
+                <i class="fas fa-terminal mt-0.5 text-[10px] text-emerald-500"></i>
+                <span id="sync-status-message">กำลังเชื่อมต่อข้อมูลสเตตัสหลังบ้าน...</span>
+            </div>
+
+            <div class="flex justify-end pt-3 border-t border-slate-200 dark:border-slate-800 mt-4">
+                <button id="close-sync-progress-btn" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition text-xs cursor-pointer shadow-md shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    ปิดหน้าต่างนี้
+                </button>
             </div>
         </div>
     </div>

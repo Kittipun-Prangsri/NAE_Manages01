@@ -135,7 +135,9 @@ function setupEventListeners() {
     // Admin subtab navigation events
     document.getElementById('admin-subtab-users')?.addEventListener('click', () => handleAdminSubtabSwitch('users'));
     document.getElementById('admin-subtab-schedules')?.addEventListener('click', () => handleAdminSubtabSwitch('schedules'));
+    document.getElementById('admin-subtab-sync-runs')?.addEventListener('click', () => handleAdminSubtabSwitch('sync-runs'));
     document.getElementById('add-schedule-form')?.addEventListener('submit', handleAddSchedule);
+    document.getElementById('refresh-sync-runs-btn')?.addEventListener('click', loadAdminSyncRuns);
 
     // Admin quick login modal listeners
     document.getElementById('admin-login-btn')?.addEventListener('click', openAdminLoginModal);
@@ -216,6 +218,10 @@ async function handleLogin(e) {
 
 function handleLogout() {
     isLoggingOut = true;
+    if (appState.liveDashboardInterval) {
+        clearInterval(appState.liveDashboardInterval);
+        appState.liveDashboardInterval = null;
+    }
     if (typeof localStorage !== 'undefined') {
         localStorage.removeItem('nhso_token');
         localStorage.removeItem('nhso_user');
@@ -413,25 +419,165 @@ async function handleAutoPortalSync() {
         return;
     }
 
-    if (!confirm(`คุณต้องการสั่งให้บอทดาวน์โหลดรายงานจากเว็บ สปสช. ของวันที่ ${visitDate} และประมวลผล Sync ข้อมูลโดยอัตโนมัติใช่หรือไม่?\n(คุณจะต้องสแกน QR Code ที่ได้รับใน Telegram เพื่อเข้าสู่ระบบ)`)) {
+    if (!confirm(`คุณต้องการสั่งให้บอทดาวน์โหลดรายงานจากเว็บ สปสช. ของวันที่ ${visitDate} และประมวลผล Sync ข้อมูลโดยอัตโนมัติใช่หรือไม่?\n(คุณสามารถสแกน QR Code เพื่อล็อกอินผ่านทางหน้าจอนี้ หรือห้องแชท Telegram/LINE)`)) {
         return;
     }
 
-    ui.setLoading(true);
+    // Lookup elements
+    const syncProgressModal = document.getElementById('sync-progress-modal');
+    const closeSyncProgressBtn = document.getElementById('close-sync-progress-btn');
+    const syncStatusMessage = document.getElementById('sync-status-message');
+    const syncProgressIcon = document.getElementById('sync-progress-icon');
+    const syncQrContainer = document.getElementById('sync-qr-container');
+    const syncQrImage = document.getElementById('sync-qr-image');
+    
+    const stepBrowser = document.getElementById('step-browser');
+    const stepAuth = document.getElementById('step-auth');
+    const stepDownload = document.getElementById('step-download');
+    const stepSync = document.getElementById('step-sync');
+
+    const iconBrowser = document.getElementById('icon-browser');
+    const iconAuth = document.getElementById('icon-auth');
+    const iconDownload = document.getElementById('icon-download');
+    const iconSync = document.getElementById('icon-sync');
+
+    // Reset UI state
+    syncProgressModal.classList.remove('hidden');
+    closeSyncProgressBtn.disabled = true;
+    syncQrContainer.classList.add('hidden');
+    syncQrImage.src = '';
+    syncStatusMessage.textContent = 'กำลังเริ่มต้นเชื่อมต่อบอท...';
+    syncProgressIcon.className = 'fas fa-sync-alt animate-spin text-emerald-500';
+
+    const steps = [stepBrowser, stepAuth, stepDownload, stepSync];
+    const icons = [iconBrowser, iconAuth, iconDownload, iconSync];
+    const originalIconsHTML = [
+        '<i class="fas fa-chrome"></i>',
+        '<i class="fas fa-key"></i>',
+        '<i class="fas fa-cloud-download-alt"></i>',
+        '<i class="fas fa-database"></i>'
+    ];
+
+    function resetStepsClasses() {
+        steps.forEach(s => s.className = 'flex items-center space-x-3 transition-all duration-300 p-2 rounded-xl');
+        icons.forEach((ic, idx) => {
+            ic.className = 'w-6 h-6 rounded-full border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] bg-slate-50 dark:bg-slate-800';
+            ic.innerHTML = originalIconsHTML[idx];
+        });
+    }
+
+    function setStepState(activeIdx, status) {
+        resetStepsClasses();
+        for (let i = 0; i < steps.length; i++) {
+            if (i < activeIdx) {
+                steps[i].classList.add('step-completed');
+                icons[i].className = 'w-6 h-6 rounded-full border border-emerald-500 bg-emerald-500 text-white flex items-center justify-center text-[10px]';
+                icons[i].innerHTML = '<i class="fas fa-check"></i>';
+            } else if (i === activeIdx) {
+                if (status === 'failed') {
+                    steps[i].classList.add('step-failed');
+                    icons[i].className = 'w-6 h-6 rounded-full border border-red-500 bg-red-500 text-white flex items-center justify-center text-[10px]';
+                    icons[i].innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
+                } else {
+                    steps[i].classList.add('step-active');
+                    icons[i].className = 'w-6 h-6 rounded-full border border-emerald-500 bg-emerald-500 text-white flex items-center justify-center text-[10px] animate-pulse';
+                }
+            }
+        }
+    }
+
+    let pollInterval = null;
+
+    // Bind Close Button action
+    const handleClose = () => {
+        if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+        }
+        syncProgressModal.classList.add('hidden');
+        closeSyncProgressBtn.removeEventListener('click', handleClose);
+    };
+    closeSyncProgressBtn.addEventListener('click', handleClose);
+
+    // Call API to trigger sync
     try {
         const response = await api.triggerPortalSync(visitDate, appState.token);
-        if (handleApiResponse(response)) {
-            alert(response.data.message || 'ดาวน์โหลดรายงานและประมวลผลข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
-            loadDashboardData();
-            loadWeeklySummary();
-        } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'เกิดข้อผิดพลาดในการรันดาวน์โหลดรายงาน');
+        if (response.status === 409) {
+            alert(response.data.message || 'ระบบกำลังทำงานอยู่แล้ว');
+            syncProgressModal.classList.add('hidden');
+            return;
         }
+        
+        if (!response.ok) {
+            syncStatusMessage.textContent = response.data.message || 'เกิดข้อผิดพลาดในการเริ่มต้นดาวน์โหลดรายงาน';
+            syncProgressIcon.className = 'fas fa-exclamation-triangle text-red-500';
+            closeSyncProgressBtn.disabled = false;
+            return;
+        }
+
+        // Start status polling
+        pollInterval = setInterval(async () => {
+            try {
+                const statusRes = await api.fetchSyncStatus(appState.token);
+                if (!statusRes.ok) return;
+
+                const data = statusRes.data;
+                syncStatusMessage.textContent = data.message || 'กำลังประมวลผล...';
+
+                // Map step string to index
+                let activeIdx = 0;
+                if (data.step === 'starting_browser') {
+                    activeIdx = 0;
+                } else if (data.step === 'checking_session' || data.step === 'session_found' || data.step === 'generating_qr' || data.step === 'waiting_thaid_scan' || data.step === 'auth_success') {
+                    activeIdx = 1;
+                } else if (data.step === 'navigating_report' || data.step === 'searching_data' || data.step === 'downloading_file' || data.step === 'download_complete') {
+                    activeIdx = 2;
+                } else if (data.step === 'importing_database' || data.step === 'cross_checking' || data.step === 'completed') {
+                    activeIdx = 3;
+                }
+
+                setStepState(activeIdx, data.status);
+
+                // Handle ThaiD QR display
+                if (data.step === 'waiting_thaid_scan' && data.qrCodeUrl) {
+                    syncQrImage.src = data.qrCodeUrl;
+                    syncQrContainer.classList.remove('hidden');
+                } else {
+                    syncQrContainer.classList.add('hidden');
+                }
+
+                // Handle termination (success or failed)
+                if (data.status === 'idle') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    syncProgressIcon.className = 'fas fa-exclamation-triangle text-yellow-500';
+                    syncStatusMessage.textContent = 'เซิร์ฟเวอร์รีสตาร์ทหรือกระบวนการซิงก์ถูกรีเซ็ต กรุณาลองใหม่อีกครั้ง';
+                    closeSyncProgressBtn.disabled = false;
+                } else if (data.status === 'success') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    syncProgressIcon.className = 'fas fa-check-circle text-emerald-500';
+                    setStepState(4, 'success');
+                    closeSyncProgressBtn.disabled = false;
+                    loadDashboardData();
+                    loadWeeklySummary();
+                } else if (data.status === 'failed') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    syncProgressIcon.className = 'fas fa-times-circle text-red-500';
+                    setStepState(activeIdx, 'failed');
+                    closeSyncProgressBtn.disabled = false;
+                }
+            } catch (err) {
+                console.error('Error polling sync status:', err);
+            }
+        }, 1500);
+
     } catch (error) {
         console.error('Auto portal sync error:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
-    } finally {
-        ui.setLoading(false);
+        syncStatusMessage.textContent = 'เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์';
+        syncProgressIcon.className = 'fas fa-exclamation-triangle text-red-500';
+        closeSyncProgressBtn.disabled = false;
     }
 }
 
@@ -553,8 +699,6 @@ async function loadWeeklySummary() {
                 loadDashboardData();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             });
-        } else if (data.message === 'Forbidden' || data.message === 'Session Expired' || data.message === 'Unauthorized') {
-            handleLogout();
         }
     } catch (error) {
         console.error('Failed to load weekly summary:', error);
@@ -868,10 +1012,12 @@ async function handleTestNotification(type, user) {
 function handleAdminSubtabSwitch(subtab) {
     const btnUsers = document.getElementById('admin-subtab-users');
     const btnSchedules = document.getElementById('admin-subtab-schedules');
+    const btnSyncRuns = document.getElementById('admin-subtab-sync-runs');
     const viewUsers = document.getElementById('admin-subview-users');
     const viewSchedules = document.getElementById('admin-subview-schedules');
+    const viewSyncRuns = document.getElementById('admin-subview-sync-runs');
 
-    if (!btnUsers || !btnSchedules || !viewUsers || !viewSchedules) return;
+    if (!btnUsers || !btnSchedules || !btnSyncRuns || !viewUsers || !viewSchedules || !viewSyncRuns) return;
 
     const activeClass = 'flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center bg-white dark:bg-slate-800 shadow-sm text-blue-600 dark:text-blue-400';
     const inactiveClass = 'flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200';
@@ -879,15 +1025,44 @@ function handleAdminSubtabSwitch(subtab) {
     if (subtab === 'users') {
         btnUsers.className = activeClass;
         btnSchedules.className = inactiveClass;
+        btnSyncRuns.className = inactiveClass;
         viewUsers.classList.remove('hidden');
         viewSchedules.classList.add('hidden');
+        viewSyncRuns.classList.add('hidden');
         loadAdminUsers();
     } else if (subtab === 'schedules') {
         btnUsers.className = inactiveClass;
         btnSchedules.className = activeClass;
+        btnSyncRuns.className = inactiveClass;
         viewUsers.classList.add('hidden');
         viewSchedules.classList.remove('hidden');
+        viewSyncRuns.classList.add('hidden');
         loadAdminSchedules();
+    } else if (subtab === 'sync-runs') {
+        btnUsers.className = inactiveClass;
+        btnSchedules.className = inactiveClass;
+        btnSyncRuns.className = activeClass;
+        viewUsers.classList.add('hidden');
+        viewSchedules.classList.add('hidden');
+        viewSyncRuns.classList.remove('hidden');
+        loadAdminSyncRuns();
+    }
+}
+
+async function loadAdminSyncRuns() {
+    if (!appState.token || appState.user.role !== 'admin') return;
+    ui.setLoading(true);
+    try {
+        const { ok, data } = await api.fetchSyncRuns(appState.token);
+        if (ok) {
+            ui.renderAdminSyncRuns(data.runs || []);
+        } else {
+            console.error('Failed to fetch sync runs:', data.message);
+        }
+    } catch (error) {
+        console.error('Error loading sync runs:', error);
+    } finally {
+        ui.setLoading(false);
     }
 }
 

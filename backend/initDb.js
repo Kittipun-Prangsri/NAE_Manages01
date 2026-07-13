@@ -50,6 +50,23 @@ export async function initInternalDb() {
         );
     `;
 
+    const syncRunsSchema = `
+        CREATE TABLE IF NOT EXISTS sync_runs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            source VARCHAR(50) NOT NULL,
+            visit_date DATE NOT NULL,
+            status ENUM('running', 'success', 'failed') NOT NULL DEFAULT 'running',
+            username VARCHAR(100) DEFAULT NULL,
+            total_records INT DEFAULT 0,
+            message TEXT,
+            error TEXT,
+            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            finished_at TIMESTAMP NULL DEFAULT NULL,
+            INDEX idx_sync_runs_date (visit_date),
+            INDEX idx_sync_runs_status (status)
+        );
+    `;
+
     const usersSchema = `
         CREATE TABLE IF NOT EXISTS users (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -98,6 +115,9 @@ export async function initInternalDb() {
 
         await trackerPool.query(cronSchedulesSchema);
         console.log('✅ Internal database table "cron_schedules" is ready.');
+
+        await trackerPool.query(syncRunsSchema);
+        console.log('✅ Internal database table "sync_runs" is ready.');
 
         // Prepopulate default cron schedules if empty
         const [schedRows] = await trackerPool.query('SELECT COUNT(*) as count FROM cron_schedules');

@@ -82,6 +82,13 @@ export const api = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
+    async fetchSyncStatus(token) {
+        const res = await fetch(`${API_BASE}/sync/status`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
     async fetchDashboard(date, token) {
         const res = await fetch(`${API_BASE}/tracking/dashboard?date=${date}`, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -202,6 +209,13 @@ export const api = {
 
     async fetchSchedules(token) {
         const res = await fetch(`${API_BASE}/admin/schedules`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async fetchSyncRuns(token) {
+        const res = await fetch(`${API_BASE}/admin/sync-runs`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         return { ok: res.ok, status: res.status, data: await res.json() };

@@ -14,6 +14,10 @@ export default defineConfig({
         target: 'http://localhost:3005',
         changeOrigin: true,
       },
+      '/screenshots/': {
+        target: 'http://localhost:3005',
+        changeOrigin: true,
+      },
       // style.css is served directly by Vite (no proxy needed)
     },
   },

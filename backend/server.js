@@ -11,6 +11,8 @@ import { initInternalDb } from './initDb.js';
 import { verifyUserLogin, authenticateToken } from './auth.js';
 import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic, checkNhsoStatusViaApi, getHosxpTotalVisits, getLiveDashboardGeo, getLiveDashboardDeps, getHosxpSummaryStats } from './dataService.js';
 import { processCrossCheck } from './crossCheckLogic.js';
+import { isReadOnlySql, hasMultipleStatements, replaceGrafanaMacros } from './queryUtils.js';
+import { isValidDateString, isValidTimeString, normalizeChannels, normalizeReportTypes } from './validation.js';
 import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
@@ -45,7 +47,111 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Serve screenshots statically (so LINE Messaging API can access them if public domain/IP is configured)
-app.use('/screenshots', express.static(path.join(__dirname, 'screenshots')));
+app.use('/screenshots', express.static(path.join(__dirname, '../screenshots')));
+app.use('/screenshots', express.static(path.join(__dirname, '../jobs/screenshots')));
+
+let currentSyncStatus = {
+    status: 'idle',
+    step: '',
+    message: '',
+    qrCodeUrl: '',
+    error: null,
+    visitDate: null,
+    startedAt: null
+};
+
+function checkSyncStatusTimeout() {
+    if (currentSyncStatus.status === 'running' && currentSyncStatus.startedAt) {
+        const diffMs = Date.now() - new Date(currentSyncStatus.startedAt).getTime();
+        if (diffMs > 15 * 60 * 1000) { // 15 minutes timeout
+            console.warn('⚠️ Sync process has timed out (exceeded 15 minutes). Resetting to idle.');
+            currentSyncStatus = {
+                status: 'failed',
+                step: 'timeout',
+                message: 'กระบวนการซิงก์ข้อมูลหมดเวลาการทำงาน (เกิน 15 นาที)',
+                qrCodeUrl: '',
+                error: 'Timeout',
+                visitDate: null,
+                startedAt: null
+            };
+        }
+    }
+}
+
+const loginAttempts = new Map();
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = Number(process.env.LOGIN_MAX_ATTEMPTS || 8);
+
+function isLoginRateLimited(key) {
+    const now = Date.now();
+    const current = loginAttempts.get(key) || { count: 0, resetAt: now + LOGIN_WINDOW_MS };
+    if (now > current.resetAt) {
+        loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+        return false;
+    }
+    current.count += 1;
+    loginAttempts.set(key, current);
+    return current.count > LOGIN_MAX_ATTEMPTS;
+}
+
+function resetLoginAttempts(key) {
+    loginAttempts.delete(key);
+}
+
+async function createSyncRun(source, visitDate, username) {
+    try {
+        const [result] = await trackerPool.query(
+            'INSERT INTO sync_runs (source, visit_date, username, status) VALUES (?, ?, ?, "running")',
+            [source, visitDate, username || null]
+        );
+        return result.insertId;
+    } catch (error) {
+        console.error('❌ Failed to create sync run audit:', error.message);
+        return null;
+    }
+}
+
+async function finishSyncRun(id, status, totalRecords, message, error = null) {
+    if (!id) return;
+    try {
+        await trackerPool.query(
+            'UPDATE sync_runs SET status = ?, total_records = ?, message = ?, error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [status, totalRecords || 0, message || null, error || null, id]
+        );
+    } catch (dbError) {
+        console.error('❌ Failed to update sync run audit:', dbError.message);
+    }
+}
+
+app.get('/api/health', async (req, res) => {
+    const health = {
+        success: true,
+        uptime: process.uptime(),
+        backgroundJobs: process.env.ENABLE_SERVER_BACKGROUND_JOBS === 'true' ? 'server-enabled' : 'worker-only',
+        database: {
+            tracker: false,
+            hosxp: false
+        }
+    };
+
+    try {
+        await trackerPool.query('SELECT 1');
+        health.database.tracker = true;
+    } catch (error) {
+        health.success = false;
+        health.trackerError = error.message;
+    }
+
+    try {
+        await hosxpPool.query('SELECT 1');
+        health.database.hosxp = true;
+    } catch (error) {
+        health.success = false;
+        health.hosxpError = error.message;
+    }
+
+    res.status(health.success ? 200 : 503).json(health);
+});
 
 // Check DB Connections and Init Table
 checkConnections().then(() => {
@@ -56,8 +162,16 @@ checkConnections().then(() => {
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ message: 'กรุณากรอกชื่อผู้ใช้งานและรหัสผ่าน' });
+    const rateLimitKey = `${req.ip}:${username}`;
+    if (isLoginRateLimited(rateLimitKey)) {
+        return res.status(429).json({ message: 'พยายามเข้าสู่ระบบถี่เกินไป กรุณารอสักครู่แล้วลองใหม่' });
+    }
     const result = await verifyUserLogin(username, password);
-    result.success ? res.json(result) : res.status(401).json({ message: result.message });
+    if (result.success) {
+        resetLoginAttempts(rateLimitKey);
+        return res.json(result);
+    }
+    res.status(401).json({ message: result.message });
 });
 
 // Helper to reply LINE message using Flex Report (Free)
@@ -541,10 +655,13 @@ app.post('/api/sync/probe-date', authenticateToken, upload.single('excel'), (req
  * Endpoint สำหรับดึงข้อมูล HOSxP และ Cross-check กับไฟล์ Excel (รวม Import & Process)
  */
 app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (req, res) => {
+    let syncRunId = null;
     try {
         const { visit_date } = req.body;
         if (!visit_date) return res.status(400).json({ message: 'กรุณาระบุวันที่ (visit_date)' });
+        if (!isValidDateString(visit_date)) return res.status(400).json({ message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
         if (!req.file) return res.status(400).json({ message: 'กรุณาอัปโหลดไฟล์ Excel' });
+        syncRunId = await createSyncRun('excel-upload', visit_date, req.user.username);
 
         const workbook = xlsx.read(req.file.buffer, { type: 'buffer', cellDates: true });
         const sheetName = workbook.SheetNames[0];
@@ -558,11 +675,13 @@ app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (
         const hosxpData = await getHosxpVisits(visit_date);
 
         if (hosxpData.length === 0) {
+            await finishSyncRun(syncRunId, 'success', 0, 'Excel upload saved but no HOSxP visits found');
             return res.status(404).json({ message: 'บันทึก Log และประมวลผลระบบสำเร็จ แต่ไม่พบข้อมูลผู้ป่วยใน HOSxP สำหรับวันที่ระบุ' });
         }
 
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);
+        await finishSyncRun(syncRunId, 'success', processedData.length, 'Excel upload sync completed');
 
         // (Auto-capture disabled in favor of frontend pop-up selection)
 
@@ -574,6 +693,7 @@ app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (
 
     } catch (error) {
         console.error('Processing Error:', error);
+        await finishSyncRun(syncRunId, 'failed', 0, 'Excel upload sync failed', error.message);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดในการประมวลผลข้อมูล' });
     }
 });
@@ -582,10 +702,13 @@ app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (
  * Endpoint สำหรับดึงข้อมูล HOSxP และ Cross-check กับข้อมูล JSON (จาก Clipboard)
  */
 app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
+    let syncRunId = null;
     try {
         const { visit_date, data } = req.body;
         if (!visit_date) return res.status(400).json({ message: 'กรุณาระบุวันที่ (visit_date)' });
+        if (!isValidDateString(visit_date)) return res.status(400).json({ message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
         if (!data || !Array.isArray(data)) return res.status(400).json({ message: 'ข้อมูลไม่ถูกต้อง' });
+        syncRunId = await createSyncRun('clipboard-json', visit_date, req.user.username);
 
         const excelData = data; // ใช้ข้อมูลจาก JSON ที่ส่งมาโดยตรง
 
@@ -594,11 +717,13 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
         const hosxpData = await getHosxpVisits(visit_date);
 
         if (hosxpData.length === 0) {
+            await finishSyncRun(syncRunId, 'success', 0, 'Clipboard data saved but no HOSxP visits found');
             return res.status(404).json({ message: 'บันทึก Log และประมวลผลระบบสำเร็จ แต่ไม่พบข้อมูลผู้ป่วยใน HOSxP สำหรับวันที่ระบุ' });
         }
 
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);
+        await finishSyncRun(syncRunId, 'success', processedData.length, 'Clipboard sync completed');
 
         // (Auto-capture disabled in favor of frontend pop-up selection)
 
@@ -610,6 +735,7 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
 
     } catch (error) {
         console.error('JSON Processing Error:', error);
+        await finishSyncRun(syncRunId, 'failed', 0, 'Clipboard sync failed', error.message);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดในการประมวลผลข้อมูลจาก Clipboard' });
     }
 });
@@ -618,12 +744,16 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
  * Endpoint สำหรับดึงข้อมูลจาก NHSO API โดยตรง (Direct API Automation)
  */
 app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
+    let syncRunId = null;
     try {
         const { visit_date } = req.body;
         if (!visit_date) return res.status(400).json({ message: 'กรุณาระบุวันที่ (visit_date)' });
+        if (!isValidDateString(visit_date)) return res.status(400).json({ message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
+        syncRunId = await createSyncRun('nhso-direct-api', visit_date, req.user.username);
 
         const hosxpData = await getHosxpVisits(visit_date);
         if (hosxpData.length === 0) {
+            await finishSyncRun(syncRunId, 'success', 0, 'No HOSxP visits found before NHSO API sync');
             return res.status(404).json({ message: 'ไม่พบข้อมูลผู้ป่วยใน HOSxP สำหรับวันที่ระบุ' });
         }
 
@@ -631,6 +761,7 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
         const serviceCode = process.env.NHSO_SERVICE_CODE;
 
         if (!bearerToken || bearerToken === 'YOUR_BEARER_TOKEN_HERE') {
+            await finishSyncRun(syncRunId, 'failed', 0, 'NHSO bearer token is not configured', 'Missing NHSO_BEARER_TOKEN');
             return res.status(400).json({ message: 'กรุณาตั้งค่า NHSO_BEARER_TOKEN ใน .env ก่อนใช้งานฟีเจอร์นี้' });
         }
 
@@ -674,6 +805,7 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
             const updatedHosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(updatedHosxpData, apiResults);
             await saveTrackingResults(processedData);
+            await finishSyncRun(syncRunId, 'success', processedData.length, `NHSO API found ${apiResults.length} records`);
             
             res.json({
                 success: true,
@@ -681,6 +813,7 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
                 data: processedData
             });
         } else {
+            await finishSyncRun(syncRunId, 'success', 0, `NHSO API connected but found no Authen Code for ${hosxpData.length} patients`);
             res.json({
                 success: true,
                 message: `เชื่อมต่อ API สำเร็จ แต่ไม่พบข้อมูล Authen Code ในระบบ สปสช. (${hosxpData.length} ราย)`,
@@ -690,6 +823,7 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
 
     } catch (error) {
         console.error('Direct API Sync Error:', error);
+        await finishSyncRun(syncRunId, 'failed', 0, 'NHSO direct API sync failed', error.message);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเชื่อมต่อกับ NHSO API' });
     }
 });
@@ -700,6 +834,9 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
 app.post('/api/sync/capture-grafana', authenticateToken, async (req, res) => {
     try {
         const { visit_date, channels, report_types } = req.body;
+        if (visit_date && !isValidDateString(visit_date)) return res.status(400).json({ success: false, message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
+        const normalizedChannels = normalizeChannels(channels);
+        const normalizedReportTypes = normalizeReportTypes(report_types);
         const username = req.user.username;
         console.log(`📸 [Manual Trigger] Grafana Capture requested by user: ${username} for date: ${visit_date || 'today'}`);
 
@@ -730,7 +867,7 @@ app.post('/api/sync/capture-grafana', authenticateToken, async (req, res) => {
             console.warn(`⚠️ User ${username} not found in internal DB. Falling back to system credentials from .env.`);
         }
 
-        const result = await captureAndNotify(visit_date, channels, report_types, userCredentials);
+        const result = await captureAndNotify(visit_date, normalizedChannels, normalizedReportTypes, userCredentials);
         if (result.success) {
             res.json({
                 success: true,
@@ -755,16 +892,41 @@ app.post('/api/sync/capture-grafana', authenticateToken, async (req, res) => {
 app.post('/api/sync/nhso-portal-download', authenticateToken, async (req, res) => {
     try {
         const visit_date = req.body.visit_date || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+        if (!isValidDateString(visit_date)) return res.status(400).json({ success: false, message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
         console.log(`📥 [Manual Trigger] NHSO Portal Download requested for date: ${visit_date} by user: ${req.user.username}`);
 
+        // Check if there is already an active run, using timeout check first
+        checkSyncStatusTimeout();
+        if (currentSyncStatus.status === 'running') {
+            return res.status(409).json({
+                success: false,
+                message: 'มีกระบวนการดาวน์โหลดและประมวลผลข้อมูลกำลังทำงานอยู่ในเบื้องหลังในขณะนี้ กรุณารอให้ระบบทำงานเสร็จก่อน'
+            });
+        }
+
+        // Initialize state to running
+        currentSyncStatus = {
+            status: 'running',
+            step: 'starting_browser',
+            message: 'กำลังเริ่มต้นรันบราวเซอร์เพื่อล็อกอิน สปสช....',
+            qrCodeUrl: '',
+            error: null,
+            visitDate: visit_date,
+            startedAt: new Date()
+        };
+
         // Run the sync process in the background to prevent HTTP connection timeouts
-        runManualPortalSyncInBackground(visit_date).catch(err => {
+        runManualPortalSyncInBackground(visit_date, req.user.username).catch(err => {
             console.error('❌ Error in manual portal background sync:', err);
+            currentSyncStatus.status = 'failed';
+            currentSyncStatus.step = 'failed';
+            currentSyncStatus.message = `เกิดข้อผิดพลาดในการรันระบบเบื้องหลัง: ${err.message}`;
+            currentSyncStatus.error = err.message;
         });
 
         res.json({
             success: true,
-            message: 'เริ่มดาวน์โหลดข้อมูลผ่านบอทหลังบ้านแล้ว! กรุณาตรวจสอบ QR Code และสแกนใน Telegram เพื่อเข้าระบบ'
+            message: 'เริ่มต้นดาวน์โหลดข้อมูลผ่านบอทเรียบร้อยแล้ว'
         });
 
     } catch (error) {
@@ -773,52 +935,97 @@ app.post('/api/sync/nhso-portal-download', authenticateToken, async (req, res) =
     }
 });
 
-async function runManualPortalSyncInBackground(visit_date) {
+/**
+ * Endpoint สำหรับดึงสถานะความคืบหน้าการซิงก์ข้อมูล
+ */
+app.get('/api/sync/status', authenticateToken, (req, res) => {
+    checkSyncStatusTimeout();
+    res.json(currentSyncStatus);
+});
+
+async function runManualPortalSyncInBackground(visit_date, username = null) {
     console.log(`📥 [Background Portal Sync] Starting for date: ${visit_date}`);
+    const syncRunId = await createSyncRun('nhso-portal', visit_date, username);
     await sendLineMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`);
-    const dlResult = await downloadNhsoReport();
     
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-    const token = process.env.TELEGRAM_BOT_TOKEN;
-    const chatIds = chatId ? chatId.split(',').map(id => id.trim()).filter(id => id) : [];
+    try {
+        const dlResult = await downloadNhsoReport((step, message, extra = null) => {
+            currentSyncStatus.step = step;
+            currentSyncStatus.message = message;
+            if (step === 'waiting_thaid_scan' && extra) {
+                currentSyncStatus.qrCodeUrl = extra;
+            }
+        });
+        
+        const chatId = process.env.TELEGRAM_CHAT_ID;
+        const token = process.env.TELEGRAM_BOT_TOKEN;
+        const chatIds = chatId ? chatId.split(',').map(id => id.trim()).filter(id => id) : [];
 
-    if (!dlResult.success || !dlResult.filePath) {
-        console.error(`❌ [Background Portal Sync] Download failed: ${dlResult.error}`);
-        for (const id of chatIds) {
-            await sendTelegramMessage(token, id, `❌ ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
+        if (!dlResult.success || !dlResult.filePath) {
+            console.error(`❌ [Background Portal Sync] Download failed: ${dlResult.error}`);
+            
+            currentSyncStatus.status = 'failed';
+            currentSyncStatus.step = 'failed';
+            currentSyncStatus.message = `ดาวน์โหลดรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`;
+            currentSyncStatus.error = dlResult.error;
+
+            for (const id of chatIds) {
+                await sendTelegramMessage(token, id, `❌ ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
+            }
+            await sendLineMessage(`❌ [Manual Sync] ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
+            await finishSyncRun(syncRunId, 'failed', 0, 'NHSO portal download failed', dlResult.error || 'Download failed');
+            return;
         }
-        await sendLineMessage(`❌ [Manual Sync] ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
-        return;
+
+        console.log(`📥 [Background Portal Sync] Reading downloaded file: ${dlResult.filePath}`);
+        currentSyncStatus.step = 'importing_database';
+        currentSyncStatus.message = 'ดาวน์โหลดรายงานสำเร็จ กำลังอ่านไฟล์และนำเข้าข้อมูลดิบลงตาราง HOSxP...';
+
+        const fileBuffer = fs.readFileSync(dlResult.filePath);
+        const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
+        const sheetName = workbook.SheetNames[0];
+        const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { 
+            raw: false, 
+            dateNF: 'yyyy-mm-dd hh:mm:ss' 
+        });
+
+        // นำเข้าข้อมูลและประมวลผล Sync
+        await saveAuthenLog(excelData, visit_date);
+        await executeAdvancedRunLogic(visit_date);
+        
+        currentSyncStatus.step = 'cross_checking';
+        currentSyncStatus.message = 'นำเข้าข้อมูลดิบสำเร็จ กำลังประมวลผลจับคู่เปรียบเทียบสิทธิ์...';
+
+        const hosxpData = await getHosxpVisits(visit_date);
+        const processedData = processCrossCheck(hosxpData, excelData);
+        await saveTrackingResults(processedData);
+        await finishSyncRun(syncRunId, 'success', processedData.length, 'NHSO portal sync completed');
+        
+        console.log('✅ [Background Portal Sync] Database sync completed.');
+        currentSyncStatus.status = 'success';
+        currentSyncStatus.step = 'completed';
+        currentSyncStatus.message = `การซิงก์และประมวลผลข้อมูลเปรียบเทียบประจำวันที่ ${visit_date} สำเร็จเสร็จสิ้นแล้ว!`;
+
+        // Keep only the latest Excel download as backup
+        cleanOldDownloads(path.join(__dirname, '../downloads'));
+
+        // แจ้งเตือนใน Telegram & LINE
+        for (const id of chatIds) {
+            await sendTelegramMessage(token, id, `✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`);
+        }
+        await sendLineMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`);
+
+        // Capture Grafana and send Telegram/LINE in the background
+        captureAndNotify(visit_date).catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
+
+    } catch (err) {
+        console.error('❌ [Background Portal Sync] Crash error:', err);
+        currentSyncStatus.status = 'failed';
+        currentSyncStatus.step = 'failed';
+        currentSyncStatus.message = `การซิงก์ขัดข้อง: ${err.message}`;
+        currentSyncStatus.error = err.message;
+        await finishSyncRun(syncRunId, 'failed', 0, 'NHSO portal sync crashed', err.message);
     }
-
-    console.log(`📥 [Background Portal Sync] Reading downloaded file: ${dlResult.filePath}`);
-    const fileBuffer = fs.readFileSync(dlResult.filePath);
-    const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
-    const sheetName = workbook.SheetNames[0];
-    const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { 
-        raw: false, 
-        dateNF: 'yyyy-mm-dd hh:mm:ss' 
-    });
-
-    // นำเข้าข้อมูลและประมวลผล Sync
-    await saveAuthenLog(excelData, visit_date);
-    await executeAdvancedRunLogic(visit_date);
-    const hosxpData = await getHosxpVisits(visit_date);
-    const processedData = processCrossCheck(hosxpData, excelData);
-    await saveTrackingResults(processedData);
-    console.log('✅ [Background Portal Sync] Database sync completed.');
-
-    // Keep only the latest Excel download as backup
-    cleanOldDownloads(path.join(__dirname, 'downloads'));
-
-    // แจ้งเตือนใน Telegram & LINE
-    for (const id of chatIds) {
-        await sendTelegramMessage(token, id, `✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`);
-    }
-    await sendLineMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`);
-
-    // Capture Grafana and send Telegram/LINE in the background
-    captureAndNotify(visit_date).catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
 }
 
 app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
@@ -939,36 +1146,21 @@ app.get('/api/tracking/summary', authenticateToken, async (req, res) => {
 
 // --- Grafana-like Custom Query Routes ---
 
-// ฟังก์ชันแปลงคำสั่ง Grafana Macros เป็น SQL มาตรฐาน
-function replaceGrafanaMacros(query, visitDate, hipdataCodes) {
-    if (!visitDate) {
-        visitDate = new Date().toISOString().split('T')[0];
-    }
-    let processed = query;
-    // แทนที่ $__timeFilter(column) ด้วย column = 'YYYY-MM-DD'
-    processed = processed.replace(/\$__timeFilter\(([^)]+)\)/gi, (match, column) => {
-        return `${column.trim()} = '${visitDate}'`;
-    });
-    // แทนที่ $hipdata_code ด้วยค่าสิทธิ์ (ค่าเริ่มต้นคือ 'UCS')
-    processed = processed.replace(/\$hipdata_code/gi, hipdataCodes);
-    return processed;
-}
-
 // 1. Endpoint รันคำสั่ง SQL Query
 app.post('/api/custom-query', authenticateToken, async (req, res) => {
     try {
         const { query, db_type, visit_date, hipdata_code } = req.body;
         if (!query) return res.status(400).json({ message: 'กรุณาระบุคำสั่ง SQL Query' });
+        if (visit_date && !isValidDateString(visit_date)) return res.status(400).json({ message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
+        if (db_type && !['hosxp', 'tracker'].includes(db_type)) return res.status(400).json({ message: 'db_type ไม่ถูกต้อง' });
+        if (hasMultipleStatements(query)) return res.status(400).json({ message: 'ไม่อนุญาตให้รันหลาย SQL statement ในครั้งเดียว' });
 
         // ตรวจสอบความปลอดภัยเบื้องต้น
-        const trimmedQuery = query.trim().toUpperCase();
-        const allowedPrefixes = ['SELECT', 'WITH', 'SHOW', 'DESCRIBE'];
-        const isReadQuery = allowedPrefixes.some(prefix => trimmedQuery.startsWith(prefix));
+        const isReadQuery = isReadOnlySql(query);
 
-        // ถ้าไม่ใช่คำสั่งอ่านข้อมูล และไม่ใช่ admin ให้ส่ง 403 Forbidden
-        if (!isReadQuery && req.user.role !== 'admin') {
+        if (!isReadQuery && (process.env.ALLOW_MUTATING_CUSTOM_QUERY !== 'true' || req.user.role !== 'admin')) {
             return res.status(403).json({ 
-                message: 'Forbidden: คุณไม่มีสิทธิ์ในการรันคำสั่งแก้ไขข้อมูล (UPDATE, DELETE, INSERT) เฉพาะผู้ดูแลระบบเท่านั้น' 
+                message: 'Forbidden: SQL Panel เปิดให้อ่านข้อมูลเท่านั้น หากต้องการรันคำสั่งแก้ข้อมูลต้องเป็น admin และตั้งค่า ALLOW_MUTATING_CUSTOM_QUERY=true ชั่วคราว'
             });
         }
 
@@ -1105,6 +1297,18 @@ app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, 
     }
 });
 
+app.get('/api/admin/sync-runs', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await trackerPool.query(
+            'SELECT id, source, visit_date, status, username, total_records, message, error, started_at, finished_at FROM sync_runs ORDER BY id DESC LIMIT 100'
+        );
+        res.json({ success: true, runs: rows });
+    } catch (error) {
+        console.error('Fetch sync runs error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 // 5. Test Notification
 app.post('/api/admin/users/test-notification', authenticateToken, requireAdmin, async (req, res) => {
     try {
@@ -1191,6 +1395,7 @@ app.post('/api/admin/schedules', authenticateToken, requireAdmin, async (req, re
     try {
         const { schedule_time } = req.body; // 'HH:MM'
         if (!schedule_time) return res.status(400).json({ success: false, message: 'กรุณาระบุเวลาทำงาน' });
+        if (!isValidTimeString(schedule_time)) return res.status(400).json({ success: false, message: 'รูปแบบเวลาไม่ถูกต้อง กรุณาใช้ HH:MM' });
 
         const timeWithSeconds = `${schedule_time}:00`;
         await trackerPool.query('INSERT INTO cron_schedules (schedule_time, is_enabled) VALUES (?, 1)', [timeWithSeconds]);
@@ -1213,6 +1418,7 @@ app.put('/api/admin/schedules/:id', authenticateToken, requireAdmin, async (req,
         const { is_enabled, schedule_time } = req.body;
 
         if (schedule_time) {
+            if (!isValidTimeString(schedule_time)) return res.status(400).json({ success: false, message: 'รูปแบบเวลาไม่ถูกต้อง กรุณาใช้ HH:MM' });
             const timeWithSeconds = `${schedule_time}:00`;
             await trackerPool.query('UPDATE cron_schedules SET schedule_time = ? WHERE id = ?', [timeWithSeconds, id]);
         }
@@ -1281,7 +1487,7 @@ async function handleScheduledSyncAndCapture() {
             await saveTrackingResults(processedData);
             
             // Keep only the latest Excel download as backup
-            cleanOldDownloads(path.join(__dirname, 'downloads'));
+            cleanOldDownloads(path.join(__dirname, '../downloads'));
 
             console.log('✅ [Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
         } else {
@@ -1300,6 +1506,10 @@ async function handleScheduledSyncAndCapture() {
 let activeCronTasks = [];
 
 async function reloadSchedules() {
+    if (process.env.ENABLE_SERVER_BACKGROUND_JOBS !== 'true') {
+        console.log('ℹ️ [Scheduler] Server scheduler disabled; worker process owns background jobs.');
+        return;
+    }
     console.log('⏰ [Scheduler] Reloading cron schedules from database...');
     try {
         // Stop and destroy all currently running tasks
@@ -1342,11 +1552,11 @@ async function reloadSchedules() {
 
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
-    if (process.env.DISABLE_BACKGROUND_JOBS === 'true') {
-        console.log('ℹ️ [Server] DISABLE_BACKGROUND_JOBS=true: Background scheduler and Telegram bot listener are disabled on this instance.');
-    } else {
+    if (process.env.ENABLE_SERVER_BACKGROUND_JOBS === 'true') {
         startTelegramBotListener();
         reloadSchedules(); // Initial loading of database schedules
+    } else {
+        console.log('ℹ️ [Server] Background jobs are disabled here. Run "npm run worker" for scheduler, Telegram polling, and NHSO keep-alive.');
     }
 });
 
@@ -1514,7 +1724,7 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             console.log('✅ [Telegram Trigger] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
             
             // เคลียร์ไฟล์ดาวน์โหลด
-            cleanOldDownloads(path.join(__dirname, 'downloads'));
+            cleanOldDownloads(path.join(__dirname, '../downloads'));
             
             // แจ้งเตือนความสำเร็จ
             await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, '✅ ซิงก์ข้อมูลฐานข้อมูลสำเร็จแล้ว! กำลังเตรียมบันทึกหน้าจอ Grafana...');

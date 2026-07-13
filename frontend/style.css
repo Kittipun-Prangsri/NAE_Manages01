@@ -363,3 +363,58 @@ text.tcount {
   pointer-events: none;
   user-select: none;
 }
+
+/* ===== Sync Progress Stepper Styles ===== */
+.step-active {
+  background-color: rgba(16, 185, 129, 0.08) !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+  transform: scale(1.01);
+}
+.step-active span {
+  border-color: #10b981 !important;
+  background-color: #10b981 !important;
+  color: white !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+}
+.step-active div div:first-child {
+  color: #10b981 !important;
+}
+
+.step-completed {
+  background-color: rgba(16, 185, 129, 0.03) !important;
+  border: 1px solid rgba(16, 185, 129, 0.12) !important;
+  opacity: 0.85;
+}
+.step-completed span {
+  border-color: #10b981 !important;
+  background-color: #10b981 !important;
+  color: white !important;
+}
+.step-completed div div:first-child {
+  color: #0d9488 !important;
+}
+.dark .step-completed div div:first-child {
+  color: #2dd4bf !important;
+}
+
+.step-failed {
+  background-color: rgba(239, 68, 68, 0.08) !important;
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  transform: scale(1.01);
+}
+.step-failed span {
+  border-color: #ef4444 !important;
+  background-color: #ef4444 !important;
+  color: white !important;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.6);
+}
+.step-failed div div:first-child {
+  color: #ef4444 !important;
+}
+
+@keyframes scan {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(180px); }
+  100% { transform: translateY(0); }
+}
+

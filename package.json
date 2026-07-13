@@ -1,6 +1,6 @@
 {
   "name": "nae_manages01",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "main": "script.js",
   "scripts": {
@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "start": "node backend/server.js",
     "worker": "node jobs/worker.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test test/*.test.js"
   },
   "keywords": [],
   "author": "",

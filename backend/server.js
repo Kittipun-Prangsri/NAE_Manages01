@@ -724,18 +724,10 @@ app.post('/api/sync/capture-grafana', authenticateToken, async (req, res) => {
                 };
                 console.log(`📲 Using personal notification credentials for user: ${username} (LINE: ${hasLine ? 'yes' : 'no'}, Telegram: ${hasTelegram ? 'yes' : 'no'})`);
             } else {
-                console.warn(`⚠️ User ${username} has no notification channels configured in their profile. Report will not be sent.`);
-                return res.status(400).json({
-                    success: false,
-                    message: 'ไม่พบการตั้งค่าช่องทางการแจ้งเตือน (LINE / Telegram) ในโปรไฟล์ของคุณ กรุณาตั้งค่าก่อนใช้งาน'
-                });
+                console.warn(`⚠️ User ${username} has no notification channels configured in their profile. Falling back to system credentials from .env.`);
             }
         } else {
-            console.warn(`⚠️ User ${username} not found in internal DB.`);
-            return res.status(400).json({
-                success: false,
-                message: 'ไม่พบข้อมูลผู้ใช้ในระบบ กรุณาเข้าสู่ระบบใหม่อีกครั้ง'
-            });
+            console.warn(`⚠️ User ${username} not found in internal DB. Falling back to system credentials from .env.`);
         }
 
         const result = await captureAndNotify(visit_date, channels, report_types, userCredentials);

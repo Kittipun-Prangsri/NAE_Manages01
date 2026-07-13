@@ -7,7 +7,6 @@
     <title>NHSO Tracking System - NAE Manages</title>
     <link rel="stylesheet" href="/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
 </head>
 
 <body class="min-h-screen">
@@ -306,10 +305,20 @@
                         </div>
                     </div>
 
+                    <div id="tracker-dashboard-filter-banner" class="hidden mx-5 mt-4 px-4 py-3 rounded-xl border border-blue-500/20 bg-blue-50/80 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 text-xs font-bold flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-filter"></i>
+                            <span id="tracker-dashboard-filter-label">กำลังกรองจาก Live Dashboard</span>
+                        </div>
+                        <button id="clear-tracker-dashboard-filter" class="self-start sm:self-auto px-3 py-1.5 rounded-lg bg-white/80 dark:bg-slate-900/70 hover:bg-white dark:hover:bg-slate-800 text-blue-600 dark:text-blue-300 border border-blue-500/20 transition cursor-pointer">
+                            <i class="fas fa-times mr-1"></i> ล้างตัวกรอง
+                        </button>
+                    </div>
+
                     <div id="patient-list-content" class="transition-all duration-300 ease-in-out">
                         <!-- Data Table View -->
                         <div class="overflow-x-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse min-w-[1300px]">
+                            <table class="w-full text-left border-collapse min-w-[1400px]">
                                 <thead id="tracking-table-thead">
                                     <tr class="bg-slate-100/60 dark:bg-slate-900/60 border-b border-slate-200/80 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
                                         <th class="py-3 px-4 w-32 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="vn">VN</th>
@@ -326,6 +335,7 @@
                                         <th class="py-3 px-4 w-32 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="check_claimcode">ผลการเช็ค</th>
                                         <th class="py-3 px-4 w-32 text-right cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="uc_money">UC Money</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="department">Department</th>
+                                        <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="subdistrict_name">ตำบล</th>
                                         <th class="py-3 px-4 w-44 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="color_status">สถานะ</th>
                                     </tr>
                                 </thead>
@@ -363,8 +373,12 @@
                                 อัปเดตล่าสุด: <span id="live-update-time">-</span>
                             </span>
                             <span class="inline-flex items-center gap-1.5">
-                                <i class="fas fa-redo-alt text-slate-400"></i>
-                                รีเฟรชทุก 30 วินาที
+                                <i class="fas fa-satellite-dish text-slate-400"></i>
+                                <span id="live-auto-refresh-state">Auto refresh: ปิด</span>
+                            </span>
+                            <span class="inline-flex items-center gap-1.5">
+                                <i class="fas fa-hourglass-half text-slate-400"></i>
+                                รอบถัดไป: <span id="live-next-refresh">-</span>
                             </span>
                         </div>
                     </div>
@@ -473,79 +487,42 @@
 
                         <!-- Map Legend -->
                         <div class="absolute bottom-6 left-6 bg-white/95 dark:bg-slate-900/95 border border-slate-100 dark:border-slate-800/40 rounded-xl shadow-md p-3 flex flex-col gap-1.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300 z-10">
-                            <div class="text-[9px] font-bold text-slate-400 mb-0.5 uppercase tracking-wide">ความหนาแน่น</div>
-                            <div class="flex items-center gap-2">
-                                <span class="w-3 h-3 rounded-full bg-red-500 shadow-sm"></span>
-                                <span>สูง (&gt; 70 คน)</span>
+                            <div class="flex items-start justify-between gap-5 mb-1">
+                                <div>
+                                    <div class="text-[9px] font-bold text-slate-400 uppercase tracking-wide">ความหนาแน่น</div>
+                                    <div id="map-legend-total" class="text-[11px] font-extrabold text-slate-800 dark:text-white mt-0.5">รวม — คน</div>
+                                </div>
+                                <div id="map-legend-max" class="text-right text-[9px] font-bold text-slate-400">สูงสุด —</div>
                             </div>
                             <div class="flex items-center gap-2">
-                                <span class="w-3 h-3 rounded-full bg-orange-400 shadow-sm"></span>
-                                <span>ปานกลาง (40–70 คน)</span>
+                                <span id="map-legend-high-color" class="w-3 h-3 rounded-full shadow-sm"></span>
+                                <span id="map-legend-high">สูง</span>
                             </div>
                             <div class="flex items-center gap-2">
-                                <span class="w-3 h-3 rounded-full bg-sky-400 shadow-sm"></span>
-                                <span>น้อย (&lt; 40 คน)</span>
+                                <span id="map-legend-mid-color" class="w-3 h-3 rounded-full shadow-sm"></span>
+                                <span id="map-legend-mid">ปานกลาง</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="map-legend-low-color" class="w-3 h-3 rounded-full shadow-sm"></span>
+                                <span id="map-legend-low">น้อย</span>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Department Donut Charts Card (Right) -->
+                    <!-- Dynamic Top Departments Card (Right) -->
                     <div class="live-dept-card lg:col-span-5 glass-panel p-6 rounded-2xl bg-white/80 dark:bg-slate-900/50 shadow-sm border border-slate-100/50 dark:border-slate-800/40 flex flex-col">
                         <div class="flex justify-between items-center mb-6">
                             <div>
                                 <h3 class="font-extrabold text-base text-slate-800 dark:text-white flex items-center space-x-2">
-                                    <i class="fas fa-chart-pie text-emerald-500"></i>
-                                    <span>ปริมาณคนไข้ตามแผนกบริการ (Donut Charts)</span>
+                                    <i class="fas fa-ranking-star text-emerald-500"></i>
+                                    <span>Top Departments</span>
                                 </h3>
-                                <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">แสดงสัดส่วนผู้เข้ารับบริการวันนี้แบบเรียลไทม์</p>
+                                <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">อันดับแผนกที่มีผู้รับบริการสูงสุดวันนี้ คลิกเพื่อกรอง Tracker</p>
                             </div>
                         </div>
 
-                        <div id="live-top-depts" class="tv-only hidden space-y-3 mb-5">
-                            <!-- TV mode department ranking renders here -->
-                        </div>
-
-                        <!-- Vertical Donut Cards stack -->
-                        <div class="live-donut-stack flex flex-col gap-4 flex-1 justify-center">
-                            <!-- 1. OPD -->
-                            <div class="flex items-center bg-slate-50/40 dark:bg-slate-950/20 border border-slate-100/80 dark:border-slate-800/80 rounded-2xl p-4 gap-4 shadow-sm hover:shadow transition">
-                                <div id="chart-opd" style="width: 80px; height: 80px; flex-shrink: 0;"></div>
-                                <div class="flex flex-col flex-1">
-                                    <span class="text-xs font-bold text-slate-800 dark:text-white">Outpatient Dept. (OPD)</span>
-                                    <span id="opd-stats-label" class="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-0.5">โหลดข้อมูล...</span>
-                                    <span class="self-start text-[8px] font-extrabold px-1.5 py-0.5 mt-1.5 rounded bg-teal-500/10 text-teal-600 dark:text-teal-400 uppercase">สิทธิ์ สปสช. (UCS)</span>
-                                </div>
-                            </div>
-
-                            <!-- 2. ER -->
-                            <div class="flex items-center bg-slate-50/40 dark:bg-slate-950/20 border border-slate-100/80 dark:border-slate-800/80 rounded-2xl p-4 gap-4 shadow-sm hover:shadow transition">
-                                <div id="chart-er" style="width: 80px; height: 80px; flex-shrink: 0;"></div>
-                                <div class="flex flex-col flex-1">
-                                    <span class="text-xs font-bold text-slate-800 dark:text-white">Emergency Room (ER)</span>
-                                    <span id="er-stats-label" class="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-0.5">โหลดข้อมูล...</span>
-                                    <span class="self-start text-[8px] font-extrabold px-1.5 py-0.5 mt-1.5 rounded bg-orange-500/10 text-orange-600 dark:text-orange-400 uppercase">เคสฉุกเฉินด่วน</span>
-                                </div>
-                            </div>
-
-                            <!-- 3. NCD -->
-                            <div class="flex items-center bg-slate-50/40 dark:bg-slate-950/20 border border-slate-100/80 dark:border-slate-800/80 rounded-2xl p-4 gap-4 shadow-sm hover:shadow transition">
-                                <div id="chart-ncd" style="width: 80px; height: 80px; flex-shrink: 0;"></div>
-                                <div class="flex flex-col flex-1">
-                                    <span class="text-xs font-bold text-slate-800 dark:text-white">NCD Clinic</span>
-                                    <span id="ncd-stats-label" class="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-0.5">โหลดข้อมูล...</span>
-                                    <span class="self-start text-[8px] font-extrabold px-1.5 py-0.5 mt-1.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 uppercase">คลินิกโรคเรื้อรัง</span>
-                                </div>
-                            </div>
-
-                            <!-- 4. Dental -->
-                            <div class="flex items-center bg-slate-50/40 dark:bg-slate-950/20 border border-slate-100/80 dark:border-slate-800/80 rounded-2xl p-4 gap-4 shadow-sm hover:shadow transition">
-                                <div id="chart-dental" style="width: 80px; height: 80px; flex-shrink: 0;"></div>
-                                <div class="flex flex-col flex-1">
-                                    <span class="text-xs font-bold text-slate-800 dark:text-white">Dental Clinic</span>
-                                    <span id="dental-stats-label" class="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-0.5">โหลดข้อมูล...</span>
-                                    <span class="self-start text-[8px] font-extrabold px-1.5 py-0.5 mt-1.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 uppercase">ทันตกรรมทั่วไป</span>
-                                </div>
-                            </div>
+                        <div id="live-top-depts" class="live-top-depts space-y-3 flex-1">
+                            <!-- Dynamic department ranking renders here -->
                         </div>
                     </div>
                 </div>

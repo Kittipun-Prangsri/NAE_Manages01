@@ -5,6 +5,7 @@ import { exportToCsv, isTokenExpired } from './utils.js';
 
 // App State
 let isLoggingOut = false;
+const LIVE_DASHBOARD_REFRESH_MS = 30000;
 
 const getInitialState = () => {
     if (typeof localStorage === 'undefined') {
@@ -14,12 +15,16 @@ const getInitialState = () => {
             rawTableData: [],
             savedQueries: [],
             currentQueryResults: [],
+            hosxpStats: null,
             querySortBy: '',
             querySortDesc: false,
             trackerSortBy: '',
             trackerSortDesc: false,
             trackerSearchFilter: '',
+            trackerDashboardFilter: null,
             liveDashboardInterval: null,
+            liveDashboardCountdownInterval: null,
+            liveDashboardNextRefreshAt: null,
             isTvMode: false
         };
     }
@@ -29,12 +34,16 @@ const getInitialState = () => {
         rawTableData: [],
         savedQueries: [],
         currentQueryResults: [],
+        hosxpStats: null,
         querySortBy: '',
         querySortDesc: false,
         trackerSortBy: '',
         trackerSortDesc: false,
         trackerSearchFilter: '',
+        trackerDashboardFilter: null,
         liveDashboardInterval: null,
+        liveDashboardCountdownInterval: null,
+        liveDashboardNextRefreshAt: null,
         isTvMode: localStorage.getItem('live_tv_mode') === 'true'
     };
 };
@@ -118,6 +127,7 @@ function setupEventListeners() {
         appState.trackerSearchFilter = e.target.value;
         renderTrackerTable();
     });
+    document.getElementById('clear-tracker-dashboard-filter')?.addEventListener('click', clearTrackerDashboardFilter);
     
     // Export Data
     document.getElementById('export-error-btn')?.addEventListener('click', handleExportErrors);
@@ -224,10 +234,7 @@ async function handleLogin(e) {
 
 function handleLogout() {
     isLoggingOut = true;
-    if (appState.liveDashboardInterval) {
-        clearInterval(appState.liveDashboardInterval);
-        appState.liveDashboardInterval = null;
-    }
+    stopLiveDashboardAutoRefresh();
     if (typeof localStorage !== 'undefined') {
         localStorage.removeItem('nhso_token');
         localStorage.removeItem('nhso_user');
@@ -734,8 +741,8 @@ async function loadDashboardData() {
             
             // data now contains { trackingData: [], hosxpStats: { totalPersons: X, totalVisits: Y } }
             appState.rawTableData = data.trackingData || [];
+            appState.hosxpStats = data.hosxpStats || null;
             renderTrackerTable();
-            ui.updateStats(appState.rawTableData, data.hosxpStats);
         }
     } catch (error) {
         console.error('Fetch error:', error);
@@ -768,8 +775,56 @@ async function loadLiveDashboardData() {
     }
 }
 
+function updateLiveAutoRefreshUi(isActive = true) {
+    ui.updateLiveAutoRefresh({
+        isActive,
+        intervalMs: LIVE_DASHBOARD_REFRESH_MS,
+        nextRefreshAt: appState.liveDashboardNextRefreshAt
+    });
+}
+
+function stopLiveDashboardAutoRefresh() {
+    if (appState.liveDashboardInterval) {
+        clearInterval(appState.liveDashboardInterval);
+        appState.liveDashboardInterval = null;
+    }
+    if (appState.liveDashboardCountdownInterval) {
+        clearInterval(appState.liveDashboardCountdownInterval);
+        appState.liveDashboardCountdownInterval = null;
+    }
+    appState.liveDashboardNextRefreshAt = null;
+    updateLiveAutoRefreshUi(false);
+}
+
+function startLiveDashboardAutoRefresh() {
+    stopLiveDashboardAutoRefresh();
+    appState.liveDashboardNextRefreshAt = Date.now() + LIVE_DASHBOARD_REFRESH_MS;
+    updateLiveAutoRefreshUi(true);
+
+    appState.liveDashboardCountdownInterval = setInterval(() => updateLiveAutoRefreshUi(true), 1000);
+    appState.liveDashboardInterval = setInterval(() => {
+        appState.liveDashboardNextRefreshAt = Date.now() + LIVE_DASHBOARD_REFRESH_MS;
+        updateLiveAutoRefreshUi(true);
+        loadLiveDashboardData();
+    }, LIVE_DASHBOARD_REFRESH_MS);
+}
+
 function getFilteredAndSortedTrackerData() {
     let data = [...appState.rawTableData];
+
+    const dashboardFilter = appState.trackerDashboardFilter;
+    if (dashboardFilter?.value) {
+        const query = dashboardFilter.value.toLowerCase();
+        const fields = dashboardFilter.type === 'department'
+            ? ['department']
+            : ['subdistrict_name', 'tambon_name', 'subdistrict_code', 'tambon_code'];
+
+        data = data.filter(item => fields.some(field => {
+            const value = String(item[field] || '').toLowerCase();
+            if (!value) return false;
+            return value === query || value.includes(query) || query.includes(value);
+        }));
+    }
 
     // Search filter
     const searchFilter = appState.trackerSearchFilter;
@@ -808,7 +863,31 @@ function getFilteredAndSortedTrackerData() {
 
 function renderTrackerTable() {
     const data = getFilteredAndSortedTrackerData();
+    const hasFilters = Boolean(appState.trackerDashboardFilter?.value || appState.trackerSearchFilter);
     ui.renderTable(data, appState.trackerSortBy, appState.trackerSortDesc);
+    ui.renderTrackerDashboardFilter(appState.trackerDashboardFilter, data.length);
+    ui.updateStats(data, hasFilters ? null : appState.hosxpStats);
+}
+
+async function applyTrackerDashboardFilter(type, value, label = value) {
+    if (!value) return;
+    appState.trackerDashboardFilter = { type, value, label };
+    appState.trackerSearchFilter = '';
+
+    const searchInput = document.getElementById('tracker-search-input');
+    if (searchInput) searchInput.value = '';
+
+    handleTabSwitch('tab-tracker');
+    if (appState.rawTableData.length === 0) {
+        await loadDashboardData();
+    } else {
+        renderTrackerTable();
+    }
+}
+
+function clearTrackerDashboardFilter() {
+    appState.trackerDashboardFilter = null;
+    renderTrackerTable();
 }
 
 function handleExportErrors() {
@@ -868,7 +947,6 @@ function applyLiveTvMode(isEnabled) {
     if (typeof localStorage !== 'undefined') {
         localStorage.setItem('live_tv_mode', isEnabled ? 'true' : 'false');
     }
-    setTimeout(() => ui.resizeLiveCharts(), 150);
 }
 
 function handleLiveTvToggle() {
@@ -908,18 +986,13 @@ async function handleLiveFullscreen() {
 
 // จัดการสลับหน้าจอ Tab
 function handleTabSwitch(tabId) {
-    // Clear any active live dashboard refresh interval first
-    if (appState.liveDashboardInterval) {
-        clearInterval(appState.liveDashboardInterval);
-        appState.liveDashboardInterval = null;
-    }
+    stopLiveDashboardAutoRefresh();
 
     ui.switchTab(tabId);
 
     if (tabId === 'tab-live-dashboard') {
         loadLiveDashboardData();
-        // Start auto-refresh polling every 30 seconds
-        appState.liveDashboardInterval = setInterval(loadLiveDashboardData, 30000);
+        startLiveDashboardAutoRefresh();
     } else if (tabId === 'tab-grafana') {
         const dateInput = document.getElementById('query-visit-date');
         if (!dateInput.value) {
@@ -1472,9 +1545,16 @@ async function handleAdminQuickLogin(e) {
     }
 }
 
-// Filter tracker table by subdistrict when clicking a map bubble
-window.filterDashboardByTambon = function(code) {
+// Filter tracker table from live dashboard clicks
+window.filterDashboardByTambon = function(codeOrName) {
     const tambonNames = {
+        'T01': 'ไทรเดี่ยว',
+        'T02': 'ไทรทอง',
+        'T03': 'เบญจขร',
+        'T04': 'ซับมะกรูด',
+        'T05': 'คลองหาด',
+        'T06': 'ไทยอุดม',
+        'T07': 'คลองไก่เถื่อน',
         '270501': 'คลองหาด',
         '270502': 'ไทยอุดม',
         '270503': 'ซับมะกรูด',
@@ -1483,23 +1563,14 @@ window.filterDashboardByTambon = function(code) {
         '270506': 'คลองไก่เถื่อน',
         '270507': 'เบญจขร'
     };
-    const name = tambonNames[code];
+    const name = tambonNames[codeOrName] || codeOrName;
     if (!name) return;
+    applyTrackerDashboardFilter('tambon', name, `ตำบล ${name}`);
+};
 
-    // Set search filter
-    appState.trackerSearchFilter = name;
-    
-    // Update Search input element value
-    const searchInput = document.getElementById('tracker-search');
-    if (searchInput) {
-        searchInput.value = name;
-    }
-
-    // Switch tab to the Tracker view
-    handleTabSwitch('tab-tracker');
-    
-    // Load tracking data
-    loadDashboardData();
+window.filterTrackerByDepartment = function(departmentName) {
+    if (!departmentName) return;
+    applyTrackerDashboardFilter('department', departmentName, `แผนก ${departmentName}`);
 };
 
 // Start App

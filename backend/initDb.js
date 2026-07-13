@@ -16,6 +16,8 @@ export async function initInternalDb() {
             authen_code_type VARCHAR(100),
             pttype_note TEXT,
             department VARCHAR(150),
+            subdistrict_code VARCHAR(10) DEFAULT NULL,
+            subdistrict_name VARCHAR(150) DEFAULT NULL,
             nhso_authen_code VARCHAR(50) DEFAULT NULL,
             authen_status BOOLEAN DEFAULT FALSE,
             endpoint_status BOOLEAN DEFAULT FALSE,
@@ -110,6 +112,16 @@ export async function initInternalDb() {
         await trackerPool.query(schema);
         console.log('✅ Internal database table "visit_tracking" is ready.');
 
+        const [subdistrictCodeCols] = await trackerPool.query('SHOW COLUMNS FROM visit_tracking LIKE "subdistrict_code"');
+        if (subdistrictCodeCols.length === 0) {
+            await trackerPool.query(`
+                ALTER TABLE visit_tracking
+                ADD COLUMN subdistrict_code VARCHAR(10) DEFAULT NULL AFTER department,
+                ADD COLUMN subdistrict_name VARCHAR(150) DEFAULT NULL AFTER subdistrict_code
+            `);
+            console.log('✅ Added subdistrict columns to "visit_tracking" table.');
+        }
+
         await trackerPool.query(savedQueriesSchema);
         console.log('✅ Internal database table "saved_queries" is ready.');
 
@@ -186,7 +198,7 @@ ORDER BY ผู้รับบริการทั้งหมด DESC;`
                     db_type: 'tracker',
                     query_text: `SELECT 
     vn, hn, cid, full_name, visit_date, pttype, 
-    claim_code, authen_code_type, department, color_status, updated_at
+    claim_code, authen_code_type, department, subdistrict_name, color_status, updated_at
 FROM visit_tracking 
 WHERE visit_date = CURDATE()
 ORDER BY color_status ASC;`

@@ -340,6 +340,108 @@ path.tambon:hover {
   transform: translateY(-2px);
 }
 
+.live-dept-rank-card:hover {
+  border-color: rgba(16, 185, 129, 0.35);
+  transform: translateY(-2px);
+}
+
+.live-top-depts {
+  min-height: 0;
+}
+
+.live-dept-rank-card {
+  display: flex;
+  gap: 0.9rem;
+  align-items: center;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 1rem;
+  background: rgba(248, 250, 252, 0.6);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dark .live-dept-rank-card {
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.live-dept-rank-badge {
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.92rem;
+  font-weight: 900;
+  color: #0f766e;
+  background: rgba(20, 184, 166, 0.12);
+  border: 1px solid rgba(20, 184, 166, 0.18);
+}
+
+.live-dept-rank-card.is-first .live-dept-rank-badge {
+  color: #b45309;
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.28);
+}
+
+.live-dept-rank-card.is-second .live-dept-rank-badge {
+  color: #475569;
+  background: rgba(148, 163, 184, 0.2);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.live-dept-rank-card.is-third .live-dept-rank-badge {
+  color: #c2410c;
+  background: rgba(251, 146, 60, 0.16);
+  border-color: rgba(251, 146, 60, 0.26);
+}
+
+.live-dept-rank-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-main);
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.live-dept-rank-meta,
+.live-dept-rank-unit {
+  margin-top: 0.15rem;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.live-dept-rank-count {
+  color: #059669;
+  font-size: 1.25rem;
+  line-height: 1;
+  font-weight: 950;
+}
+
+.live-dept-rank-track {
+  height: 0.45rem;
+  margin-top: 0.65rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.live-dept-rank-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #10b981, #06b6d4);
+}
+
+.live-dept-empty {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
 text.tlabel {
   font-family: 'Kanit', 'Sarabun', sans-serif;
   font-weight: 700;
@@ -547,64 +649,34 @@ text.tcount {
   display: block !important;
 }
 
-.tv-mode .live-donut-stack {
-  gap: 0.7rem;
+.tv-mode .live-top-depts {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.75rem;
 }
 
-.tv-mode .live-donut-stack > div {
-  padding: 0.85rem 1rem;
-  border-radius: 0.85rem;
-}
-
-.tv-mode #chart-opd,
-.tv-mode #chart-er,
-.tv-mode #chart-ncd,
-.tv-mode #chart-dental {
-  width: 104px !important;
-  height: 104px !important;
-}
-
-.tv-dept-row {
-  padding: 0.7rem 0.85rem;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 0.75rem;
-  background: rgba(15, 23, 42, 0.18);
-}
-
-.dark .tv-dept-row,
-.tv-mode .tv-dept-row {
+.tv-mode .live-dept-rank-card {
+  padding: 0.9rem 1rem;
   background: rgba(15, 23, 42, 0.55);
 }
 
-.tv-dept-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.82rem;
-  font-weight: 800;
-  color: var(--text-main);
+.tv-mode .live-dept-rank-badge {
+  width: 2.8rem;
+  height: 2.8rem;
+  font-size: 1.05rem;
 }
 
-.tv-dept-count {
-  font-size: 0.95rem;
-  font-weight: 900;
-  color: #34d399;
-  white-space: nowrap;
+.tv-mode .live-dept-rank-name {
+  font-size: clamp(1rem, 1.35vw, 1.35rem);
 }
 
-.tv-dept-bar-track {
-  margin-top: 0.55rem;
-  height: 0.45rem;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.22);
+.tv-mode .live-dept-rank-count {
+  font-size: clamp(1.45rem, 2vw, 2rem);
 }
 
-.tv-dept-bar {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #22c55e, #06b6d4);
+.tv-mode .live-dept-rank-track {
+  height: 0.55rem;
 }
 
 @media (max-width: 1180px) {

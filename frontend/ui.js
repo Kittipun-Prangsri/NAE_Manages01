@@ -231,6 +231,7 @@ export const ui = {
                 </td>
                 <td class="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 text-right">${(item.uc_money != null && !isNaN(item.uc_money)) ? Number(item.uc_money).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${item.department || '-'}</td>
+                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${item.subdistrict_name || '-'}</td>
                 <td class="py-3.5 px-4 text-center">
                     <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-[11px] font-bold shadow-sm leading-none ${statusClass}">
                         ${statusIcon}
@@ -240,6 +241,28 @@ export const ui = {
             `;
             els.tableBody.appendChild(tr);
         });
+    },
+
+    renderTrackerDashboardFilter(filter, count = 0) {
+        if (typeof document === 'undefined') return;
+        const banner = document.getElementById('tracker-dashboard-filter-banner');
+        const label = document.getElementById('tracker-dashboard-filter-label');
+        if (!banner || !label) return;
+
+        if (!filter?.value) {
+            banner.classList.add('hidden');
+            return;
+        }
+
+        const escapeHtml = (value) => String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+        const icon = filter.type === 'department' ? 'fa-hospital-user' : 'fa-map-marker-alt';
+        label.innerHTML = `<i class="fas ${icon} mr-1"></i> กำลังกรอง: ${escapeHtml(filter.label || filter.value)} (${count.toLocaleString()} รายการ)`;
+        banner.classList.remove('hidden');
     },
 
     updateStats(data, hosxpStats = null) {
@@ -772,13 +795,33 @@ export const ui = {
         }
     },
 
-    resizeLiveCharts() {
-        if (typeof echarts === 'undefined') return;
-        ['chart-opd', 'chart-er', 'chart-ncd', 'chart-dental'].forEach(id => {
-            const element = document.getElementById(id);
-            const chart = element ? echarts.getInstanceByDom(element) : null;
-            if (chart) chart.resize();
-        });
+    updateLiveAutoRefresh({ isActive, nextRefreshAt, intervalMs = 30000 } = {}) {
+        if (typeof document === 'undefined') return;
+        const stateEl = document.getElementById('live-auto-refresh-state');
+        const nextEl = document.getElementById('live-next-refresh');
+        if (!stateEl || !nextEl) return;
+
+        if (!isActive) {
+            stateEl.textContent = 'Auto refresh: ปิด';
+            stateEl.className = 'text-slate-500 dark:text-slate-400';
+            nextEl.textContent = '-';
+            return;
+        }
+
+        const intervalSeconds = Math.round(intervalMs / 1000);
+        const remainingSeconds = Math.max(0, Math.ceil((Number(nextRefreshAt || 0) - Date.now()) / 1000));
+        const nextTime = nextRefreshAt
+            ? new Date(nextRefreshAt).toLocaleTimeString('th-TH', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            })
+            : '-';
+
+        stateEl.textContent = `Auto refresh: เปิด (${intervalSeconds} วิ)`;
+        stateEl.className = 'text-emerald-600 dark:text-emerald-400';
+        nextEl.textContent = `${remainingSeconds} วิ (${nextTime})`;
     },
 
     async renderLiveDashboard(data, token) {
@@ -804,38 +847,7 @@ export const ui = {
             statPendingEl.textContent = pendingCount;
         }
 
-        const topDeptEl = document.getElementById('live-top-depts');
-        if (topDeptEl) {
-            const escapeHtml = (value) => String(value ?? '')
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-            const departments = [...(data.depData || [])]
-                .sort((a, b) => Number(b.visit_count || 0) - Number(a.visit_count || 0))
-                .slice(0, 5);
-            const maxDeptCount = Math.max(...departments.map(d => Number(d.visit_count || 0)), 1);
-
-            topDeptEl.innerHTML = departments.length === 0
-                ? '<div class="text-xs text-slate-400 font-semibold">ยังไม่มีข้อมูลแผนก</div>'
-                : departments.map((dept, index) => {
-                    const count = Number(dept.visit_count || 0);
-                    const width = Math.max(8, Math.round((count / maxDeptCount) * 100));
-                    const name = escapeHtml(dept.dep_name || dept.dep_code || 'ไม่ระบุแผนก');
-                    return `
-                        <div class="tv-dept-row">
-                            <div class="flex items-center justify-between gap-3">
-                                <span class="tv-dept-name">${index + 1}. ${name}</span>
-                                <span class="tv-dept-count">${count.toLocaleString()} ราย</span>
-                            </div>
-                            <div class="tv-dept-bar-track">
-                                <div class="tv-dept-bar" style="width: ${width}%"></div>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-        }
+        renderTopDepartments(data.depData || []);
 
         // 2. Fetch GeoJSON boundary if not cached
         if (!geojsonCache) {
@@ -876,23 +888,66 @@ export const ui = {
 
             const counts = tambons.map(t => ({
                 code: t.code,
+                name: t.keywords[0],
                 count: getVisitCount(t.code, t.keywords)
             }));
 
-            const max = Math.max(...counts.map(d => d.count), 1);
+            const rawMax = Math.max(...counts.map(d => Number(d.count || 0)), 0);
+            const max = Math.max(rawMax, 1);
+            const total = counts.reduce((sum, d) => sum + Number(d.count || 0), 0);
             const isDark = document.documentElement.classList.contains('dark');
 
             // Dynamic choropleth color scales for light/dark themes
-            const scaleColorsLight = ['#f8fafc', '#fed7aa', '#fdba74', '#f97316', '#ea580c', '#c2410c'];
+            const scaleColorsLight = ['#f8fafc', '#ffedd5', '#fed7aa', '#fdba74', '#fb923c', '#ea580c'];
             const scaleColorsDark = ['#1e293b', '#451a03', '#7c2d12', '#9a3412', '#c2410c', '#ea580c'];
             const scaleColors = isDark ? scaleColorsDark : scaleColorsLight;
 
             function colorForValue(val, maxVal) {
-                if (maxVal <= 0) return scaleColors[0];
+                if (maxVal <= 0 || val <= 0) return scaleColors[0];
                 const ratio = Math.max(0, Math.min(1, val / maxVal));
                 const idx = Math.min(scaleColors.length - 1, Math.floor(ratio * (scaleColors.length - 1) + 0.0001));
                 return scaleColors[idx];
             }
+
+            function updateMapLegend() {
+                const totalEl = document.getElementById('map-legend-total');
+                const maxEl = document.getElementById('map-legend-max');
+                const highEl = document.getElementById('map-legend-high');
+                const midEl = document.getElementById('map-legend-mid');
+                const lowEl = document.getElementById('map-legend-low');
+                const highColorEl = document.getElementById('map-legend-high-color');
+                const midColorEl = document.getElementById('map-legend-mid-color');
+                const lowColorEl = document.getElementById('map-legend-low-color');
+                const topTambon = counts.reduce((top, item) => item.count > top.count ? item : top, { name: '-', count: 0 });
+
+                if (total === 0) {
+                    if (totalEl) totalEl.textContent = 'รวม 0 คน';
+                    if (maxEl) maxEl.textContent = 'สูงสุด -';
+                    if (highEl) highEl.textContent = 'สูง (-)';
+                    if (midEl) midEl.textContent = 'ปานกลาง (-)';
+                    if (lowEl) lowEl.textContent = 'น้อย (-)';
+                    if (highColorEl) highColorEl.style.backgroundColor = colorForValue(0, max);
+                    if (midColorEl) midColorEl.style.backgroundColor = colorForValue(0, max);
+                    if (lowColorEl) lowColorEl.style.backgroundColor = colorForValue(0, max);
+                    return;
+                }
+
+                const highMin = Math.max(1, Math.ceil(max * 0.67));
+                const midMin = Math.max(1, Math.ceil(max * 0.34));
+                const midMax = Math.max(midMin, highMin - 1);
+                const lowMax = Math.max(1, midMin - 1);
+
+                if (totalEl) totalEl.textContent = `รวม ${total.toLocaleString()} คน`;
+                if (maxEl) maxEl.textContent = `สูงสุด ${topTambon.name} ${Number(topTambon.count || 0).toLocaleString()} คน`;
+                if (highEl) highEl.textContent = max <= 1 ? 'สูง (1 คน)' : `สูง (${highMin.toLocaleString()}–${max.toLocaleString()} คน)`;
+                if (midEl) midEl.textContent = max <= 1 ? 'ปานกลาง (-)' : `ปานกลาง (${midMin.toLocaleString()}–${midMax.toLocaleString()} คน)`;
+                if (lowEl) lowEl.textContent = max <= 1 ? 'น้อย (-)' : `น้อย (1–${lowMax.toLocaleString()} คน)`;
+                if (highColorEl) highColorEl.style.backgroundColor = colorForValue(max, max);
+                if (midColorEl) midColorEl.style.backgroundColor = colorForValue(Math.ceil(max * 0.5), max);
+                if (lowColorEl) lowColorEl.style.backgroundColor = colorForValue(Math.max(1, Math.ceil(max * 0.18)), max);
+            }
+
+            updateMapLegend();
 
             counts.forEach(d => {
                 const fill = colorForValue(d.count, max);
@@ -933,81 +988,72 @@ export const ui = {
 
         updateSvgMap(data);
 
-        // 4. Render ECharts Donut Charts
-        if (typeof echarts !== 'undefined') {
-            const getCount = (keywords) => {
-                if (!data.depData) return null;
-                const rec = data.depData.find(d => keywords.some(k => (d.dep_name || '').toLowerCase().includes(k)));
-                return rec ? rec.visit_count : null;
-            };
-
-            // OPD (84% - 72/85)
-            const opdCount = getCount(['ทั่วไป', 'opd']) ?? 72;
-            const opdTotal = opdCount === 72 ? 85 : Math.max(opdCount, 85);
-            renderEchartsDonut('chart-opd', 'opd-stats-label', opdCount, opdTotal, '#2dd4bf');
-
-            // ER (65% - 17/26)
-            const erCount = getCount(['ฉุกเฉิน', 'er', 'อุบัติเหตุ']) ?? 17;
-            const erTotal = erCount === 17 ? 26 : Math.max(erCount, 26);
-            renderEchartsDonut('chart-er', 'er-stats-label', erCount, erTotal, '#f97316');
-
-            // NCD (78% - 94/120)
-            const ncdCount = getCount(['โรคเรื้อรัง', 'ncd', 'เบาหวาน', 'ความดัน']) ?? 94;
-            const ncdTotal = ncdCount === 94 ? 120 : Math.max(ncdCount, 120);
-            renderEchartsDonut('chart-ncd', 'ncd-stats-label', ncdCount, ncdTotal, '#38bdf8');
-
-            // Dental (52% - 21/40)
-            const dentalCount = getCount(['ทันตกรรม', 'dental', 'ทำฟัน']) ?? 21;
-            const dentalTotal = dentalCount === 21 ? 40 : Math.max(dentalCount, 40);
-            renderEchartsDonut('chart-dental', 'dental-stats-label', dentalCount, dentalTotal, '#22c55e');
-        }
-        this.resizeLiveCharts();
     }
 };
 
-// Helper for rendering Donut Charts
-function renderEchartsDonut(elementId, labelId, completed, total, color) {
-    const chartDom = document.getElementById(elementId);
-    if (!chartDom) return;
+function renderTopDepartments(depData) {
+    if (typeof document === 'undefined') return;
+    const topDeptEl = document.getElementById('live-top-depts');
+    if (!topDeptEl) return;
 
-    let myChart = echarts.getInstanceByDom(chartDom);
-    if (!myChart) {
-        myChart = echarts.init(chartDom);
-    }
+    const escapeHtml = (value) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    const departments = [...depData]
+        .sort((a, b) => Number(b.visit_count || 0) - Number(a.visit_count || 0))
+        .slice(0, 8);
+    const totalVisits = departments.reduce((sum, dept) => sum + Number(dept.visit_count || 0), 0);
+    const maxDeptCount = Math.max(...departments.map(dept => Number(dept.visit_count || 0)), 1);
 
-    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-    const remaining = Math.max(0, total - completed);
+    topDeptEl.innerHTML = departments.length === 0
+        ? `
+            <div class="live-dept-empty">
+                <i class="fas fa-hospital-user text-3xl text-slate-300 dark:text-slate-600 mb-2"></i>
+                <p class="font-bold">ยังไม่มีข้อมูลแผนก</p>
+                <p class="text-[11px] mt-1">รอข้อมูลจาก HOSxP Live Dashboard</p>
+            </div>
+        `
+        : departments.map((dept, index) => {
+            const count = Number(dept.visit_count || 0);
+            const uniquePatients = Number(dept.unique_patients || 0);
+            const width = Math.max(6, Math.round((count / maxDeptCount) * 100));
+            const percent = totalVisits > 0 ? Math.round((count / totalVisits) * 100) : 0;
+            const rawName = dept.dep_name || dept.dep_code || 'ไม่ระบุแผนก';
+            const name = escapeHtml(rawName);
+            const rankClass = index === 0 ? 'is-first' : index === 1 ? 'is-second' : index === 2 ? 'is-third' : '';
+            return `
+                <div class="live-dept-rank-card ${rankClass}" data-department-filter="${name}" role="button" tabindex="0" title="คลิกเพื่อกรอง Tracker ตามแผนก">
+                    <div class="live-dept-rank-badge">${index + 1}</div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <p class="live-dept-rank-name">${name}</p>
+                                <p class="live-dept-rank-meta">${uniquePatients.toLocaleString()} คนไม่ซ้ำ • ${percent}% ของ Top ${departments.length}</p>
+                            </div>
+                            <div class="text-right shrink-0">
+                                <p class="live-dept-rank-count">${count.toLocaleString()}</p>
+                                <p class="live-dept-rank-unit">visits</p>
+                            </div>
+                        </div>
+                        <div class="live-dept-rank-track">
+                            <div class="live-dept-rank-bar" style="width: ${width}%"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
 
-    const labelEl = document.getElementById(labelId);
-    if (labelEl) {
-        labelEl.textContent = `เป้าหมายสะสมรายวัน: ${completed}/${total} ราย`;
-    }
-
-    const isDark = document.documentElement.classList.contains('dark');
-
-    const option = {
-        series: [
-            {
-                type: 'pie',
-                radius: ['75%', '95%'],
-                avoidLabelOverlap: false,
-                label: {
-                    show: true,
-                    position: 'center',
-                    formatter: `${percentage}%`,
-                    fontSize: 13,
-                    fontWeight: 'bold',
-                    color: isDark ? '#f8fafc' : '#0f172a',
-                    fontFamily: 'Outfit'
-                },
-                labelLine: { show: false },
-                data: [
-                    { value: completed, name: 'Done', itemStyle: { color: color } },
-                    { value: remaining, name: 'Left', itemStyle: { color: isDark ? '#334155' : '#e2e8f0' } }
-                ]
+    topDeptEl.querySelectorAll('[data-department-filter]').forEach(row => {
+        const filter = () => window.filterTrackerByDepartment?.(row.dataset.departmentFilter);
+        row.addEventListener('click', filter);
+        row.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                filter();
             }
-        ]
-    };
-
-    myChart.setOption(option);
+        });
+    });
 }

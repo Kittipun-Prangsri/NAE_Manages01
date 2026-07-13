@@ -80,6 +80,8 @@ export function processCrossCheck(hosxpData, excelData) {
             pcode: patient.pcode,
             uc_money: patient.uc_money,
             department: patient.department,
+            subdistrict_code: patient.subdistrict_code,
+            subdistrict_name: patient.subdistrict_name,
             staff: patient.staff || null,
             // หากพบใน Excel ให้นำค่าใหม่มาแสดง มิฉะนั้นใช้ค่าเดิมจาก HOSxP
             claim_code: authenCode || patient.claim_code,

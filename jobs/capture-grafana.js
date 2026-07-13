@@ -263,6 +263,11 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
     }
 
     // Now send notifications
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ Notifications are globally disabled via DISABLE_NOTIFICATIONS=true. Skipping send.');
+        return { success: true, filepath, filename };
+    }
+
     const notificationPromises = [];
 
     // Fetch database stats once if summary is needed

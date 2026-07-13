@@ -62,6 +62,10 @@ app.post('/api/auth/login', async (req, res) => {
 
 // Helper to reply LINE message using Flex Report (Free)
 async function sendLineReplyFlexSummary(replyToken, queryDate) {
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ LINE Flex summary reply is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token || token === 'your_line_token_here') {
         console.error('❌ LINE token not configured.');
@@ -1443,6 +1447,10 @@ async function startTelegramBotListener() {
 }
 
 async function sendTelegramMessage(token, chatId, text) {
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ Telegram message is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
     try {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
@@ -1455,6 +1463,10 @@ async function sendTelegramMessage(token, chatId, text) {
 }
 
 async function sendLineMessage(text) {
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ LINE status message is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     const groupId = process.env.LINE_GROUP_ID;
     if (!token || !groupId || token === 'your_line_token_here' || groupId === 'your_group_id_here') {

@@ -127,11 +127,11 @@ export function authenticateToken(req, res, next) {
                 });
             }
             
-            // Any other JWT error (invalid signature, malformed, etc.) → 403
+            // Any other JWT error (invalid signature, malformed, etc.) → 401 (Unauthorized) so the client auto-logs out
             console.error(`❌ JWT Verification Failed: ${err.message}`);
-            return res.status(403).json({ 
+            return res.status(401).json({ 
                 success: false,
-                message: 'Forbidden', 
+                message: 'Session Expired or Invalid Token', 
                 error: err.message 
             });
         }

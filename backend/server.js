@@ -847,7 +847,8 @@ app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
 
         res.json({
             trackingData: rows,
-            hosxpStats: hosxpStats
+            hosxpStats: hosxpStats,
+            disableNotifications: process.env.DISABLE_NOTIFICATIONS === 'true'
         });
     } catch (error) {
         console.error('Dashboard Fetch Error:', error);

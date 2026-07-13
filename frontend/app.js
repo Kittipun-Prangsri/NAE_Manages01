@@ -303,7 +303,11 @@ async function handleApiSync() {
         if (handleApiResponse(response)) {
             loadDashboardData();
             loadWeeklySummary();
-            openCaptureSelectionModal(visitDate, response.data.message);
+            if (!appState.disableNotifications) {
+                openCaptureSelectionModal(visitDate, response.data.message);
+            } else {
+                alert(response.data.message || 'ดึงข้อมูลสำเร็จ');
+            }
         } else if (response.status !== 401 && response.status !== 403) {
             alert(response.data.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ API');
         }
@@ -458,7 +462,11 @@ async function handlePasteSync() {
             if (handleApiResponse(response)) {
                 loadDashboardData();
                 loadWeeklySummary();
-                openCaptureSelectionModal(visitDate, response.data.message);
+                if (!appState.disableNotifications) {
+                    openCaptureSelectionModal(visitDate, response.data.message);
+                } else {
+                    alert(response.data.message || 'นำเข้าข้อมูลสำเร็จ');
+                }
             } else if (response.status !== 401 && response.status !== 403) {
                 alert(response.data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
             }
@@ -521,7 +529,11 @@ async function handleSyncProcess() {
             // โหลดข้อมูลล่าสุดมาแสดงในตาราง
             loadDashboardData();
             loadWeeklySummary();
-            openCaptureSelectionModal(visitDate, response.data.message);
+            if (!appState.disableNotifications) {
+                openCaptureSelectionModal(visitDate, response.data.message);
+            } else {
+                alert(response.data.message || 'ซิงก์ข้อมูลสำเร็จ');
+            }
         } else if (response.status !== 401 && response.status !== 403) {
             alert(response.data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
         }
@@ -558,6 +570,18 @@ async function loadDashboardData() {
         const response = await api.fetchDashboard(date, appState.token);
         if (handleApiResponse(response)) {
             const data = response.data;
+            appState.disableNotifications = data.disableNotifications;
+            
+            // Hide manual capture button if notifications are globally disabled
+            const captureBtn = document.getElementById('manual-capture-btn');
+            if (captureBtn) {
+                if (appState.disableNotifications) {
+                    captureBtn.classList.add('hidden');
+                } else {
+                    captureBtn.classList.remove('hidden');
+                }
+            }
+            
             // data now contains { trackingData: [], hosxpStats: { totalPersons: X, totalVisits: Y } }
             appState.rawTableData = data.trackingData || [];
             renderTrackerTable();

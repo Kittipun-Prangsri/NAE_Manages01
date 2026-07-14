@@ -9,10 +9,12 @@ import * as xlsx from 'xlsx';
 import { checkConnections, trackerPool, hosxpPool } from './db.js';
 import { initInternalDb } from './initDb.js';
 import { verifyUserLogin, authenticateToken } from './auth.js';
-import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic, checkNhsoStatusViaApi, getHosxpTotalVisits, getLiveDashboardGeo, getLiveDashboardDeps, getHosxpSummaryStats } from './dataService.js';
+import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic, checkNhsoStatusViaApi, getHosxpTotalVisits, getLiveDashboardGeo, getLiveDashboardDeps, getHosxpSummaryStats, DEFAULT_HIPDATA_CODES, DEFAULT_HIPDATA_SQL_LIST } from './dataService.js';
 import { processCrossCheck } from './crossCheckLogic.js';
 import { isReadOnlySql, hasMultipleStatements, replaceGrafanaMacros } from './queryUtils.js';
 import { isValidDateString, isValidTimeString, normalizeChannels, normalizeReportTypes } from './validation.js';
+import { writeAuditLog } from './auditLog.js';
+import { getMappingFields, inferExcelMapping, getMissingRequiredFields, normalizeExcelRows } from './excelMapping.js';
 import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
@@ -98,12 +100,13 @@ function resetLoginAttempts(key) {
     loginAttempts.delete(key);
 }
 
-async function createSyncRun(source, visitDate, username) {
+async function createSyncRun(source, visitDate, username, req = null) {
     try {
         const [result] = await trackerPool.query(
             'INSERT INTO sync_runs (source, visit_date, username, status) VALUES (?, ?, ?, "running")',
             [source, visitDate, username || null]
         );
+        await writeAuditLog(req, 'sync_started', 'sync_run', result.insertId, { source, visitDate });
         return result.insertId;
     } catch (error) {
         console.error('❌ Failed to create sync run audit:', error.message);
@@ -111,13 +114,14 @@ async function createSyncRun(source, visitDate, username) {
     }
 }
 
-async function finishSyncRun(id, status, totalRecords, message, error = null) {
+async function finishSyncRun(id, status, totalRecords, message, error = null, req = null) {
     if (!id) return;
     try {
         await trackerPool.query(
             'UPDATE sync_runs SET status = ?, total_records = ?, message = ?, error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?',
             [status, totalRecords || 0, message || null, error || null, id]
         );
+        await writeAuditLog(req, `sync_${status}`, 'sync_run', id, { totalRecords: totalRecords || 0, message, error });
     } catch (dbError) {
         console.error('❌ Failed to update sync run audit:', dbError.message);
     }
@@ -169,6 +173,7 @@ app.post('/api/auth/login', async (req, res) => {
     const result = await verifyUserLogin(username, password);
     if (result.success) {
         resetLoginAttempts(rateLimitKey);
+        await writeAuditLog({ user: result.user, ip: req.ip, headers: req.headers }, 'login_success', 'session', username, { role: result.user?.role });
         return res.json(result);
     }
     res.status(401).json({ message: result.message });
@@ -187,10 +192,11 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
     }
     
     try {
+        const todayDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
         // Query data stats
-        const [[{ total_visits }]] = await trackerPool.query(
-            'SELECT COUNT(*) as total_visits FROM visit_tracking WHERE visit_date = ?',
-            [queryDate]
+        const [[{ total_visits }]] = await hosxpPool.query(
+            'SELECT COUNT(DISTINCT vn) as total_visits FROM vn_stat WHERE vstdate = ?',
+            [todayDate]
         );
 
         const [[{ total_money }]] = await trackerPool.query(
@@ -341,7 +347,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                                 "contents": [
                                     {
                                         "type": "text",
-                                        "text": "จำนวนผู้มารับบริการ(ครั้ง)",
+                                        "text": "จำนวนผู้มารับบริการวันนี้(ครั้ง)",
                                         "color": "#ffffff",
                                         "size": "sm",
                                         "gravity": "center"
@@ -606,12 +612,17 @@ app.post('/api/sync/probe-date', authenticateToken, upload.single('excel'), (req
             return res.status(400).json({ message: 'ไฟล์ Excel ไม่มีข้อมูล' });
         }
 
+        const headers = Object.keys(excelData[0] || {});
+        const mapping = inferExcelMapping(headers);
+        const missingRequired = getMissingRequiredFields(mapping);
+
         const dateCounts = {};
         let mostFrequentDate = null;
         let maxCount = 0;
 
-        excelData.forEach(row => {
-            let dateStr = row['วันที่เข้ารับบริการ'] || row['dateser'];
+        const mappedData = normalizeExcelRows(excelData, mapping);
+        mappedData.forEach(row => {
+            let dateStr = row.visitDate || row['วันที่เข้ารับบริการ'] || row['dateser'];
             if (dateStr) {
                 if (dateStr instanceof Date) {
                    dateStr = dateStr.toISOString().split('T')[0];
@@ -643,7 +654,11 @@ app.post('/api/sync/probe-date', authenticateToken, upload.single('excel'), (req
 
         res.json({
             success: true,
-            detected_date: mostFrequentDate
+            detected_date: mostFrequentDate,
+            headers,
+            mapping,
+            mappingFields: getMappingFields(),
+            missingRequired
         });
     } catch (error) {
         console.error('Probing Error:', error);
@@ -661,7 +676,7 @@ app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (
         if (!visit_date) return res.status(400).json({ message: 'กรุณาระบุวันที่ (visit_date)' });
         if (!isValidDateString(visit_date)) return res.status(400).json({ message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
         if (!req.file) return res.status(400).json({ message: 'กรุณาอัปโหลดไฟล์ Excel' });
-        syncRunId = await createSyncRun('excel-upload', visit_date, req.user.username);
+        syncRunId = await createSyncRun('excel-upload', visit_date, req.user.username, req);
 
         const workbook = xlsx.read(req.file.buffer, { type: 'buffer', cellDates: true });
         const sheetName = workbook.SheetNames[0];
@@ -669,31 +684,54 @@ app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (
             raw: false, 
             dateNF: 'yyyy-mm-dd hh:mm:ss' 
         });
+        const headers = Object.keys(excelData[0] || {});
+        let requestedMapping = {};
+        if (req.body.excel_mapping) {
+            try {
+                requestedMapping = JSON.parse(req.body.excel_mapping);
+            } catch {
+                return res.status(400).json({ message: 'รูปแบบ Excel mapping ไม่ถูกต้อง' });
+            }
+        }
+        const mapping = { ...inferExcelMapping(headers), ...requestedMapping };
+        const missingRequired = getMissingRequiredFields(mapping);
+        if (missingRequired.length > 0) {
+            await finishSyncRun(syncRunId, 'failed', 0, 'Excel mapping required', `Missing mapping: ${missingRequired.map(f => f.label).join(', ')}`, req);
+            return res.status(422).json({
+                message: 'กรุณาจับคู่คอลัมน์ Excel ให้ครบก่อนประมวลผล',
+                headers,
+                mapping,
+                mappingFields: getMappingFields(),
+                missingRequired
+            });
+        }
+        const mappedExcelData = normalizeExcelRows(excelData, mapping);
 
-        await saveAuthenLog(excelData, visit_date);
+        await saveAuthenLog(mappedExcelData, visit_date);
         await executeAdvancedRunLogic(visit_date);
         const hosxpData = await getHosxpVisits(visit_date);
 
         if (hosxpData.length === 0) {
-            await finishSyncRun(syncRunId, 'success', 0, 'Excel upload saved but no HOSxP visits found');
+            await finishSyncRun(syncRunId, 'success', 0, 'Excel upload saved but no HOSxP visits found', null, req);
             return res.status(404).json({ message: 'บันทึก Log และประมวลผลระบบสำเร็จ แต่ไม่พบข้อมูลผู้ป่วยใน HOSxP สำหรับวันที่ระบุ' });
         }
 
-        const processedData = processCrossCheck(hosxpData, excelData);
+        const processedData = processCrossCheck(hosxpData, mappedExcelData);
         await saveTrackingResults(processedData);
-        await finishSyncRun(syncRunId, 'success', processedData.length, 'Excel upload sync completed');
+        await finishSyncRun(syncRunId, 'success', processedData.length, 'Excel upload sync completed', null, req);
 
         // (Auto-capture disabled in favor of frontend pop-up selection)
 
         res.json({
             success: true,
             message: `ประมวลผลเสร็จสิ้น ${processedData.length} รายการ และอัปเดตข้อมูลสำเร็จ`,
-            data: processedData
+            data: processedData,
+            mapping
         });
 
     } catch (error) {
         console.error('Processing Error:', error);
-        await finishSyncRun(syncRunId, 'failed', 0, 'Excel upload sync failed', error.message);
+        await finishSyncRun(syncRunId, 'failed', 0, 'Excel upload sync failed', error.message, req);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดในการประมวลผลข้อมูล' });
     }
 });
@@ -708,7 +746,7 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
         if (!visit_date) return res.status(400).json({ message: 'กรุณาระบุวันที่ (visit_date)' });
         if (!isValidDateString(visit_date)) return res.status(400).json({ message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
         if (!data || !Array.isArray(data)) return res.status(400).json({ message: 'ข้อมูลไม่ถูกต้อง' });
-        syncRunId = await createSyncRun('clipboard-json', visit_date, req.user.username);
+        syncRunId = await createSyncRun('clipboard-json', visit_date, req.user.username, req);
 
         const excelData = data; // ใช้ข้อมูลจาก JSON ที่ส่งมาโดยตรง
 
@@ -717,13 +755,13 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
         const hosxpData = await getHosxpVisits(visit_date);
 
         if (hosxpData.length === 0) {
-            await finishSyncRun(syncRunId, 'success', 0, 'Clipboard data saved but no HOSxP visits found');
+            await finishSyncRun(syncRunId, 'success', 0, 'Clipboard data saved but no HOSxP visits found', null, req);
             return res.status(404).json({ message: 'บันทึก Log และประมวลผลระบบสำเร็จ แต่ไม่พบข้อมูลผู้ป่วยใน HOSxP สำหรับวันที่ระบุ' });
         }
 
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);
-        await finishSyncRun(syncRunId, 'success', processedData.length, 'Clipboard sync completed');
+        await finishSyncRun(syncRunId, 'success', processedData.length, 'Clipboard sync completed', null, req);
 
         // (Auto-capture disabled in favor of frontend pop-up selection)
 
@@ -735,7 +773,7 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
 
     } catch (error) {
         console.error('JSON Processing Error:', error);
-        await finishSyncRun(syncRunId, 'failed', 0, 'Clipboard sync failed', error.message);
+        await finishSyncRun(syncRunId, 'failed', 0, 'Clipboard sync failed', error.message, req);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดในการประมวลผลข้อมูลจาก Clipboard' });
     }
 });
@@ -749,11 +787,11 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
         const { visit_date } = req.body;
         if (!visit_date) return res.status(400).json({ message: 'กรุณาระบุวันที่ (visit_date)' });
         if (!isValidDateString(visit_date)) return res.status(400).json({ message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
-        syncRunId = await createSyncRun('nhso-direct-api', visit_date, req.user.username);
+        syncRunId = await createSyncRun('nhso-direct-api', visit_date, req.user.username, req);
 
         const hosxpData = await getHosxpVisits(visit_date);
         if (hosxpData.length === 0) {
-            await finishSyncRun(syncRunId, 'success', 0, 'No HOSxP visits found before NHSO API sync');
+            await finishSyncRun(syncRunId, 'success', 0, 'No HOSxP visits found before NHSO API sync', null, req);
             return res.status(404).json({ message: 'ไม่พบข้อมูลผู้ป่วยใน HOSxP สำหรับวันที่ระบุ' });
         }
 
@@ -761,7 +799,7 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
         const serviceCode = process.env.NHSO_SERVICE_CODE;
 
         if (!bearerToken || bearerToken === 'YOUR_BEARER_TOKEN_HERE') {
-            await finishSyncRun(syncRunId, 'failed', 0, 'NHSO bearer token is not configured', 'Missing NHSO_BEARER_TOKEN');
+            await finishSyncRun(syncRunId, 'failed', 0, 'NHSO bearer token is not configured', 'Missing NHSO_BEARER_TOKEN', req);
             return res.status(400).json({ message: 'กรุณาตั้งค่า NHSO_BEARER_TOKEN ใน .env ก่อนใช้งานฟีเจอร์นี้' });
         }
 
@@ -805,7 +843,7 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
             const updatedHosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(updatedHosxpData, apiResults);
             await saveTrackingResults(processedData);
-            await finishSyncRun(syncRunId, 'success', processedData.length, `NHSO API found ${apiResults.length} records`);
+            await finishSyncRun(syncRunId, 'success', processedData.length, `NHSO API found ${apiResults.length} records`, null, req);
             
             res.json({
                 success: true,
@@ -813,7 +851,7 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
                 data: processedData
             });
         } else {
-            await finishSyncRun(syncRunId, 'success', 0, `NHSO API connected but found no Authen Code for ${hosxpData.length} patients`);
+            await finishSyncRun(syncRunId, 'success', 0, `NHSO API connected but found no Authen Code for ${hosxpData.length} patients`, null, req);
             res.json({
                 success: true,
                 message: `เชื่อมต่อ API สำเร็จ แต่ไม่พบข้อมูล Authen Code ในระบบ สปสช. (${hosxpData.length} ราย)`,
@@ -823,10 +861,38 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
 
     } catch (error) {
         console.error('Direct API Sync Error:', error);
-        await finishSyncRun(syncRunId, 'failed', 0, 'NHSO direct API sync failed', error.message);
+        await finishSyncRun(syncRunId, 'failed', 0, 'NHSO direct API sync failed', error.message, req);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเชื่อมต่อกับ NHSO API' });
     }
 });
+
+async function getUserNotificationCredentials(username) {
+    if (!username) return null;
+    const [userRows] = await trackerPool.query(
+        'SELECT line_token, line_group_id, telegram_token, telegram_chat_id FROM users WHERE username = ?',
+        [username]
+    );
+    if (userRows.length === 0) {
+        console.warn(`⚠️ User ${username} not found in internal DB. Falling back to system credentials from .env.`);
+        return null;
+    }
+
+    const user = userRows[0];
+    const hasLine = user.line_token && user.line_group_id;
+    const hasTelegram = user.telegram_token && user.telegram_chat_id;
+    if (!hasLine && !hasTelegram) {
+        console.warn(`⚠️ User ${username} has no notification channels configured in their profile. Falling back to system credentials from .env.`);
+        return null;
+    }
+
+    console.log(`📲 Using personal notification credentials for user: ${username} (LINE: ${hasLine ? 'yes' : 'no'}, Telegram: ${hasTelegram ? 'yes' : 'no'})`);
+    return {
+        line_token: user.line_token || null,
+        line_group_id: user.line_group_id || null,
+        telegram_token: user.telegram_token || null,
+        telegram_chat_id: user.telegram_chat_id || null
+    };
+}
 
 /**
  * Endpoint สำหรับสั่งบันทึกหน้าจอ Grafana ด้วยตนเอง (Manual Trigger)
@@ -840,32 +906,7 @@ app.post('/api/sync/capture-grafana', authenticateToken, async (req, res) => {
         const username = req.user.username;
         console.log(`📸 [Manual Trigger] Grafana Capture requested by user: ${username} for date: ${visit_date || 'today'}`);
 
-        // Look up user-specific notification credentials from the internal DB
-        const [userRows] = await trackerPool.query(
-            'SELECT line_token, line_group_id, telegram_token, telegram_chat_id FROM users WHERE username = ?',
-            [username]
-        );
-
-        let userCredentials = null;
-        if (userRows.length > 0) {
-            const u = userRows[0];
-            const hasLine = u.line_token && u.line_group_id;
-            const hasTelegram = u.telegram_token && u.telegram_chat_id;
-
-            if (hasLine || hasTelegram) {
-                userCredentials = {
-                    line_token: u.line_token || null,
-                    line_group_id: u.line_group_id || null,
-                    telegram_token: u.telegram_token || null,
-                    telegram_chat_id: u.telegram_chat_id || null,
-                };
-                console.log(`📲 Using personal notification credentials for user: ${username} (LINE: ${hasLine ? 'yes' : 'no'}, Telegram: ${hasTelegram ? 'yes' : 'no'})`);
-            } else {
-                console.warn(`⚠️ User ${username} has no notification channels configured in their profile. Falling back to system credentials from .env.`);
-            }
-        } else {
-            console.warn(`⚠️ User ${username} not found in internal DB. Falling back to system credentials from .env.`);
-        }
+        const userCredentials = await getUserNotificationCredentials(username);
 
         const result = await captureAndNotify(visit_date, normalizedChannels, normalizedReportTypes, userCredentials);
         if (result.success) {
@@ -915,8 +956,10 @@ app.post('/api/sync/nhso-portal-download', authenticateToken, async (req, res) =
             startedAt: new Date()
         };
 
+        const userCredentials = await getUserNotificationCredentials(req.user.username);
+
         // Run the sync process in the background to prevent HTTP connection timeouts
-        runManualPortalSyncInBackground(visit_date, req.user.username).catch(err => {
+        runManualPortalSyncInBackground(visit_date, req.user.username, userCredentials).catch(err => {
             console.error('❌ Error in manual portal background sync:', err);
             currentSyncStatus.status = 'failed';
             currentSyncStatus.step = 'failed';
@@ -943,10 +986,11 @@ app.get('/api/sync/status', authenticateToken, (req, res) => {
     res.json(currentSyncStatus);
 });
 
-async function runManualPortalSyncInBackground(visit_date, username = null) {
+async function runManualPortalSyncInBackground(visit_date, username = null, userCredentials = null) {
     console.log(`📥 [Background Portal Sync] Starting for date: ${visit_date}`);
     const syncRunId = await createSyncRun('nhso-portal', visit_date, username);
-    await sendLineMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`);
+    await sendTelegramStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
+    await sendLineStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
     
     try {
         const dlResult = await downloadNhsoReport((step, message, extra = null) => {
@@ -957,10 +1001,6 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
             }
         });
         
-        const chatId = process.env.TELEGRAM_CHAT_ID;
-        const token = process.env.TELEGRAM_BOT_TOKEN;
-        const chatIds = chatId ? chatId.split(',').map(id => id.trim()).filter(id => id) : [];
-
         if (!dlResult.success || !dlResult.filePath) {
             console.error(`❌ [Background Portal Sync] Download failed: ${dlResult.error}`);
             
@@ -969,10 +1009,8 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
             currentSyncStatus.message = `ดาวน์โหลดรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`;
             currentSyncStatus.error = dlResult.error;
 
-            for (const id of chatIds) {
-                await sendTelegramMessage(token, id, `❌ ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
-            }
-            await sendLineMessage(`❌ [Manual Sync] ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
+            await sendTelegramStatusMessage(`❌ ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`, userCredentials);
+            await sendLineStatusMessage(`❌ [Manual Sync] ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`, userCredentials);
             await finishSyncRun(syncRunId, 'failed', 0, 'NHSO portal download failed', dlResult.error || 'Download failed');
             return;
         }
@@ -1010,13 +1048,11 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
         cleanOldDownloads(path.join(__dirname, '../downloads'));
 
         // แจ้งเตือนใน Telegram & LINE
-        for (const id of chatIds) {
-            await sendTelegramMessage(token, id, `✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`);
-        }
-        await sendLineMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`);
+        await sendTelegramStatusMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`, userCredentials);
+        await sendLineStatusMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`, userCredentials);
 
         // Capture Grafana and send Telegram/LINE in the background
-        captureAndNotify(visit_date).catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
+        captureAndNotify(visit_date, ['line', 'telegram'], ['summary', 'screenshot'], userCredentials).catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
 
     } catch (err) {
         console.error('❌ [Background Portal Sync] Crash error:', err);
@@ -1024,12 +1060,17 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
         currentSyncStatus.step = 'failed';
         currentSyncStatus.message = `การซิงก์ขัดข้อง: ${err.message}`;
         currentSyncStatus.error = err.message;
+        await sendTelegramStatusMessage(`❌ การซิงก์ขัดข้อง: ${err.message}`, userCredentials);
+        await sendLineStatusMessage(`❌ การซิงก์ขัดข้อง: ${err.message}`, userCredentials);
         await finishSyncRun(syncRunId, 'failed', 0, 'NHSO portal sync crashed', err.message);
     }
 }
 
 app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
         const { date, status } = req.query;
         let query = 'SELECT * FROM visit_tracking WHERE 1=1';
         const params = [];
@@ -1055,11 +1096,367 @@ app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
         res.json({
             trackingData: rows,
             hosxpStats: hosxpStats,
-            disableNotifications: process.env.DISABLE_NOTIFICATIONS === 'true'
+            disableNotifications: process.env.DISABLE_NOTIFICATIONS === 'true',
+            generated_at: new Date().toISOString()
         });
     } catch (error) {
         console.error('Dashboard Fetch Error:', error);
         res.status(500).json({ message: 'ไม่สามารถดึงข้อมูล Dashboard ได้' });
+    }
+});
+
+app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
+    try {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
+        const { date, group_by = 'department', hipdata_code } = req.query;
+        if (!date) return res.status(400).json({ message: 'กรุณาระบุ date' });
+        if (!isValidDateString(date)) return res.status(400).json({ message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
+        const hipdataCodes = String(hipdata_code || DEFAULT_HIPDATA_SQL_LIST)
+            .split(',')
+            .map(code => code.trim().replace(/^['"]|['"]$/g, '').toUpperCase())
+            .filter(code => /^[A-Z0-9_-]+$/.test(code));
+        const safeHipdataCodes = hipdataCodes.length > 0 ? hipdataCodes : DEFAULT_HIPDATA_CODES;
+        const groupColumns = {
+            department: {
+                expression: "COALESCE(NULLIF(TRIM(department), ''), 'ไม่ระบุแผนก')",
+                label: 'แผนก'
+            },
+            subdistrict: {
+                expression: "COALESCE(NULLIF(TRIM(subdistrict_name), ''), 'ไม่ระบุตำบล')",
+                label: 'ตำบล'
+            }
+        };
+        const groupConfig = groupColumns[group_by] || groupColumns.department;
+
+        let ucPendingByDepartment = [];
+        try {
+            const hosxpGroupColumns = {
+                department: "COALESCE(NULLIF(TRIM(CONVERT(k.department USING utf8)), ''), 'ไม่ระบุแผนก')",
+                subdistrict: "COALESCE(NULLIF(TRIM(CONVERT(t.name USING utf8)), ''), 'ไม่ระบุตำบล')"
+            };
+            const hosxpGroupExpression = hosxpGroupColumns[group_by] || hosxpGroupColumns.department;
+            [ucPendingByDepartment] = await hosxpPool.query(
+                `SELECT
+                    ${hosxpGroupExpression} AS group_key,
+                    ${hosxpGroupExpression} AS group_label,
+                    COUNT(DISTINCT v.vn) AS count,
+                    COALESCE(SUM(v.uc_money), 0) AS total_money,
+                    COUNT(DISTINCT CASE WHEN td.claimcode IS NULL THEN v.vn ELSE NULL END) AS red_count,
+                    COUNT(DISTINCT CASE WHEN td.claimcode IS NOT NULL THEN v.vn ELSE NULL END) AS yellow_count
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
+                 LEFT JOIN patient p ON p.hn = v.hn
+                 LEFT JOIN thaiaddress t ON t.chwpart = p.chwpart
+                    AND t.amppart = p.amppart
+                    AND t.tmbpart = p.tmbpart
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) = 'UCS'
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')
+                 GROUP BY group_key
+                 ORDER BY count DESC, total_money DESC
+                 LIMIT 5`,
+                [date]
+            );
+        } catch (hosxpError) {
+            console.warn('HOSxP UC pending department summary unavailable:', hosxpError.message);
+            [ucPendingByDepartment] = await trackerPool.query(
+                `SELECT
+                    ${groupConfig.expression} AS group_key,
+                    ${groupConfig.expression} AS group_label,
+                    COUNT(*) AS count,
+                    COALESCE(SUM(uc_money), 0) AS total_money,
+                    SUM(color_status = 'RED') AS red_count,
+                    SUM(color_status = 'YELLOW') AS yellow_count
+                 FROM visit_tracking
+                 WHERE visit_date = ?
+                   AND UPPER(COALESCE(pcode, '')) = 'UC'
+                   AND color_status IN ('RED', 'YELLOW')
+                 GROUP BY group_key
+                 ORDER BY count DESC, total_money DESC
+                 LIMIT 5`,
+                [date]
+            );
+        }
+
+        const [ucDebtorByDepartment] = await trackerPool.query(
+            `SELECT
+                ${groupConfig.expression} AS group_key,
+                ${groupConfig.expression} AS group_label,
+                COUNT(*) AS count,
+                COALESCE(SUM(uc_money), 0) AS total_money,
+                SUM(color_status = 'RED') AS red_count,
+                SUM(color_status = 'YELLOW') AS yellow_count,
+                SUM(color_status = 'GREEN') AS green_count
+             FROM visit_tracking
+             WHERE visit_date = ?
+               AND UPPER(COALESCE(pcode, '')) = 'UC'
+               AND COALESCE(uc_money, 0) > 0
+             GROUP BY group_key
+             ORDER BY total_money DESC, count DESC
+             LIMIT 5`,
+            [date]
+        );
+
+        const [[pendingTotal]] = await trackerPool.query(
+            `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
+             FROM visit_tracking
+             WHERE visit_date = ?
+               AND UPPER(COALESCE(pcode, '')) = 'UC'
+               AND color_status IN ('RED', 'YELLOW')`,
+            [date]
+        );
+
+        const [[debtorTotal]] = await trackerPool.query(
+            `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
+             FROM visit_tracking
+             WHERE visit_date = ?
+               AND UPPER(COALESCE(pcode, '')) = 'UC'
+               AND COALESCE(uc_money, 0) > 0`,
+            [date]
+        );
+
+        const [[ucTotal]] = await trackerPool.query(
+            `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
+             FROM visit_tracking
+             WHERE visit_date = ?
+               AND UPPER(COALESCE(pcode, '')) = 'UC'`,
+            [date]
+        );
+
+        const [[trackerServiceTotal]] = await trackerPool.query(
+            `SELECT COUNT(*) AS count
+             FROM visit_tracking
+             WHERE visit_date = ?`,
+            [date]
+        );
+        let serviceTotal = {
+            count: Number(trackerServiceTotal?.count || 0),
+            source: 'visit_tracking'
+        };
+        let serviceByGroup = [];
+        try {
+            const hosxpServiceGroupColumns = {
+                department: "COALESCE(NULLIF(TRIM(CONVERT(k.department USING utf8)), ''), 'ไม่ระบุแผนก')",
+                subdistrict: "COALESCE(NULLIF(TRIM(CONVERT(t.name USING utf8)), ''), 'ไม่ระบุตำบล')"
+            };
+            const hosxpServiceGroupExpression = hosxpServiceGroupColumns[group_by] || hosxpServiceGroupColumns.department;
+            const [[hosxpServiceTotal]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) AS count
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 WHERE v.vstdate = ?
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL`,
+                [date]
+            );
+            serviceTotal = {
+                count: Number(hosxpServiceTotal?.count || 0),
+                source: 'hosxp_vn_stat'
+            };
+            [serviceByGroup] = await hosxpPool.query(
+                `SELECT
+                    ${hosxpServiceGroupExpression} AS group_key,
+                    ${hosxpServiceGroupExpression} AS group_label,
+                    COUNT(DISTINCT v.vn) AS count
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
+                 LEFT JOIN patient p ON p.hn = v.hn
+                 LEFT JOIN thaiaddress t ON t.chwpart = p.chwpart
+                    AND t.amppart = p.amppart
+                    AND t.tmbpart = p.tmbpart
+                 WHERE v.vstdate = ?
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                 GROUP BY group_key
+                 ORDER BY count DESC
+                 LIMIT 12`,
+                [date]
+            );
+        } catch (hosxpError) {
+            console.warn('HOSxP service total unavailable:', hosxpError.message);
+            [serviceByGroup] = await trackerPool.query(
+                `SELECT
+                    ${groupConfig.expression} AS group_key,
+                    ${groupConfig.expression} AS group_label,
+                    COUNT(*) AS count
+                 FROM visit_tracking
+                 WHERE visit_date = ?
+                 GROUP BY group_key
+                 ORDER BY count DESC
+                 LIMIT 12`,
+                [date]
+            );
+        }
+
+        const [[notImportedTotal]] = await trackerPool.query(
+            `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
+             FROM visit_tracking
+             WHERE visit_date = ?
+               AND UPPER(COALESCE(pcode, '')) = 'UC'
+               AND color_status = 'RED'`,
+            [date]
+        );
+
+        const [ucPendingByRight] = await trackerPool.query(
+            `SELECT
+                COALESCE(NULLIF(TRIM(pttype_note), ''), NULLIF(TRIM(pttype), ''), 'ไม่ระบุสิทธิ') AS right_name,
+                COUNT(*) AS count,
+                COALESCE(SUM(uc_money), 0) AS total_money
+             FROM visit_tracking
+             WHERE visit_date = ?
+               AND UPPER(COALESCE(pcode, '')) = 'UC'
+               AND color_status IN ('RED', 'YELLOW')
+             GROUP BY right_name
+             ORDER BY count DESC, total_money DESC
+             LIMIT 9`,
+            [date]
+        );
+
+        let debtorBySpp = [];
+        let hosxpDebtorTotal = null;
+        try {
+            const hipdataPlaceholders = safeHipdataCodes.map(() => '?').join(',');
+            const [sppRows] = await hosxpPool.query(
+                `SELECT
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'OFC' THEN v.vn ELSE NULL END) AS comptroller_general,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'BMT' THEN v.vn ELSE NULL END) AS agency_reimburse,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'LGO' THEN v.vn ELSE NULL END) AS local_government,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.vn ELSE NULL END) AS ucs_goldcard,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('A2', 'A9', 'XXX') THEN v.vn ELSE NULL END) AS migrant,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'STP' THEN v.vn ELSE NULL END) AS stateless,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('SSS', 'SSI') THEN v.vn ELSE NULL END) AS social_security,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'PTY' THEN v.vn ELSE NULL END) AS motor_insurance,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('OTH', 'BKK') THEN v.vn ELSE NULL END) AS self_pay,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.vn ELSE NULL END) AS count,
+                    COALESCE(SUM(CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.uc_money ELSE 0 END), 0) AS total_money
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 LEFT JOIN pttype_spp pg ON pg.pttype_spp_id = py.pttype_spp_id
+                 WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) IN (${hipdataPlaceholders})
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')`,
+                [date, ...safeHipdataCodes]
+            );
+            const sppSummary = sppRows[0] || {};
+            const [[allUcsToday]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) AS count
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) = 'UCS'
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL`,
+                [date]
+            );
+            sppSummary.ucs_goldcard = Number(allUcsToday?.count || 0);
+            const sppDefinitions = [
+                ['comptroller_general', 'เบิกจ่ายตรงกรมบัญชีกลาง', ['OFC']],
+                ['agency_reimburse', 'เบิกต้นสังกัด', ['BMT']],
+                ['local_government', 'เบิกจ่ายตรง อปท.', ['LGO']],
+                ['ucs_goldcard', 'บัตรทอง', ['UCS']],
+                ['migrant', 'คนต่างด้าว', ['A2', 'A9', 'XXX']],
+                ['stateless', 'ผู้มีปัญหาสถานะและสิทธิ', ['STP']],
+                ['social_security', 'บัตรประกันสังคม', ['SSS', 'SSI']],
+                ['motor_insurance', 'พรบ.ผู้ประสบภัยจากรถ', ['PTY']],
+                ['self_pay', 'อื่นๆ (ชำระเงินเอง)', ['OTH', 'BKK']]
+            ];
+            debtorBySpp = sppDefinitions.map(([key, label, hipdataCodes]) => ({
+                key,
+                right_name: label,
+                count: Number(sppSummary[key] || 0),
+                total_money: 0,
+                count_type: 'distinct_vn',
+                source: 'hosxp_vn_stat',
+                group_by: 'hipdata_code',
+                hipdata_codes: hipdataCodes
+            }));
+            hosxpDebtorTotal = {
+                count: Number(sppSummary.count || 0),
+                total_money: Number(sppSummary.total_money || 0),
+                source: 'hosxp_vn_stat',
+                hipdata_codes: ['UCS']
+            };
+        } catch (hosxpError) {
+            console.warn('HOSxP debtor SPP summary unavailable:', hosxpError.message);
+        }
+
+        res.json({
+            success: true,
+            visit_date: date,
+            generated_at: new Date().toISOString(),
+            group_by: groupColumns[group_by] ? group_by : 'department',
+            group_label: groupConfig.label,
+            totals: {
+                ucPending: pendingTotal,
+                ucDebtor: hosxpDebtorTotal || debtorTotal,
+                serviceTotal,
+                ucTotal,
+                notImported: notImportedTotal
+            },
+            ucPendingByRight,
+            debtorBySpp,
+            serviceByGroup,
+            ucPendingByDepartment,
+            ucDebtorByDepartment
+        });
+    } catch (error) {
+        console.error('Group insights fetch error:', error);
+        res.status(500).json({ message: 'ไม่สามารถดึงข้อมูลกลุ่มสรุปได้' });
+    }
+});
+
+app.get('/api/hipdata', authenticateToken, async (req, res) => {
+    try {
+        const [rows] = await hosxpPool.query(
+            `SELECT
+                UPPER(TRIM(hipdata_code)) AS code,
+                COUNT(*) AS pttype_count
+             FROM pttype
+             WHERE hipdata_code IS NOT NULL
+               AND TRIM(hipdata_code) <> ''
+             GROUP BY code
+             ORDER BY code ASC`
+        );
+        const codes = rows
+            .map(row => String(row.code || '').trim().toUpperCase())
+            .filter(code => /^[A-Z0-9_-]+$/.test(code));
+        const selectedCodes = codes.length > 0 ? codes : DEFAULT_HIPDATA_CODES;
+        res.json({
+            success: true,
+            codes,
+            selected_codes: selectedCodes,
+            sql_list: selectedCodes.map(code => `'${code}'`).join(','),
+            rows
+        });
+    } catch (error) {
+        console.error('Hipdata fetch error:', error);
+        res.json({
+            success: true,
+            fallback: true,
+            codes: DEFAULT_HIPDATA_CODES,
+            selected_codes: DEFAULT_HIPDATA_CODES,
+            sql_list: DEFAULT_HIPDATA_SQL_LIST,
+            rows: DEFAULT_HIPDATA_CODES.map(code => ({ code, pttype_count: 0 }))
+        });
     }
 });
 
@@ -1165,13 +1562,26 @@ app.post('/api/custom-query', authenticateToken, async (req, res) => {
         }
 
         // แปลง Grafana Macros
-        const processedQuery = replaceGrafanaMacros(query, visit_date, hipdata_code || "'UCS'");
+        const processedQuery = replaceGrafanaMacros(query, visit_date, hipdata_code || DEFAULT_HIPDATA_SQL_LIST);
         console.log(`[SQL Query] DB: ${db_type || 'hosxp'} | User: ${req.user.username} | Role: ${req.user.role}`);
 
         const pool = db_type === 'tracker' ? trackerPool : hosxpPool;
         const startTime = Date.now();
         const [rows] = await pool.query(processedQuery);
         const executionTimeMs = Date.now() - startTime;
+        const rowsCount = Array.isArray(rows) ? rows.length : 0;
+
+        await trackerPool.query(
+            `INSERT INTO query_history (username, db_type, query_text, visit_date, hipdata_code, rows_count, execution_time_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [req.user.username || null, db_type || 'hosxp', query, visit_date || null, hipdata_code || null, rowsCount, executionTimeMs]
+        );
+        await writeAuditLog(req, 'custom_query_run', 'sql_query', null, {
+            dbType: db_type || 'hosxp',
+            readOnly: isReadQuery,
+            rows: rowsCount,
+            executionTimeMs
+        });
 
         res.json({
             success: true,
@@ -1182,6 +1592,34 @@ app.post('/api/custom-query', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('❌ SQL Query Error:', error.message);
         res.status(500).json({ message: `ข้อผิดพลาด SQL: ${error.message}` });
+    }
+});
+
+app.get('/api/query-history', authenticateToken, async (req, res) => {
+    try {
+        const [rows] = await trackerPool.query(
+            `SELECT id, db_type, query_text, visit_date, hipdata_code, rows_count, execution_time_ms, created_at
+             FROM query_history
+             WHERE username = ?
+             ORDER BY id DESC
+             LIMIT 20`,
+            [req.user.username || null]
+        );
+        res.json({ success: true, history: rows });
+    } catch (error) {
+        console.error('Query history fetch error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.delete('/api/query-history', authenticateToken, async (req, res) => {
+    try {
+        await trackerPool.query('DELETE FROM query_history WHERE username = ?', [req.user.username || null]);
+        await writeAuditLog(req, 'query_history_clear', 'query_history', req.user.username || null);
+        res.json({ success: true, message: 'ล้างประวัติคำสั่ง SQL สำเร็จ' });
+    } catch (error) {
+        console.error('Query history clear error:', error);
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -1206,6 +1644,7 @@ app.post('/api/saved-queries', authenticateToken, async (req, res) => {
             'INSERT INTO saved_queries (name, query_text, db_type) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE query_text = VALUES(query_text), db_type = VALUES(db_type)',
             [name, query_text, db_type || 'hosxp']
         );
+        await writeAuditLog(req, 'saved_query_upsert', 'saved_query', name, { dbType: db_type || 'hosxp' });
         res.json({ success: true, message: 'บันทึกคำสั่งสำเร็จ' });
     } catch (error) {
         res.status(500).json({ message: `ไม่สามารถบันทึกได้: ${error.message}` });
@@ -1217,6 +1656,7 @@ app.delete('/api/saved-queries/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
         await trackerPool.query('DELETE FROM saved_queries WHERE id = ?', [id]);
+        await writeAuditLog(req, 'saved_query_delete', 'saved_query', id);
         res.json({ success: true, message: 'ลบคำสั่งสำเร็จ' });
     } catch (error) {
         res.status(500).json({ message: `ไม่สามารถลบได้: ${error.message}` });
@@ -1252,11 +1692,12 @@ app.post('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =
         if (!username) {
             return res.status(400).json({ success: false, message: 'กรุณากรอก Username' });
         }
-        await trackerPool.query(
+        const [result] = await trackerPool.query(
             `INSERT INTO users (username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [username, full_name || '', role || 'user', department || '', line_token || null, line_group_id || null, telegram_token || null, telegram_chat_id || null]
         );
+        await writeAuditLog(req, 'user_create', 'user', result.insertId, { username, role: role || 'user', department: department || '' });
         res.json({ success: true, message: 'เพิ่มผู้ใช้งานสำเร็จ' });
     } catch (error) {
         console.error('Create user error:', error);
@@ -1278,6 +1719,7 @@ app.put('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res
              WHERE id = ?`,
             [username, full_name || '', role || 'user', department || '', line_token || null, line_group_id || null, telegram_token || null, telegram_chat_id || null, id]
         );
+        await writeAuditLog(req, 'user_update', 'user', id, { username, role: role || 'user', department: department || '' });
         res.json({ success: true, message: 'แก้ไขข้อมูลผู้ใช้งานสำเร็จ' });
     } catch (error) {
         console.error('Update user error:', error);
@@ -1290,6 +1732,7 @@ app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, 
     try {
         const { id } = req.params;
         await trackerPool.query('DELETE FROM users WHERE id = ?', [id]);
+        await writeAuditLog(req, 'user_delete', 'user', id);
         res.json({ success: true, message: 'ลบผู้ใช้งานสำเร็จ' });
     } catch (error) {
         console.error('Delete user error:', error);
@@ -1302,9 +1745,34 @@ app.get('/api/admin/sync-runs', authenticateToken, requireAdmin, async (req, res
         const [rows] = await trackerPool.query(
             'SELECT id, source, visit_date, status, username, total_records, message, error, started_at, finished_at FROM sync_runs ORDER BY id DESC LIMIT 100'
         );
-        res.json({ success: true, runs: rows });
+        const [[summary]] = await trackerPool.query(`
+            SELECT
+                COUNT(*) AS total_runs,
+                SUM(status = 'success') AS success_runs,
+                SUM(status = 'failed') AS failed_runs,
+                SUM(status = 'running') AS running_runs,
+                COALESCE(SUM(total_records), 0) AS total_records
+            FROM sync_runs
+            WHERE started_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+        `);
+        res.json({ success: true, runs: rows, summary });
     } catch (error) {
         console.error('Fetch sync runs error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+app.get('/api/admin/audit-logs', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await trackerPool.query(
+            `SELECT id, username, role, action, entity_type, entity_id, details, ip_address, created_at
+             FROM audit_logs
+             ORDER BY id DESC
+             LIMIT 200`
+        );
+        res.json({ success: true, logs: rows });
+    } catch (error) {
+        console.error('Fetch audit logs error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -1398,7 +1866,8 @@ app.post('/api/admin/schedules', authenticateToken, requireAdmin, async (req, re
         if (!isValidTimeString(schedule_time)) return res.status(400).json({ success: false, message: 'รูปแบบเวลาไม่ถูกต้อง กรุณาใช้ HH:MM' });
 
         const timeWithSeconds = `${schedule_time}:00`;
-        await trackerPool.query('INSERT INTO cron_schedules (schedule_time, is_enabled) VALUES (?, 1)', [timeWithSeconds]);
+        const [result] = await trackerPool.query('INSERT INTO cron_schedules (schedule_time, is_enabled) VALUES (?, 1)', [timeWithSeconds]);
+        await writeAuditLog(req, 'schedule_create', 'cron_schedule', result.insertId, { schedule_time: timeWithSeconds });
         await reloadSchedules();
         res.json({ success: true, message: 'เพิ่มเวลาทำงานสำเร็จ' });
     } catch (error) {
@@ -1421,10 +1890,12 @@ app.put('/api/admin/schedules/:id', authenticateToken, requireAdmin, async (req,
             if (!isValidTimeString(schedule_time)) return res.status(400).json({ success: false, message: 'รูปแบบเวลาไม่ถูกต้อง กรุณาใช้ HH:MM' });
             const timeWithSeconds = `${schedule_time}:00`;
             await trackerPool.query('UPDATE cron_schedules SET schedule_time = ? WHERE id = ?', [timeWithSeconds, id]);
+            await writeAuditLog(req, 'schedule_update_time', 'cron_schedule', id, { schedule_time: timeWithSeconds });
         }
         if (is_enabled !== undefined) {
             const enabledVal = is_enabled ? 1 : 0;
             await trackerPool.query('UPDATE cron_schedules SET is_enabled = ? WHERE id = ?', [enabledVal, id]);
+            await writeAuditLog(req, 'schedule_toggle', 'cron_schedule', id, { is_enabled: !!is_enabled });
         }
 
         await reloadSchedules();
@@ -1440,6 +1911,7 @@ app.delete('/api/admin/schedules/:id', authenticateToken, requireAdmin, async (r
     try {
         const { id } = req.params;
         await trackerPool.query('DELETE FROM cron_schedules WHERE id = ?', [id]);
+        await writeAuditLog(req, 'schedule_delete', 'cron_schedule', id);
         await reloadSchedules();
         res.json({ success: true, message: 'ลบเวลาทำงานสำเร็จ' });
     } catch (error) {
@@ -1665,6 +2137,17 @@ async function sendTelegramMessage(token, chatId, text) {
     }
 }
 
+async function sendTelegramStatusMessage(text, userCredentials = null) {
+    const token = userCredentials?.telegram_token || process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = userCredentials?.telegram_chat_id || process.env.TELEGRAM_CHAT_ID;
+    if (!token || !chatId || chatId === 'your_telegram_chat_id_here') return;
+
+    const chatIds = String(chatId).split(',').map(id => id.trim()).filter(id => id);
+    for (const id of chatIds) {
+        await sendTelegramMessage(token, id, text);
+    }
+}
+
 async function sendLineMessage(text) {
     if (process.env.DISABLE_NOTIFICATIONS === 'true') {
         console.log('ℹ️ LINE status message is globally disabled via DISABLE_NOTIFICATIONS=true.');
@@ -1692,6 +2175,34 @@ async function sendLineMessage(text) {
                 'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify(payload)
+        });
+        console.log('✅ Sent status message to LINE successfully.');
+    } catch (err) {
+        console.error('Error sending message to LINE:', err);
+    }
+}
+
+async function sendLineStatusMessage(text, userCredentials = null) {
+    const token = userCredentials?.line_token || process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    const groupId = userCredentials?.line_group_id || process.env.LINE_GROUP_ID;
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ LINE status message is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
+    if (!token || !groupId || token === 'your_line_token_here' || groupId === 'your_group_id_here') {
+        return;
+    }
+    try {
+        await fetch('https://api.line.me/v2/bot/message/push', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                to: groupId,
+                messages: [{ type: 'text', text }]
+            })
         });
         console.log('✅ Sent status message to LINE successfully.');
     } catch (err) {

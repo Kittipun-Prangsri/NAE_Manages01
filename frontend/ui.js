@@ -48,6 +48,40 @@ export const ui = {
         }
     },
 
+    initTiltEffect() {
+        if (typeof document === 'undefined') return;
+        if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+        if (window.matchMedia?.('(pointer: coarse)').matches) return;
+
+        const cards = document.querySelectorAll('.tilt-card');
+        cards.forEach(card => {
+            if (card.dataset.tiltBound === 'true') return;
+            card.dataset.tiltBound = 'true';
+
+            card.addEventListener('pointermove', e => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const xc = rect.width / 2;
+                const yc = rect.height / 2;
+                const dx = x - xc;
+                const dy = y - yc;
+                const tiltX = (dy / yc) * -8;
+                const tiltY = (dx / xc) * 8;
+
+                card.classList.add('is-tilting');
+                card.style.setProperty('--tilt-x', `${tiltX}deg`);
+                card.style.setProperty('--tilt-y', `${tiltY}deg`);
+            });
+
+            card.addEventListener('pointerleave', () => {
+                card.classList.remove('is-tilting');
+                card.style.removeProperty('--tilt-x');
+                card.style.removeProperty('--tilt-y');
+            });
+        });
+    },
+
     toggleTheme() {
         if (typeof document === 'undefined' || typeof localStorage === 'undefined') return;
 
@@ -260,7 +294,11 @@ export const ui = {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
-        const icon = filter.type === 'department' ? 'fa-hospital-user' : 'fa-map-marker-alt';
+        const icon = filter.type === 'department'
+            ? 'fa-hospital-user'
+            : filter.type === 'right'
+                ? 'fa-id-card'
+                : 'fa-map-marker-alt';
         label.innerHTML = `<i class="fas ${icon} mr-1"></i> กำลังกรอง: ${escapeHtml(filter.label || filter.value)} (${count.toLocaleString()} รายการ)`;
         banner.classList.remove('hidden');
     },
@@ -273,7 +311,9 @@ export const ui = {
         // Calculate NHSO specific stats from data array
         const red = data.filter(i => i.color_status === 'RED').length;
         const yellow = data.filter(i => i.color_status === 'YELLOW').length;
-        const green = data.filter(i => i.color_status === 'GREEN').length;
+        const green = hosxpStats && hosxpStats.completedTreatmentEndpointCount !== undefined
+            ? Number(hosxpStats.completedTreatmentEndpointCount || 0)
+            : data.filter(i => i.color_status === 'GREEN').length;
 
         // Calculate UC Pending Count (RED + YELLOW and Pcode = 'UC')
         const ucPendingItems = data.filter(i => (i.color_status === 'RED' || i.color_status === 'YELLOW') && String(i.pcode).toUpperCase() === 'UC');
@@ -296,6 +336,193 @@ export const ui = {
         els.statRed.textContent = red;
         els.statYellow.textContent = yellow;
         els.statGreen.textContent = green;
+    },
+
+    renderGroupInsights(insights, onDepartmentClick) {
+        if (typeof document === 'undefined') return;
+
+        const section = document.getElementById('group-insights-section');
+        const pendingList = document.getElementById('uc-pending-group-list');
+        const debtorList = document.getElementById('uc-debtor-group-list');
+        const pendingTotalCount = document.getElementById('uc-pending-total-count');
+        const debtorTotalMoney = document.getElementById('uc-debtor-total-money');
+        const serviceTotalCount = document.getElementById('uc-service-total-count');
+        const serviceSparkline = document.querySelector('.uc-sparkline');
+        const notImportedCount = document.getElementById('uc-not-imported-count');
+        const rightGrid = document.getElementById('uc-right-grid');
+        const updatedAt = document.getElementById('uc-insight-updated-at');
+        const description = document.getElementById('group-insights-description');
+        const pendingTitle = document.getElementById('uc-pending-group-title');
+        const pendingSubtitle = document.getElementById('uc-pending-group-subtitle');
+        const debtorTitle = document.getElementById('uc-debtor-group-title');
+        const debtorSubtitle = document.getElementById('uc-debtor-group-subtitle');
+        const groupHeaderLabel = document.getElementById('uc-group-header-label');
+        if (!section || !pendingList || !debtorList) return;
+
+        const pendingRows = insights?.ucPendingByDepartment || [];
+        const debtorRows = insights?.ucDebtorByDepartment || [];
+        const pendingTotal = insights?.totals?.ucPending || { count: 0, total_money: 0 };
+        const debtorTotal = insights?.totals?.ucDebtor || { count: 0, total_money: 0 };
+        const serviceTotal = insights?.totals?.serviceTotal || insights?.totals?.ucTotal || { count: 0 };
+        const ucTotal = insights?.totals?.ucTotal || { count: 0, total_money: 0 };
+        const notImported = insights?.totals?.notImported || { count: 0, total_money: 0 };
+        const rightRows = insights?.debtorBySpp || [];
+        const serviceRows = insights?.serviceByGroup || [];
+        const groupBy = insights?.group_by || 'department';
+        const groupLabel = insights?.group_label || 'แผนก';
+        const groupTitle = groupBy === 'subdistrict' ? 'Subdistrict' : 'Department';
+        const moneyFormatter = new Intl.NumberFormat('th-TH', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+        const escapeHtml = (value) => String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+        const renderServiceSparkline = () => {
+            if (!serviceSparkline) return;
+            const rows = serviceRows
+                .map(row => ({
+                    label: row.group_label || row.group_key || 'ไม่ระบุ',
+                    count: Number(row.count || 0)
+                }))
+                .filter(row => row.count > 0)
+                .slice(0, 12)
+                .reverse();
+
+            if (rows.length === 0) {
+                serviceSparkline.innerHTML = '<div class="uc-sparkline-empty">ไม่มีข้อมูลกราฟ</div>';
+                return;
+            }
+
+            const width = 320;
+            const height = 92;
+            const baseline = 82;
+            const top = 10;
+            const maxCount = Math.max(...rows.map(row => row.count), 1);
+            const slot = width / rows.length;
+            const barWidth = Math.max(4, Math.min(14, slot * 0.36));
+            const bars = rows.map((row, index) => {
+                const barHeight = Math.max(3, (row.count / maxCount) * (baseline - top));
+                const x = index * slot + (slot - barWidth) / 2;
+                const y = baseline - barHeight;
+                return `
+                    <rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${barHeight.toFixed(2)}" rx="2">
+                        <title>${escapeHtml(row.label)}: ${row.count.toLocaleString()}</title>
+                    </rect>
+                `;
+            }).join('');
+            const points = rows.map((row, index) => {
+                const x = index * slot + slot / 2;
+                const y = baseline - Math.max(3, (row.count / maxCount) * (baseline - top));
+                return `${x.toFixed(2)},${y.toFixed(2)}`;
+            }).join(' ');
+
+            serviceSparkline.innerHTML = `
+                <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+                    <path class="uc-sparkline-grid" d="M0 28H320 M0 55H320 M0 82H320"></path>
+                    <polyline class="uc-sparkline-line" points="${points}"></polyline>
+                    <g class="uc-sparkline-bars">${bars}</g>
+                </svg>
+            `;
+        };
+
+        if (pendingTotalCount) pendingTotalCount.textContent = Number(debtorTotal.count || 0).toLocaleString();
+        if (debtorTotalMoney) debtorTotalMoney.textContent = moneyFormatter.format(Number(debtorTotal.total_money || 0));
+        if (serviceTotalCount) serviceTotalCount.textContent = Number(serviceTotal.count || 0).toLocaleString();
+        renderServiceSparkline();
+        if (notImportedCount) notImportedCount.textContent = Number(notImported.count || 0).toLocaleString();
+        if (updatedAt) {
+            const generatedAt = insights?.generated_at ? new Date(insights.generated_at) : new Date();
+            updatedAt.textContent = `อัปเดตล่าสุด: ${generatedAt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+        }
+        if (description) description.textContent = `รวมกลุ่มงาน UC ที่ควรติดตาม แยกตาม${groupLabel}`;
+        if (pendingTitle) pendingTitle.textContent = `UC Pending by ${groupTitle}`;
+        if (pendingSubtitle) pendingSubtitle.textContent = `แยกตาม${groupLabel}`;
+        if (debtorTitle) debtorTitle.textContent = `UC Debtor by ${groupTitle}`;
+        if (debtorSubtitle) debtorSubtitle.textContent = `แยกตาม${groupLabel}`;
+        if (groupHeaderLabel) groupHeaderLabel.textContent = groupLabel;
+
+        document.querySelectorAll('.group-insights-toggle').forEach(btn => {
+            const isActive = btn.dataset.groupBy === groupBy;
+            btn.className = isActive
+                ? 'group-insights-toggle px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-300 shadow-sm'
+                : 'group-insights-toggle px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200';
+        });
+
+        const renderEmpty = (target, label) => {
+            target.innerHTML = `
+                <div class="px-3 py-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-center text-xs font-semibold text-slate-400 dark:text-slate-500">
+                    ไม่พบข้อมูล ${label}
+                </div>
+            `;
+        };
+
+        const renderRows = (target, rows, mode) => {
+            target.innerHTML = '';
+            if (!rows.length) {
+                renderEmpty(target, mode === 'pending' ? 'UC Pending' : 'UC Debtor');
+                return;
+            }
+
+            const totalCount = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+            rows.forEach(row => {
+                const groupKey = row.group_key || row.department || `ไม่ระบุ${groupLabel}`;
+                const groupName = row.group_label || row.department || groupKey;
+                const count = Number(row.count || 0);
+
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'uc-table-row';
+                button.innerHTML = `
+                    <span title="${escapeHtml(groupName)}">${escapeHtml(groupName)}</span>
+                    <span>${count.toLocaleString()}</span>
+                `;
+                button.addEventListener('click', () => onDepartmentClick?.({
+                    groupBy,
+                    groupKey,
+                    groupLabel,
+                    mode,
+                    label: `${mode === 'pending' ? 'UC ค้าง' : 'ลูกหนี้ UC'} ${groupLabel} ${groupName}`
+                }));
+                target.appendChild(button);
+            });
+            const total = document.createElement('div');
+            total.className = 'uc-table-total';
+            total.innerHTML = `
+                <span>Total</span>
+                <span>${totalCount.toLocaleString()}</span>
+            `;
+            target.appendChild(total);
+        };
+
+        if (rightGrid) {
+            rightGrid.innerHTML = '';
+            if (rightRows.length === 0) {
+                renderEmpty(rightGrid, 'กลุ่มสิทธิลูกหนี้');
+            } else {
+                rightRows.forEach(row => {
+                    const count = Number(row.count || 0);
+                    const isHigh = count > 0;
+                    const rightName = row.right_name || 'ไม่ระบุสิทธิ';
+                    const card = document.createElement('button');
+                    card.type = 'button';
+                    card.className = 'uc-right-tile is-static';
+                    card.disabled = true;
+                    card.innerHTML = `
+                        <div class="uc-right-tile-label">${escapeHtml(rightName)}</div>
+                        <div class="uc-right-tile-value ${isHigh ? 'is-high' : 'is-zero'}">${count.toLocaleString()}</div>
+                    `;
+                    rightGrid.appendChild(card);
+                });
+            }
+        }
+
+        renderRows(pendingList, pendingRows, 'pending');
+        renderRows(debtorList, debtorRows, 'debtor');
+        section.classList.remove('hidden');
     },
 
     renderWeeklySummary(summaryData, onDateClick) {
@@ -543,10 +770,22 @@ export const ui = {
         });
     },
 
-    renderAdminSyncRuns(runs) {
+    renderAdminSyncRuns(runs, summary = null) {
         if (typeof document === 'undefined') return;
         const body = document.getElementById('admin-sync-runs-table-body');
         if (!body) return;
+
+        const setSummaryText = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = Number(value || 0).toLocaleString();
+        };
+        if (summary) {
+            setSummaryText('sync-summary-total', summary.total_runs);
+            setSummaryText('sync-summary-success', summary.success_runs);
+            setSummaryText('sync-summary-failed', summary.failed_runs);
+            setSummaryText('sync-summary-running', summary.running_runs);
+            setSummaryText('sync-summary-records', summary.total_records);
+        }
 
         const formatDateTime = (value) => {
             if (!value) return '-';
@@ -624,6 +863,76 @@ export const ui = {
         });
     },
 
+    renderAdminAuditLogs(logs) {
+        if (typeof document === 'undefined') return;
+        const body = document.getElementById('admin-audit-log-table-body');
+        if (!body) return;
+
+        const formatDateTime = (value) => {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return String(value);
+            return date.toLocaleString('th-TH', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        };
+
+        const escapeHtml = (value) => String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
+        const formatDetails = (details) => {
+            if (!details) return '-';
+            if (typeof details === 'object') return JSON.stringify(details);
+            try {
+                return JSON.stringify(JSON.parse(details));
+            } catch {
+                return String(details);
+            }
+        };
+
+        body.innerHTML = '';
+        if (!logs || logs.length === 0) {
+            body.innerHTML = `
+                <tr>
+                    <td colspan="6" class="py-8 text-center text-slate-500 dark:text-slate-400 font-bold bg-transparent">
+                        <i class="fas fa-clipboard-list text-3xl mb-2 block"></i>
+                        ยังไม่มี Audit Log
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        logs.forEach(log => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200 bg-transparent';
+            const details = formatDetails(log.details);
+            const safeDetails = escapeHtml(details);
+
+            tr.innerHTML = `
+                <td class="py-3.5 px-4 text-slate-500 dark:text-slate-400">${escapeHtml(formatDateTime(log.created_at))}</td>
+                <td class="py-3.5 px-4 font-semibold">${escapeHtml(log.username || '-')}</td>
+                <td class="py-3.5 px-4">
+                    <span class="inline-flex px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 font-bold text-[10px]">
+                        ${escapeHtml(log.action || '-')}
+                    </span>
+                </td>
+                <td class="py-3.5 px-4 font-mono text-slate-500 dark:text-slate-400">${escapeHtml(log.entity_type || '-')}${log.entity_id ? ` #${escapeHtml(log.entity_id)}` : ''}</td>
+                <td class="py-3.5 px-4 truncate max-w-[420px]" title="${safeDetails}">${safeDetails}</td>
+                <td class="py-3.5 px-4 font-mono text-slate-500 dark:text-slate-400">${escapeHtml(log.ip_address || '-')}</td>
+            `;
+            body.appendChild(tr);
+        });
+    },
+
     renderSavedQueriesDropdown(queries, selectedId = '') {
         const select = document.getElementById('query-template-select');
         if (!select) return;
@@ -638,6 +947,62 @@ export const ui = {
                 opt.selected = true;
             }
             select.appendChild(opt);
+        });
+    },
+
+    renderQueryHistory(history, onSelect) {
+        if (typeof document === 'undefined') return;
+        const list = document.getElementById('query-history-list');
+        if (!list) return;
+
+        const escapeHtml = (value) => String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
+        const formatDateTime = (value) => {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return String(value);
+            return date.toLocaleString('th-TH', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        };
+
+        list.innerHTML = '';
+        if (!history || history.length === 0) {
+            list.innerHTML = `
+                <div class="lg:col-span-2 px-3 py-4 text-center text-xs text-slate-400 dark:text-slate-500 font-semibold border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                    ยังไม่มีประวัติคำสั่ง SQL
+                </div>
+            `;
+            return;
+        }
+
+        history.forEach(item => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'text-left p-3 rounded-xl bg-white/80 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800 hover:border-indigo-400/60 dark:hover:border-indigo-500/60 hover:shadow-sm transition cursor-pointer';
+            const queryPreview = String(item.query_text || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+            button.innerHTML = `
+                <div class="flex items-center justify-between gap-2 mb-1">
+                    <span class="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-300 uppercase">${escapeHtml(item.db_type || 'hosxp')}</span>
+                    <span class="text-[10px] text-slate-400 dark:text-slate-500">${escapeHtml(formatDateTime(item.created_at))}</span>
+                </div>
+                <div class="font-mono text-[11px] leading-relaxed text-slate-700 dark:text-slate-200 line-clamp-2">${escapeHtml(queryPreview || '-')}</div>
+                <div class="mt-2 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
+                    <span>${Number(item.rows_count || 0).toLocaleString()} rows</span>
+                    <span>${Number(item.execution_time_ms || 0).toLocaleString()} ms</span>
+                </div>
+            `;
+            button.addEventListener('click', () => onSelect?.(item));
+            list.appendChild(button);
         });
     },
 
@@ -954,6 +1319,7 @@ export const ui = {
                 const pathEl = document.getElementById('path-' + d.code);
                 if (pathEl) {
                     pathEl.setAttribute('fill', fill);
+                    pathEl.dataset.count = d.count;
                 }
                 const countEl = document.getElementById('count-' + d.code);
                 if (countEl) {
@@ -963,6 +1329,7 @@ export const ui = {
 
             // Set up interactive hover and click filter events (once)
             const mapSvg = document.getElementById('tambonMap');
+            const tooltipEl = document.getElementById('map-tooltip');
             if (mapSvg && !mapSvg.dataset.eventsSet) {
                 mapSvg.dataset.eventsSet = 'true';
                 const paths = mapSvg.querySelectorAll('.tambon');
@@ -974,13 +1341,31 @@ export const ui = {
                         }
                     });
                     p.addEventListener('mouseenter', function() {
-                        this.style.filter = 'brightness(1.15) drop-shadow(0 10px 15px rgba(0,0,0,0.15))';
-                        this.style.transform = 'translateY(-4px) scale(1.01)';
-                        this.style.transformOrigin = 'center';
+                        const name = this.dataset.tambon;
+                        const countVal = this.dataset.count || 0;
+                        if (tooltipEl) {
+                            tooltipEl.innerHTML = `
+                                <div class="text-[10px] font-bold text-sky-300 uppercase tracking-wide">ตำบล${name}</div>
+                                <div class="text-xs font-extrabold mt-0.5 text-white">${Number(countVal || 0).toLocaleString()} คน</div>
+                            `;
+                            tooltipEl.setAttribute('aria-hidden', 'false');
+                            tooltipEl.classList.add('show');
+                        }
+                    });
+                    p.addEventListener('mousemove', function(e) {
+                        if (tooltipEl) {
+                            const parentRect = mapSvg.parentElement.getBoundingClientRect();
+                            const x = Math.max(16, Math.min(parentRect.width - 16, e.clientX - parentRect.left));
+                            const y = Math.max(48, Math.min(parentRect.height - 16, e.clientY - parentRect.top));
+                            tooltipEl.style.left = `${x}px`;
+                            tooltipEl.style.top = `${y}px`;
+                        }
                     });
                     p.addEventListener('mouseleave', function() {
-                        this.style.filter = 'none';
-                        this.style.transform = 'none';
+                        if (tooltipEl) {
+                            tooltipEl.setAttribute('aria-hidden', 'true');
+                            tooltipEl.classList.remove('show');
+                        }
                     });
                 });
             }

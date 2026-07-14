@@ -1,6 +1,9 @@
 import { hosxpPool, trackerPool } from './db.js';
 // NOTE: authencode table lives in HOSxP DB (TIS-620), so saveAuthenLog uses hosxpPool
 
+export const DEFAULT_HIPDATA_CODES = ['OFC', 'UCS', 'OTH', 'BMT', 'XXX', 'LGO', 'STP', 'SSS', 'SSI', 'A2', 'BKK', 'PTY', 'A9'];
+export const DEFAULT_HIPDATA_SQL_LIST = DEFAULT_HIPDATA_CODES.map(code => `'${code}'`).join(',');
+
 /**
  * ดึงข้อมูลผู้ป่วยจาก HOSxP ตามวันที่ระบุ (เฉพาะสิทธิ สปสช.)
  */
@@ -47,7 +50,7 @@ export async function getHosxpVisits(visitDate) {
         LEFT OUTER JOIN ovst ov ON ov.vn = v.vn
         LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
         WHERE v.vstdate = ?
-          AND py.hipdata_code IN ('UCS', 'OFC')
+          AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
         GROUP BY v.vn
         ORDER BY vp.Auth_Code, vp.claim_code
     `;
@@ -73,18 +76,65 @@ export async function getHosxpTotalVisits(visitDate) {
         FROM vn_stat 
         WHERE vstdate = ?
     `;
+    const endpointClosedQuery = `
+        SELECT COUNT(DISTINCT v.vn) as completedTreatmentEndpointCount
+        FROM vn_stat v
+        LEFT JOIN ovst ov ON ov.vn = v.vn
+        LEFT JOIN pttype py ON py.pttype = v.pttype
+        LEFT JOIN temp_authen_code td ON td.cid = v.cid
+            AND td.status_use <> 'C'
+            AND td.dateser = v.vstdate
+            AND td.flag = 'D'
+        WHERE v.vstdate = ?
+          AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+          AND ov.an IS NULL
+          AND td.claimcode IS NOT NULL
+          AND UPPER(td.authen_code_type) = 'ENDPOINT'
+    `;
+    const completedTreatmentQuery = `
+        SELECT COUNT(DISTINCT v.vn) as completedTreatmentEndpointCount
+        FROM vn_stat v
+        LEFT JOIN ovst ov ON ov.vn = v.vn
+        LEFT JOIN pttype py ON py.pttype = v.pttype
+        LEFT JOIN temp_authen_code td ON td.cid = v.cid
+            AND td.status_use <> 'C'
+            AND td.dateser = v.vstdate
+            AND td.flag = 'D'
+        WHERE v.vstdate = ?
+          AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+          AND ov.an IS NULL
+          AND td.claimcode IS NOT NULL
+          AND UPPER(td.authen_code_type) = 'ENDPOINT'
+          AND EXISTS (
+              SELECT 1
+              FROM opitemrece oi
+              LEFT JOIN drugitems di ON di.icode = oi.icode
+              WHERE oi.vn = v.vn
+                AND di.icode IS NOT NULL
+          )
+    `;
 
     try {
         const [rows] = await hosxpPool.query(query, [visitDate]);
         const result = rows[0] || { totalPersons: 0, totalVisits: 0, totalUcMoney: 0 };
+        try {
+            const [[completedTreatment]] = await hosxpPool.query(completedTreatmentQuery, [visitDate]);
+            result.completedTreatmentEndpointCount = Number(completedTreatment?.completedTreatmentEndpointCount || 0);
+            result.completedTreatmentSource = 'hosxp_endpoint_with_drug';
+        } catch (completedError) {
+            console.warn('⚠️ HOSxP Completed Treatment Query fallback:', completedError.message);
+            const [[endpointClosed]] = await hosxpPool.query(endpointClosedQuery, [visitDate]);
+            result.completedTreatmentEndpointCount = Number(endpointClosed?.completedTreatmentEndpointCount || 0);
+            result.completedTreatmentSource = 'hosxp_endpoint_closed';
+        }
         if (result.totalVisits > 0) {
             return result;
         }
         // Fallback to mock counts matching the sum of geoData (247 visits, 247 persons, e.g. 154200 uc money)
-        return { totalPersons: 247, totalVisits: 247, totalUcMoney: 154200.00 };
+        return { totalPersons: 247, totalVisits: 247, totalUcMoney: 154200.00, completedTreatmentEndpointCount: 0, completedTreatmentSource: 'fallback_mock' };
     } catch (error) {
         console.error('❌ HOSxP Total Visits Query Error:', error);
-        return { totalPersons: 247, totalVisits: 247, totalUcMoney: 154200.00 };
+        return { totalPersons: 247, totalVisits: 247, totalUcMoney: 154200.00, completedTreatmentEndpointCount: 0, completedTreatmentSource: 'fallback_mock' };
     }
 }
 
@@ -464,7 +514,7 @@ export async function getHosxpSummaryStats(visitDate) {
         FROM vn_stat v
         LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
         WHERE v.vstdate = ?
-          AND py.hipdata_code IN ('UCS', 'OFC')
+          AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
     `;
 
     const totalMoneyQuery = `
@@ -472,7 +522,7 @@ export async function getHosxpSummaryStats(visitDate) {
         FROM vn_stat v
         LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
         WHERE v.vstdate = ?
-          AND py.hipdata_code IN ('UCS', 'OFC')
+          AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
     `;
 
     const endpointCountQuery = `
@@ -484,7 +534,7 @@ export async function getHosxpSummaryStats(visitDate) {
             AND td.flag = 'D'
         LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
         WHERE v.vstdate = ?
-          AND py.hipdata_code IN ('UCS', 'OFC')
+          AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
           AND td.claimcode IS NOT NULL
           AND (td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')
     `;
@@ -498,7 +548,7 @@ export async function getHosxpSummaryStats(visitDate) {
             AND td.flag = 'D'
         LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
         WHERE v.vstdate = ?
-          AND py.hipdata_code IN ('UCS', 'OFC')
+          AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
           AND td.claimcode IS NULL
     `;
 
@@ -511,7 +561,7 @@ export async function getHosxpSummaryStats(visitDate) {
             AND td.flag = 'D'
         LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
         WHERE v.vstdate = ?
-          AND py.hipdata_code IN ('UCS', 'OFC')
+          AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
           AND td.claimcode IS NOT NULL
           AND UPPER(td.authen_code_type) = 'ENDPOINT'
     `;
@@ -522,7 +572,7 @@ export async function getHosxpSummaryStats(visitDate) {
         LEFT OUTER JOIN visit_pttype vp ON vp.vn = v.vn
         LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
         WHERE v.vstdate = ?
-          AND py.hipdata_code IN ('UCS', 'OFC')
+          AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
         GROUP BY right_name
         ORDER BY cnt DESC
         LIMIT 3
@@ -595,4 +645,3 @@ export async function getHosxpSummaryStats(visitDate) {
         throw error;
     }
 }
-

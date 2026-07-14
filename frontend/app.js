@@ -14,6 +14,7 @@ const getInitialState = () => {
             user: null,
             rawTableData: [],
             savedQueries: [],
+            queryHistory: [],
             currentQueryResults: [],
             hosxpStats: null,
             querySortBy: '',
@@ -25,7 +26,13 @@ const getInitialState = () => {
             liveDashboardInterval: null,
             liveDashboardCountdownInterval: null,
             liveDashboardNextRefreshAt: null,
-            isTvMode: false
+            isTvMode: false,
+            groupInsightsBy: 'department',
+            excelMapping: null,
+            excelHeaders: [],
+            excelMappingFields: [],
+            pendingExcelMappingResolve: null,
+            hipdataCodes: []
         };
     }
     return {
@@ -33,6 +40,7 @@ const getInitialState = () => {
         user: JSON.parse(localStorage.getItem('nhso_user')),
         rawTableData: [],
         savedQueries: [],
+        queryHistory: [],
         currentQueryResults: [],
         hosxpStats: null,
         querySortBy: '',
@@ -44,7 +52,13 @@ const getInitialState = () => {
         liveDashboardInterval: null,
         liveDashboardCountdownInterval: null,
         liveDashboardNextRefreshAt: null,
-        isTvMode: localStorage.getItem('live_tv_mode') === 'true'
+        isTvMode: localStorage.getItem('live_tv_mode') === 'true',
+        groupInsightsBy: localStorage.getItem('group_insights_by') || 'department',
+        excelMapping: null,
+        excelHeaders: [],
+        excelMappingFields: [],
+        pendingExcelMappingResolve: null,
+        hipdataCodes: []
     };
 };
 
@@ -78,12 +92,15 @@ function init() {
         }
         if (visitDateInput) visitDateInput.valueAsDate = new Date();
         loadDashboardData();
+        loadHipdataCodes();
         loadSavedQueries();
+        loadQueryHistory();
     } else {
         ui.showLogin();
     }
 
     setupEventListeners();
+    ui.initTiltEffect();
 }
 
 function setupEventListeners() {
@@ -92,6 +109,9 @@ function setupEventListeners() {
     document.getElementById('toggle-list-btn')?.addEventListener('click', ui.togglePatientList);
     document.getElementById('live-tv-toggle')?.addEventListener('click', handleLiveTvToggle);
     document.getElementById('live-fullscreen-btn')?.addEventListener('click', handleLiveFullscreen);
+    document.querySelectorAll('.group-insights-toggle').forEach(btn => {
+        btn.addEventListener('click', () => handleGroupInsightsToggle(btn.dataset.groupBy));
+    });
     document.addEventListener('fullscreenchange', updateFullscreenButton);
     setupBackToTop();
 
@@ -152,8 +172,13 @@ function setupEventListeners() {
     document.getElementById('admin-subtab-users')?.addEventListener('click', () => handleAdminSubtabSwitch('users'));
     document.getElementById('admin-subtab-schedules')?.addEventListener('click', () => handleAdminSubtabSwitch('schedules'));
     document.getElementById('admin-subtab-sync-runs')?.addEventListener('click', () => handleAdminSubtabSwitch('sync-runs'));
+    document.getElementById('admin-subtab-audit-logs')?.addEventListener('click', () => handleAdminSubtabSwitch('audit-logs'));
     document.getElementById('add-schedule-form')?.addEventListener('submit', handleAddSchedule);
     document.getElementById('refresh-sync-runs-btn')?.addEventListener('click', loadAdminSyncRuns);
+    document.getElementById('refresh-audit-logs-btn')?.addEventListener('click', loadAdminAuditLogs);
+    document.getElementById('close-excel-mapping-modal')?.addEventListener('click', () => closeExcelMappingModal(false));
+    document.getElementById('cancel-excel-mapping-btn')?.addEventListener('click', () => closeExcelMappingModal(false));
+    document.getElementById('save-excel-mapping-btn')?.addEventListener('click', saveExcelMappingFromModal);
 
     // Admin quick login modal listeners
     document.getElementById('admin-login-btn')?.addEventListener('click', openAdminLoginModal);
@@ -166,6 +191,8 @@ function setupEventListeners() {
     document.getElementById('run-query-btn')?.addEventListener('click', handleRunQuery);
     document.getElementById('save-query-btn')?.addEventListener('click', handleSaveQuery);
     document.getElementById('delete-query-btn')?.addEventListener('click', handleDeleteQuery);
+    document.getElementById('refresh-query-history-btn')?.addEventListener('click', loadQueryHistory);
+    document.getElementById('clear-query-history-btn')?.addEventListener('click', handleClearQueryHistory);
     document.getElementById('query-export-btn')?.addEventListener('click', handleQueryExport);
     document.getElementById('query-search-input')?.addEventListener('input', handleQuerySearch);
     
@@ -226,6 +253,7 @@ async function handleLogin(e) {
         ui.showDashboard(data.user.full_name);
         visitDateInput.valueAsDate = new Date();
         loadDashboardData();
+        loadHipdataCodes();
         loadWeeklySummary();
     } else {
         ui.showLoginError(data.message || 'รหัสผ่านไม่ถูกต้อง');
@@ -287,22 +315,137 @@ function setupFileUpload() {
 async function handleFileSelection(file) {
     if (!file) return;
     ui.updateDropzoneUI(file);
+    appState.excelMapping = null;
+    appState.excelHeaders = [];
+    appState.excelMappingFields = [];
     
     // Auto-detect Date from Excel
     ui.setLoading(true);
     try {
         const response = await api.probeDate(file, appState.token);
-        if (handleApiResponse(response) && response.data.detected_date) {
-            visitDateInput.value = response.data.detected_date;
-            // โหลดข้อมูล Dashboard ตามวันที่ที่จับได้
-            loadDashboardData(); 
-            loadWeeklySummary();
+        if (handleApiResponse(response)) {
+            appState.excelMapping = response.data.mapping || null;
+            appState.excelHeaders = response.data.headers || [];
+            appState.excelMappingFields = response.data.mappingFields || [];
+            if (response.data.detected_date) {
+                visitDateInput.value = response.data.detected_date;
+            }
+            if (response.data.missingRequired?.length > 0) {
+                openExcelMappingModal(response.data, 'ระบบอ่านบางคอลัมน์ไม่มั่นใจ กรุณาจับคู่คอลัมน์ที่จำเป็นก่อนกดประมวลผล');
+            }
+            if (visitDateInput.value) {
+                // โหลดข้อมูล Dashboard ตามวันที่ที่จับได้
+                await loadDashboardData();
+                loadWeeklySummary();
+            }
         }
     } catch (error) {
         console.warn("ไม่สามารถอ่านวันที่จากไฟล์อัตโนมัติได้:", error);
     } finally {
         ui.setLoading(false);
     }
+}
+
+function getMissingExcelMappingFields(mapping = appState.excelMapping || {}) {
+    return (appState.excelMappingFields || [])
+        .filter(field => field.required)
+        .filter(field => !mapping[field.key]);
+}
+
+function openExcelMappingModal(payload = {}, message = '') {
+    const modal = document.getElementById('excel-mapping-modal');
+    const fieldsWrap = document.getElementById('excel-mapping-fields');
+    const preview = document.getElementById('excel-mapping-preview');
+    const messageEl = document.getElementById('excel-mapping-message');
+    if (!modal || !fieldsWrap) return Promise.resolve(appState.excelMapping);
+
+    const headers = payload.headers || appState.excelHeaders || [];
+    const fields = payload.mappingFields || appState.excelMappingFields || [];
+    const mapping = { ...(payload.mapping || appState.excelMapping || {}) };
+
+    appState.excelHeaders = headers;
+    appState.excelMappingFields = fields;
+    appState.excelMapping = mapping;
+
+    if (messageEl) {
+        const missing = payload.missingRequired || getMissingExcelMappingFields(mapping);
+        messageEl.textContent = message || (missing.length > 0
+            ? `กรุณาเลือกคอลัมน์จำเป็น: ${missing.map(item => item.label).join(', ')}`
+            : 'ตรวจสอบหรือปรับ mapping ก่อนประมวลผล');
+    }
+
+    fieldsWrap.innerHTML = fields.map(field => {
+        const options = ['<option value="">-- ไม่ใช้ --</option>'].concat(headers.map(header => {
+            const selected = mapping[field.key] === header ? 'selected' : '';
+            return `<option value="${escapeHtml(header)}" ${selected}>${escapeHtml(header)}</option>`;
+        })).join('');
+        const requiredBadge = field.required ? '<span class="text-red-500">*</span>' : '';
+        return `
+            <label class="space-y-1">
+                <span class="block text-slate-500 dark:text-slate-400">${escapeHtml(field.label)} ${requiredBadge}</span>
+                <select class="excel-mapping-select w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30" data-field="${field.key}">
+                    ${options}
+                </select>
+            </label>
+        `;
+    }).join('');
+
+    if (preview) {
+        preview.textContent = headers.length > 0
+            ? `พบคอลัมน์ในไฟล์: ${headers.slice(0, 8).join(', ')}${headers.length > 8 ? ' ...' : ''}`
+            : 'ยังไม่พบ header จากไฟล์ Excel';
+    }
+
+    modal.classList.remove('hidden');
+    return new Promise(resolve => {
+        appState.pendingExcelMappingResolve = resolve;
+    });
+}
+
+function closeExcelMappingModal(confirmed) {
+    const modal = document.getElementById('excel-mapping-modal');
+    if (modal) modal.classList.add('hidden');
+    if (appState.pendingExcelMappingResolve) {
+        appState.pendingExcelMappingResolve(confirmed ? appState.excelMapping : null);
+        appState.pendingExcelMappingResolve = null;
+    }
+}
+
+function saveExcelMappingFromModal() {
+    const selects = document.querySelectorAll('.excel-mapping-select');
+    const mapping = {};
+    selects.forEach(select => {
+        if (select.value) mapping[select.dataset.field] = select.value;
+    });
+
+    const missing = getMissingExcelMappingFields(mapping);
+    if (missing.length > 0) {
+        alert(`กรุณาเลือกคอลัมน์จำเป็นให้ครบ: ${missing.map(item => item.label).join(', ')}`);
+        return;
+    }
+
+    appState.excelMapping = mapping;
+    closeExcelMappingModal(true);
+}
+
+async function ensureExcelMapping() {
+    const missing = getMissingExcelMappingFields();
+    if (missing.length === 0) return appState.excelMapping;
+    return openExcelMappingModal({
+        headers: appState.excelHeaders,
+        mapping: appState.excelMapping,
+        mappingFields: appState.excelMappingFields,
+        missingRequired: missing
+    });
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 async function handleApiSync() {
@@ -320,7 +463,7 @@ async function handleApiSync() {
     try {
         const response = await api.processSyncDirect(visitDate, appState.token);
         if (handleApiResponse(response)) {
-            loadDashboardData();
+            await loadDashboardData();
             loadWeeklySummary();
             if (!appState.disableNotifications) {
                 openCaptureSelectionModal(visitDate, response.data.message);
@@ -619,7 +762,7 @@ async function handlePasteSync() {
             ui.setLoading(true);
             const response = await api.processSyncJson(visitDate, jsonData, appState.token);
             if (handleApiResponse(response)) {
-                loadDashboardData();
+                await loadDashboardData();
                 loadWeeklySummary();
                 if (!appState.disableNotifications) {
                     openCaptureSelectionModal(visitDate, response.data.message);
@@ -681,12 +824,22 @@ async function handleSyncProcess() {
         return;
     }
 
+    const excelMapping = await ensureExcelMapping();
+    if (!excelMapping) return;
+
     ui.setLoading(true);
     try {
-        const response = await api.processSync(visitDate, file, appState.token);
+        let response = await api.processSync(visitDate, file, appState.token, excelMapping);
+        if (response.status === 422) {
+            ui.setLoading(false);
+            const updatedMapping = await openExcelMappingModal(response.data, response.data.message);
+            if (!updatedMapping) return;
+            ui.setLoading(true);
+            response = await api.processSync(visitDate, file, appState.token, updatedMapping);
+        }
         if (handleApiResponse(response)) {
             // โหลดข้อมูลล่าสุดมาแสดงในตาราง
-            loadDashboardData();
+            await loadDashboardData();
             loadWeeklySummary();
             if (!appState.disableNotifications) {
                 openCaptureSelectionModal(visitDate, response.data.message);
@@ -743,12 +896,34 @@ async function loadDashboardData() {
             appState.rawTableData = data.trackingData || [];
             appState.hosxpStats = data.hosxpStats || null;
             renderTrackerTable();
+            await loadGroupInsights(date);
         }
     } catch (error) {
         console.error('Fetch error:', error);
     } finally {
         ui.setLoading(false);
     }
+}
+
+async function loadGroupInsights(date = visitDateInput.value) {
+    if (!date || !appState.token) return;
+
+    try {
+        const hipdataCode = document.getElementById('query-hipdata')?.value || "'OFC','UCS','OTH','BMT','XXX','LGO','STP','SSS','SSI','A2','BKK','PTY','A9'";
+        const response = await api.fetchGroupInsights(date, appState.token, appState.groupInsightsBy, hipdataCode);
+        if (handleApiResponse(response)) {
+            ui.renderGroupInsights(response.data, handleGroupInsightDepartmentClick);
+        }
+    } catch (error) {
+        console.error('Failed to load group insights:', error);
+    }
+}
+
+function handleGroupInsightsToggle(groupBy) {
+    if (!['department', 'subdistrict'].includes(groupBy)) return;
+    appState.groupInsightsBy = groupBy;
+    localStorage.setItem('group_insights_by', groupBy);
+    loadGroupInsights();
 }
 
 async function loadLiveDashboardData() {
@@ -765,6 +940,7 @@ async function loadLiveDashboardData() {
                 response.data.tambonVisits = tambonRes.data;
             }
             ui.renderLiveDashboard(response.data, appState.token);
+            ui.initTiltEffect();
             ui.updateLiveRefreshState('success');
         } else {
             ui.updateLiveRefreshState('failed');
@@ -817,13 +993,27 @@ function getFilteredAndSortedTrackerData() {
         const query = dashboardFilter.value.toLowerCase();
         const fields = dashboardFilter.type === 'department'
             ? ['department']
-            : ['subdistrict_name', 'tambon_name', 'subdistrict_code', 'tambon_code'];
+            : dashboardFilter.type === 'right'
+                ? ['pttype_note', 'pttype', 'pcode']
+                : ['subdistrict_name', 'tambon_name', 'subdistrict_code', 'tambon_code'];
 
         data = data.filter(item => fields.some(field => {
             const value = String(item[field] || '').toLowerCase();
             if (!value) return false;
             return value === query || value.includes(query) || query.includes(value);
         }));
+
+        if (dashboardFilter.mode === 'uc-pending') {
+            data = data.filter(item =>
+                String(item.pcode || '').toUpperCase() === 'UC'
+                && ['RED', 'YELLOW'].includes(String(item.color_status || '').toUpperCase())
+            );
+        } else if (dashboardFilter.mode === 'uc-debtor') {
+            data = data.filter(item =>
+                String(item.pcode || '').toUpperCase() === 'UC'
+                && Number(item.uc_money || 0) > 0
+            );
+        }
     }
 
     // Search filter
@@ -867,11 +1057,12 @@ function renderTrackerTable() {
     ui.renderTable(data, appState.trackerSortBy, appState.trackerSortDesc);
     ui.renderTrackerDashboardFilter(appState.trackerDashboardFilter, data.length);
     ui.updateStats(data, hasFilters ? null : appState.hosxpStats);
+    ui.initTiltEffect();
 }
 
-async function applyTrackerDashboardFilter(type, value, label = value) {
+async function applyTrackerDashboardFilter(type, value, label = value, options = {}) {
     if (!value) return;
-    appState.trackerDashboardFilter = { type, value, label };
+    appState.trackerDashboardFilter = { type, value, label, ...options };
     appState.trackerSearchFilter = '';
 
     const searchInput = document.getElementById('tracker-search-input');
@@ -883,6 +1074,17 @@ async function applyTrackerDashboardFilter(type, value, label = value) {
     } else {
         renderTrackerTable();
     }
+}
+
+function handleGroupInsightDepartmentClick(item) {
+    if (!item?.groupKey && !item?.rightName) return;
+    const mode = item.mode === 'debtor' ? 'uc-debtor' : 'uc-pending';
+    if (item.rightName) {
+        applyTrackerDashboardFilter('right', item.rightName, item.label || `สิทธิ ${item.rightName}`, { mode });
+        return;
+    }
+    const type = item.groupBy === 'subdistrict' ? 'tambon' : 'department';
+    applyTrackerDashboardFilter(type, item.groupKey, item.label || `${item.groupLabel || 'กลุ่ม'} ${item.groupKey}`, { mode });
 }
 
 function clearTrackerDashboardFilter() {
@@ -988,19 +1190,31 @@ async function handleLiveFullscreen() {
 function handleTabSwitch(tabId) {
     stopLiveDashboardAutoRefresh();
 
-    ui.switchTab(tabId);
+    const doSwitch = () => {
+        ui.switchTab(tabId);
 
-    if (tabId === 'tab-live-dashboard') {
-        loadLiveDashboardData();
-        startLiveDashboardAutoRefresh();
-    } else if (tabId === 'tab-grafana') {
-        const dateInput = document.getElementById('query-visit-date');
-        if (!dateInput.value) {
-            dateInput.value = visitDateInput.value || new Date().toISOString().split('T')[0];
+        if (tabId === 'tab-live-dashboard') {
+            loadLiveDashboardData();
+            startLiveDashboardAutoRefresh();
+        } else if (tabId === 'tab-grafana') {
+            const dateInput = document.getElementById('query-visit-date');
+            if (!dateInput.value) {
+                dateInput.value = visitDateInput.value || new Date().toISOString().split('T')[0];
+            }
+            loadSavedQueries();
+            loadQueryHistory();
+            loadHipdataCodes();
+        } else if (tabId === 'tab-admin') {
+            handleAdminSubtabSwitch('users');
         }
-        loadSavedQueries();
-    } else if (tabId === 'tab-admin') {
-        handleAdminSubtabSwitch('users');
+    };
+
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    if (document.startViewTransition && !prefersReducedMotion) {
+        document.startViewTransition(doSwitch);
+    } else {
+        doSwitch();
     }
 }
 
@@ -1147,11 +1361,13 @@ function handleAdminSubtabSwitch(subtab) {
     const btnUsers = document.getElementById('admin-subtab-users');
     const btnSchedules = document.getElementById('admin-subtab-schedules');
     const btnSyncRuns = document.getElementById('admin-subtab-sync-runs');
+    const btnAuditLogs = document.getElementById('admin-subtab-audit-logs');
     const viewUsers = document.getElementById('admin-subview-users');
     const viewSchedules = document.getElementById('admin-subview-schedules');
     const viewSyncRuns = document.getElementById('admin-subview-sync-runs');
+    const viewAuditLogs = document.getElementById('admin-subview-audit-logs');
 
-    if (!btnUsers || !btnSchedules || !btnSyncRuns || !viewUsers || !viewSchedules || !viewSyncRuns) return;
+    if (!btnUsers || !btnSchedules || !btnSyncRuns || !btnAuditLogs || !viewUsers || !viewSchedules || !viewSyncRuns || !viewAuditLogs) return;
 
     const activeClass = 'flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center bg-white dark:bg-slate-800 shadow-sm text-blue-600 dark:text-blue-400';
     const inactiveClass = 'flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200';
@@ -1160,26 +1376,42 @@ function handleAdminSubtabSwitch(subtab) {
         btnUsers.className = activeClass;
         btnSchedules.className = inactiveClass;
         btnSyncRuns.className = inactiveClass;
+        btnAuditLogs.className = inactiveClass;
         viewUsers.classList.remove('hidden');
         viewSchedules.classList.add('hidden');
         viewSyncRuns.classList.add('hidden');
+        viewAuditLogs.classList.add('hidden');
         loadAdminUsers();
     } else if (subtab === 'schedules') {
         btnUsers.className = inactiveClass;
         btnSchedules.className = activeClass;
         btnSyncRuns.className = inactiveClass;
+        btnAuditLogs.className = inactiveClass;
         viewUsers.classList.add('hidden');
         viewSchedules.classList.remove('hidden');
         viewSyncRuns.classList.add('hidden');
+        viewAuditLogs.classList.add('hidden');
         loadAdminSchedules();
     } else if (subtab === 'sync-runs') {
         btnUsers.className = inactiveClass;
         btnSchedules.className = inactiveClass;
         btnSyncRuns.className = activeClass;
+        btnAuditLogs.className = inactiveClass;
         viewUsers.classList.add('hidden');
         viewSchedules.classList.add('hidden');
         viewSyncRuns.classList.remove('hidden');
+        viewAuditLogs.classList.add('hidden');
         loadAdminSyncRuns();
+    } else if (subtab === 'audit-logs') {
+        btnUsers.className = inactiveClass;
+        btnSchedules.className = inactiveClass;
+        btnSyncRuns.className = inactiveClass;
+        btnAuditLogs.className = activeClass;
+        viewUsers.classList.add('hidden');
+        viewSchedules.classList.add('hidden');
+        viewSyncRuns.classList.add('hidden');
+        viewAuditLogs.classList.remove('hidden');
+        loadAdminAuditLogs();
     }
 }
 
@@ -1189,12 +1421,29 @@ async function loadAdminSyncRuns() {
     try {
         const { ok, data } = await api.fetchSyncRuns(appState.token);
         if (ok) {
-            ui.renderAdminSyncRuns(data.runs || []);
+            ui.renderAdminSyncRuns(data.runs || [], data.summary || null);
         } else {
             console.error('Failed to fetch sync runs:', data.message);
         }
     } catch (error) {
         console.error('Error loading sync runs:', error);
+    } finally {
+        ui.setLoading(false);
+    }
+}
+
+async function loadAdminAuditLogs() {
+    if (!appState.token || appState.user.role !== 'admin') return;
+    ui.setLoading(true);
+    try {
+        const { ok, data } = await api.fetchAuditLogs(appState.token);
+        if (ok) {
+            ui.renderAdminAuditLogs(data.logs || []);
+        } else {
+            console.error('Failed to fetch audit logs:', data.message);
+        }
+    } catch (error) {
+        console.error('Error loading audit logs:', error);
     } finally {
         ui.setLoading(false);
     }
@@ -1290,6 +1539,91 @@ async function loadSavedQueries(selectedId = '') {
     }
 }
 
+async function loadQueryHistory() {
+    if (!appState.token) return;
+    try {
+        const response = await api.fetchQueryHistory(appState.token);
+        if (handleApiResponse(response)) {
+            appState.queryHistory = response.data.history || [];
+            ui.renderQueryHistory(appState.queryHistory, handleQueryHistorySelect);
+        }
+    } catch (error) {
+        console.error('Error loading query history:', error);
+    }
+}
+
+async function loadHipdataCodes() {
+    if (!appState.token) return;
+    try {
+        const response = await api.fetchHipdata(appState.token);
+        if (!handleApiResponse(response)) return;
+
+        const codes = response.data.selected_codes || response.data.codes || [];
+        const sqlList = response.data.sql_list || codes.map(code => `'${code}'`).join(',');
+        appState.hipdataCodes = codes;
+
+        const hipdataInput = document.getElementById('query-hipdata');
+        const datalist = document.getElementById('hipdata-code-options');
+        if (hipdataInput && sqlList) {
+            hipdataInput.value = sqlList;
+        }
+        if (datalist) {
+            datalist.innerHTML = '';
+            codes.forEach(code => {
+                const option = document.createElement('option');
+                option.value = `'${code}'`;
+                datalist.appendChild(option);
+            });
+            if (sqlList) {
+                const allOption = document.createElement('option');
+                allOption.value = sqlList;
+                datalist.prepend(allOption);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading hipdata codes:', error);
+    }
+}
+
+function handleQueryHistorySelect(item) {
+    if (!item) return;
+    const editor = document.getElementById('sql-editor');
+    const dbType = document.getElementById('query-db-type');
+    const dateInput = document.getElementById('query-visit-date');
+    const hipdataInput = document.getElementById('query-hipdata');
+    const templateSelect = document.getElementById('query-template-select');
+    const queryName = document.getElementById('new-query-name');
+
+    if (editor) editor.value = item.query_text || '';
+    if (dbType) dbType.value = item.db_type || 'hosxp';
+    if (dateInput && item.visit_date) dateInput.value = String(item.visit_date).split('T')[0];
+    if (hipdataInput && item.hipdata_code) hipdataInput.value = item.hipdata_code;
+    if (templateSelect) templateSelect.value = '';
+    if (queryName) queryName.value = '';
+    document.getElementById('query-info-msg').textContent = 'โหลดคำสั่งจากประวัติแล้ว พร้อมรันหรือบันทึกเป็น Template ใหม่';
+}
+
+async function handleClearQueryHistory() {
+    if (!confirm('ต้องการล้างประวัติคำสั่ง SQL ล่าสุดของผู้ใช้นี้ทั้งหมดหรือไม่?')) return;
+
+    ui.setLoading(true);
+    try {
+        const response = await api.clearQueryHistory(appState.token);
+        if (handleApiResponse(response)) {
+            appState.queryHistory = [];
+            ui.renderQueryHistory([], handleQueryHistorySelect);
+            document.getElementById('query-info-msg').textContent = response.data.message || 'ล้างประวัติคำสั่ง SQL แล้ว';
+        } else if (response.status !== 401 && response.status !== 403) {
+            alert(response.data.message || 'ไม่สามารถล้างประวัติ SQL ได้');
+        }
+    } catch (error) {
+        console.error('Error clearing query history:', error);
+        alert('เกิดข้อผิดพลาดในการล้างประวัติ SQL');
+    } finally {
+        ui.setLoading(false);
+    }
+}
+
 // เมื่อเลือกคำสั่งใน Dropdown ให้โหลดใส่ Editor
 function handleQueryTemplateSelect(e) {
     const queryId = e.target.value;
@@ -1326,6 +1660,7 @@ async function handleRunQuery() {
             
             document.getElementById('query-info-msg').textContent = 
                 `พบผลลัพธ์ ${response.data.rows.length.toLocaleString()} แถว | ใช้เวลาประมวลผล ${response.data.executionTimeMs} ms`;
+            loadQueryHistory();
         } else if (response.status !== 401 && response.status !== 403) {
             alert(response.data.message || 'เกิดข้อผิดพลาดในการรัน SQL');
             document.getElementById('query-info-msg').textContent = response.data.message || 'การเรียกใช้ SQL ล้มเหลว';

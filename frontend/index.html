@@ -198,71 +198,131 @@
                     </div>
                 </div>
 
-                <!-- Stats Summary -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                    <!-- Card 1: Total Users -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-blue-500 flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">ผู้รับบริการ (คน/Visit)</p>
-                            <h3 id="stat-total" class="text-2xl font-bold tracking-tight">0 <span class="text-base font-medium text-slate-500 dark:text-slate-400">/ 0</span></h3>
+                <!-- Status Overview Groups -->
+                <div class="summary-command-board">
+                    <div class="summary-group summary-group-service">
+                        <div class="summary-group-header">
+                            <div>
+                                <span>Service Overview</span>
+                                <h2>ภาพรวมผู้รับบริการ</h2>
+                            </div>
+                            <i class="fas fa-chart-pie"></i>
                         </div>
-                        <div class="bg-blue-50 dark:bg-blue-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-blue-500 dark:text-blue-400">
-                            <i class="fas fa-users text-xl"></i>
-                        </div>
-                    </div>
-                    
-                    <!-- Card 2: Authen not open -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-red-500 flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">ยังไม่เปิด Authen</p>
-                            <h3 id="stat-red" class="text-2xl font-bold text-red-600 dark:text-red-400 tracking-tight">0</h3>
-                        </div>
-                        <div class="bg-red-50 dark:bg-red-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-red-500 dark:text-red-400">
-                            <i class="fas fa-exclamation-circle text-xl"></i>
-                        </div>
-                    </div>
-                    
-                    <!-- Card 3: Waiting to close Endpoint -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-amber-500 flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">รอปิด Endpoint</p>
-                            <h3 id="stat-yellow" class="text-2xl font-bold text-amber-600 dark:text-amber-400 tracking-tight">0</h3>
-                        </div>
-                        <div class="bg-amber-50 dark:bg-amber-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-amber-500 dark:text-amber-400">
-                            <i class="fas fa-clock text-xl"></i>
-                        </div>
-                    </div>
-                    
-                    <!-- Card 4: Count UC Pending -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-cyan-500 flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">สิทธิ UC ที่ยังไม่ปิดงาน</p>
-                            <h3 id="stat-uc-count" class="text-2xl font-bold text-cyan-600 dark:text-cyan-400 tracking-tight">0</h3>
-                        </div>
-                        <div class="bg-cyan-50 dark:bg-cyan-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-cyan-500 dark:text-cyan-400">
-                            <i class="fas fa-id-card text-xl"></i>
+                        <div class="summary-metric-grid">
+                            <div class="summary-metric-card tilt-card is-blue">
+                                <div>
+                                    <p>ผู้รับบริการ</p>
+                                    <strong id="stat-total">0 <span>/ 0</span></strong>
+                                    <small>คน / Visit</small>
+                                </div>
+                                <i class="fas fa-users"></i>
+                            </div>
+                            <div class="summary-metric-card tilt-card is-emerald">
+                                <div>
+                                    <p>สมบูรณ์แล้ว</p>
+                                    <strong id="stat-green">0</strong>
+                                    <small>สิ้นสุดรักษาและปิด Endpoint</small>
+                                </div>
+                                <i class="fas fa-check-circle"></i>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Card 5: Debtor UC Money -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-indigo-500 flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">ค่ารักษาลูกหนี้ UC (บาท)</p>
-                            <h3 id="stat-uc-money" class="text-2xl font-bold text-indigo-600 dark:text-indigo-400 tracking-tight">0.00</h3>
+                    <div class="summary-group summary-group-workload">
+                        <div class="summary-group-header">
+                            <div>
+                                <span>Action Required</span>
+                                <h2>งานที่ต้องติดตาม</h2>
+                            </div>
+                            <i class="fas fa-triangle-exclamation"></i>
                         </div>
-                        <div class="bg-indigo-50 dark:bg-indigo-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-indigo-500 dark:text-indigo-400">
-                            <i class="fas fa-hand-holding-usd text-xl"></i>
+                        <div class="summary-metric-grid">
+                            <div class="summary-metric-card tilt-card is-red">
+                                <div>
+                                    <p>ยังไม่เปิด Authen</p>
+                                    <strong id="stat-red">0</strong>
+                                    <small>ต้องตรวจสอบสิทธิ/Visit Authen</small>
+                                </div>
+                                <i class="fas fa-exclamation-circle"></i>
+                            </div>
+                            <div class="summary-metric-card tilt-card is-amber">
+                                <div>
+                                    <p>รอปิด Endpoint</p>
+                                    <strong id="stat-yellow">0</strong>
+                                    <small>รอปิดงานหลังให้บริการ</small>
+                                </div>
+                                <i class="fas fa-clock"></i>
+                            </div>
                         </div>
                     </div>
+                    <div class="hidden" aria-hidden="true">
+                        <span id="stat-uc-count">0</span>
+                        <span id="stat-uc-money">0.00</span>
+                    </div>
+                </div>
 
-                    <!-- Card 6: Complete -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-emerald-500 shadow-sm flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">สมบูรณ์แล้ว</p>
-                            <h3 id="stat-green" class="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">0</h3>
+                <!-- Smart Group Insights -->
+                <div id="group-insights-section" class="space-y-3">
+                    <div class="flex justify-between items-center px-1">
+                        <div>
+                            <h2 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Smart Group Insights</h2>
+                            <p id="group-insights-description" class="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">รวมกลุ่มงาน UC ที่ควรติดตาม แยกตามแผนก</p>
                         </div>
-                        <div class="bg-emerald-50 dark:bg-emerald-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-emerald-500 dark:text-emerald-400">
-                            <i class="fas fa-check-circle text-xl"></i>
+                        <div class="flex items-center p-1 rounded-xl bg-slate-100/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-800/70">
+                            <button type="button" class="group-insights-toggle px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer" data-group-by="department">
+                                <i class="fas fa-hospital-user mr-1"></i> แผนก
+                            </button>
+                            <button type="button" class="group-insights-toggle px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer" data-group-by="subdistrict">
+                                <i class="fas fa-map-marker-alt mr-1"></i> ตำบล
+                            </button>
+                        </div>
+                    </div>
+                    <div class="uc-insight-board">
+                        <div class="uc-insight-layout">
+                            <div class="uc-insight-left">
+                                <div class="uc-insight-eyebrow">
+                                    <span>UCS ไม่ได้ปิดสิทธิ</span>
+                                    <small id="uc-insight-updated-at">อัปเดตล่าสุด: -</small>
+                                </div>
+                                <div class="uc-major-metric">
+                                    <p>ค่ารักษาลูกหนี้ (sum)</p>
+                                    <div id="uc-debtor-total-money">0.00</div>
+                                </div>
+                                <div class="uc-major-metric">
+                                    <p>จำนวนครั้ง (count)</p>
+                                    <div id="uc-pending-total-count">0</div>
+                                </div>
+                                <div id="uc-right-grid" class="uc-right-grid"></div>
+                            </div>
+
+                            <div class="uc-insight-right">
+                                <div class="uc-service-panel">
+                                    <div>
+                                        <p>จำนวนผู้มารับบริการ(ครั้ง)</p>
+                                        <div id="uc-service-total-count">0</div>
+                                    </div>
+                                    <div class="uc-sparkline" aria-hidden="true"></div>
+                                </div>
+                                <div class="uc-auth-panel">
+                                    <p>Visit Authen code</p>
+                                    <span>ยังไม่นำเข้า</span>
+                                    <div id="uc-not-imported-count">0</div>
+                                </div>
+                                <div class="uc-table-panel">
+                                    <div class="uc-table-title">
+                                        <span id="uc-pending-group-title">UCS ไม่ได้เปิดสิทธิ</span>
+                                        <span id="uc-pending-group-subtitle">แยกตามแผนก</span>
+                                    </div>
+                                    <div class="uc-table-header">
+                                        <span id="uc-group-header-label">แผนก</span>
+                                        <span>จำนวน</span>
+                                    </div>
+                                    <div id="uc-pending-group-list" class="uc-table-body"></div>
+                                    <div id="uc-debtor-group-list" class="hidden"></div>
+                                    <span id="uc-debtor-group-title" class="hidden">UC Debtor by Department</span>
+                                    <span id="uc-debtor-group-subtitle" class="hidden">แยกตามแผนก</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -396,7 +456,7 @@
 
                 <!-- Live KPI Row -->
                 <div class="live-kpi-grid grid grid-cols-1 sm:grid-cols-3 gap-6">
-                    <div class="live-kpi-card glass-panel p-6 rounded-2xl flex items-center justify-between border-l-4 border-blue-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
+                    <div class="live-kpi-card glass-panel tilt-card p-6 rounded-2xl flex items-center justify-between border-l-4 border-blue-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
                         <div>
                             <p class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">ผู้มารับบริการวันนี้ (Total Cases)</p>
                             <h3 id="live-stat-total" class="text-3xl font-extrabold text-slate-800 dark:text-white mt-1">0</h3>
@@ -406,7 +466,7 @@
                             <i class="fas fa-users text-xl"></i>
                         </div>
                     </div>
-                    <div class="live-kpi-card glass-panel p-6 rounded-2xl flex items-center justify-between border-l-4 border-emerald-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
+                    <div class="live-kpi-card glass-panel tilt-card p-6 rounded-2xl flex items-center justify-between border-l-4 border-emerald-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
                         <div>
                             <p class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">แผนกที่กำลังให้บริการ (Active Depts)</p>
                             <h3 id="live-stat-depts" class="text-3xl font-extrabold text-slate-800 dark:text-white mt-1">0</h3>
@@ -416,7 +476,7 @@
                             <i class="fas fa-hospital-user text-xl"></i>
                         </div>
                     </div>
-                    <div class="live-kpi-card glass-panel p-6 rounded-2xl flex items-center justify-between border-l-4 border-amber-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
+                    <div class="live-kpi-card glass-panel tilt-card p-6 rounded-2xl flex items-center justify-between border-l-4 border-amber-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
                         <div>
                             <p class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">ค้างตรวจสอบ Authen (Pending)</p>
                             <h3 id="live-stat-pending" class="text-3xl font-extrabold text-slate-800 dark:text-white mt-1">0</h3>
@@ -484,6 +544,9 @@
                                 <text x="846" y="1683" class="tcount" id="count-T07" text-anchor="middle">— คน</text>
                             </svg>
                         </div>
+
+                        <!-- Map Tooltip -->
+                        <div id="map-tooltip" aria-hidden="true"></div>
 
                         <!-- Map Legend -->
                         <div class="absolute bottom-6 left-6 bg-white/95 dark:bg-slate-900/95 border border-slate-100 dark:border-slate-800/40 rounded-xl shadow-md p-3 flex flex-col gap-1.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300 z-10">
@@ -560,7 +623,8 @@
                                 <!-- Hipdata Code parameter -->
                                 <div class="flex flex-col space-y-1">
                                     <label class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">สิทธิ์ ($hipdata_code)</label>
-                                    <input type="text" id="query-hipdata" class="px-3 py-1.5 input-theme rounded-xl text-xs font-semibold focus:outline-none h-[38px] w-28" value="'UCS'" placeholder="'UCS','WEL'">
+                                    <input type="text" id="query-hipdata" list="hipdata-code-options" class="px-3 py-1.5 input-theme rounded-xl text-xs font-semibold focus:outline-none h-[38px] w-full md:w-80" value="'OFC','UCS','OTH','BMT','XXX','LGO','STP','SSS','SSI','A2','BKK','PTY','A9'" placeholder="'UCS','WEL'">
+                                    <datalist id="hipdata-code-options"></datalist>
                                 </div>
                             </div>
                         </div>
@@ -583,6 +647,28 @@
                                     <i class="fas fa-trash-alt"></i>
                                 </button>
                             </div>
+                        </div>
+
+                        <!-- Query History -->
+                        <div class="bg-slate-50/50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/40">
+                            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-3">
+                                <div>
+                                    <h3 class="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center space-x-2">
+                                        <i class="fas fa-clock-rotate-left text-indigo-500"></i>
+                                        <span>ประวัติคำสั่ง SQL ล่าสุด</span>
+                                    </h3>
+                                    <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">คลิกเพื่อโหลดคำสั่งกลับเข้า editor โดยไม่ต้องบันทึกเป็น template</p>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <button id="refresh-query-history-btn" class="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[10px] font-bold transition cursor-pointer">
+                                        <i class="fas fa-sync-alt mr-1"></i> รีเฟรช
+                                    </button>
+                                    <button id="clear-query-history-btn" class="px-3 py-1.5 rounded-lg bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50 text-red-600 dark:text-red-300 border border-red-200/70 dark:border-red-900/50 text-[10px] font-bold transition cursor-pointer">
+                                        <i class="fas fa-trash-alt mr-1"></i> ล้าง
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="query-history-list" class="grid grid-cols-1 lg:grid-cols-2 gap-2"></div>
                         </div>
 
                         <!-- SQL Code Editor -->
@@ -687,7 +773,7 @@
             <!-- Admin Panel View Container -->
             <div id="admin-view-container" class="hidden space-y-6">
                 <!-- Admin Sub-Navigation Tabs -->
-                <div class="flex space-x-1.5 p-1 bg-slate-100/80 dark:bg-slate-900/60 backdrop-blur-md rounded-xl max-w-xl">
+                <div class="flex space-x-1.5 p-1 bg-slate-100/80 dark:bg-slate-900/60 backdrop-blur-md rounded-xl max-w-2xl">
                     <button id="admin-subtab-users" class="flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center bg-white dark:bg-slate-800 shadow-sm text-blue-600 dark:text-blue-400">
                         <i class="fas fa-users mr-1"></i> จัดการผู้ใช้
                     </button>
@@ -696,6 +782,9 @@
                     </button>
                     <button id="admin-subtab-sync-runs" class="flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
                         <i class="fas fa-history mr-1"></i> ประวัติ Sync
+                    </button>
+                    <button id="admin-subtab-audit-logs" class="flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                        <i class="fas fa-clipboard-list mr-1"></i> Audit Log
                     </button>
                 </div>
 
@@ -800,6 +889,29 @@
                         </div>
                     </div>
 
+                    <div id="sync-runs-summary" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div class="glass-panel p-4 rounded-2xl border-l-4 border-l-slate-500">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">รอบทั้งหมด 30 วัน</p>
+                            <h3 id="sync-summary-total" class="text-2xl font-extrabold mt-1">0</h3>
+                        </div>
+                        <div class="glass-panel p-4 rounded-2xl border-l-4 border-l-emerald-500">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">สำเร็จ</p>
+                            <h3 id="sync-summary-success" class="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">0</h3>
+                        </div>
+                        <div class="glass-panel p-4 rounded-2xl border-l-4 border-l-red-500">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ล้มเหลว</p>
+                            <h3 id="sync-summary-failed" class="text-2xl font-extrabold text-red-600 dark:text-red-400 mt-1">0</h3>
+                        </div>
+                        <div class="glass-panel p-4 rounded-2xl border-l-4 border-l-amber-500">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">กำลังทำงาน</p>
+                            <h3 id="sync-summary-running" class="text-2xl font-extrabold text-amber-600 dark:text-amber-400 mt-1">0</h3>
+                        </div>
+                        <div class="glass-panel p-4 rounded-2xl border-l-4 border-l-blue-500">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">รายการที่ประมวลผล</p>
+                            <h3 id="sync-summary-records" class="text-2xl font-extrabold text-blue-600 dark:text-blue-400 mt-1">0</h3>
+                        </div>
+                    </div>
+
                     <div class="glass-panel rounded-2xl overflow-hidden flex flex-col">
                         <div class="overflow-x-auto custom-scrollbar">
                             <table class="w-full text-left border-collapse min-w-[1000px]">
@@ -822,10 +934,74 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Admin Audit Logs Sub-View -->
+                <div id="admin-subview-audit-logs" class="hidden space-y-6">
+                    <div class="glass-panel p-6 rounded-2xl">
+                        <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                            <div>
+                                <h2 class="font-bold text-lg flex items-center space-x-2">
+                                    <i class="fas fa-clipboard-list text-indigo-500"></i>
+                                    <span>Audit Log</span>
+                                </h2>
+                                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">บันทึกกิจกรรมสำคัญ เช่น login, sync, SQL query, การจัดการผู้ใช้ และ template</p>
+                            </div>
+                            <button id="refresh-audit-logs-btn" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-200 font-bold px-4 py-2.5 rounded-xl flex items-center justify-center space-x-2 transition cursor-pointer text-xs">
+                                <i class="fas fa-sync-alt"></i>
+                                <span>รีเฟรช</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel rounded-2xl overflow-hidden flex flex-col">
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse min-w-[1100px]">
+                                <thead class="bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+                                    <tr>
+                                        <th class="py-3 px-4 w-44">เวลา</th>
+                                        <th class="py-3 px-4 w-32">ผู้ใช้</th>
+                                        <th class="py-3 px-4 w-40">Action</th>
+                                        <th class="py-3 px-4 w-36">Entity</th>
+                                        <th class="py-3 px-4">รายละเอียด</th>
+                                        <th class="py-3 px-4 w-36">IP</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-audit-log-table-body" class="text-xs divide-y divide-slate-100 dark:divide-slate-800/80 bg-transparent">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </div>
         </main>
     </div>
  
+    <!-- Excel Mapping Modal -->
+    <div id="excel-mapping-modal" class="fixed inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 hidden transition-opacity duration-300">
+        <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-2xl flex flex-col max-w-2xl w-full border border-slate-100 dark:border-slate-800/50 text-slate-800 dark:text-slate-100">
+            <div class="flex justify-between items-start gap-4 mb-4 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div>
+                    <h3 class="font-bold text-base flex items-center space-x-2">
+                        <i class="fas fa-table-columns text-blue-500"></i>
+                        <span>จับคู่คอลัมน์ Excel สปสช.</span>
+                    </h3>
+                    <p id="excel-mapping-message" class="text-xs text-slate-500 dark:text-slate-400 mt-1">เลือกคอลัมน์ให้ตรงกับข้อมูลที่ระบบต้องใช้ก่อนประมวลผล</p>
+                </div>
+                <button id="close-excel-mapping-modal" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition focus:outline-none cursor-pointer">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
+            <div id="excel-mapping-fields" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold"></div>
+            <div id="excel-mapping-preview" class="mt-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400"></div>
+            <div class="mt-5 flex justify-end space-x-2">
+                <button id="cancel-excel-mapping-btn" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer">ยกเลิก</button>
+                <button id="save-excel-mapping-btn" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition cursor-pointer">
+                    <i class="fas fa-check mr-1"></i> ใช้ Mapping นี้
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Loading Overlay -->
     <div id="loading-overlay" class="fixed inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 hidden transition-opacity duration-300">
         <div class="bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-2xl flex flex-col items-center max-w-xs w-full border border-slate-100 dark:border-slate-800/50">

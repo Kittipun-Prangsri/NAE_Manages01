@@ -22,10 +22,13 @@ export const api = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
-    async processSync(date, file, token) {
+    async processSync(date, file, token, excelMapping = null) {
         const formData = new FormData();
         formData.append('visit_date', date);
         formData.append('excel', file);
+        if (excelMapping) {
+            formData.append('excel_mapping', JSON.stringify(excelMapping));
+        }
         const res = await fetch(`${API_BASE}/sync/process`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` },
@@ -90,8 +93,25 @@ export const api = {
     },
 
     async fetchDashboard(date, token) {
-        const res = await fetch(`${API_BASE}/tracking/dashboard?date=${date}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+        const params = new URLSearchParams({ date, _ts: String(Date.now()) });
+        const res = await fetch(`${API_BASE}/tracking/dashboard?${params.toString()}`, {
+            cache: 'no-store',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Cache-Control': 'no-cache'
+            }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async fetchGroupInsights(date, token, groupBy = 'department', hipdataCode = "'OFC','UCS','OTH','BMT','XXX','LGO','STP','SSS','SSI','A2','BKK','PTY','A9'") {
+        const params = new URLSearchParams({ date, group_by: groupBy, hipdata_code: hipdataCode, _ts: String(Date.now()) });
+        const res = await fetch(`${API_BASE}/tracking/group-insights?${params.toString()}`, {
+            cache: 'no-store',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Cache-Control': 'no-cache'
+            }
         });
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
@@ -113,6 +133,17 @@ export const api = {
     async fetchSummary(token) {
         const res = await fetch(`${API_BASE}/tracking/summary`, {
             headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async fetchHipdata(token) {
+        const res = await fetch(`${API_BASE}/hipdata`, {
+            cache: 'no-store',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Cache-Control': 'no-cache'
+            }
         });
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
@@ -150,6 +181,21 @@ export const api = {
 
     async deleteSavedQuery(id, token) {
         const res = await fetch(`${API_BASE}/saved-queries/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async fetchQueryHistory(token) {
+        const res = await fetch(`${API_BASE}/query-history`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async clearQueryHistory(token) {
+        const res = await fetch(`${API_BASE}/query-history`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -216,6 +262,13 @@ export const api = {
 
     async fetchSyncRuns(token) {
         const res = await fetch(`${API_BASE}/admin/sync-runs`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async fetchAuditLogs(token) {
+        const res = await fetch(`${API_BASE}/admin/audit-logs`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         return { ok: res.ok, status: res.status, data: await res.json() };

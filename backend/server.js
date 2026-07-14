@@ -1388,33 +1388,33 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
         let notImportedTotal = null;
         try {
             const hipdataPlaceholders = safeHipdataCodes.map(() => '?').join(',');
-	            const [[hosxpNotImportedTotal]] = await hosxpPool.query(
-	                `SELECT COUNT(DISTINCT v.vn) AS count, COALESCE(SUM(v.uc_money), 0) AS total_money
-	                 FROM vn_stat v
-	                 LEFT JOIN ovst ov ON ov.vn = v.vn
-	                 LEFT JOIN pttype py ON py.pttype = v.pttype
-	                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
-	                    AND td.status_use <> 'C'
-	                    AND td.dateser = v.vstdate
-	                    AND td.flag = 'D'
-	                 WHERE v.vstdate = ?
-	                   AND UPPER(py.hipdata_code) IN (${hipdataPlaceholders})
-	                   AND COALESCE(ov.pt_subtype, '') <> '1'
-	                   AND ov.an IS NULL
-	                   AND td.claimcode IS NULL`,
+            const [[hosxpNotImportedTotal]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) AS count, COALESCE(SUM(v.uc_money), 0) AS total_money
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) IN (${hipdataPlaceholders})
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND td.claimcode IS NULL`,
                 [date, ...safeHipdataCodes]
             );
-	            notImportedTotal = {
-	                count: Number(hosxpNotImportedTotal?.count || 0),
-	                total_money: Number(hosxpNotImportedTotal?.total_money || 0),
-	                source: 'hosxp_temp_authen_code',
-	                count_type: 'distinct_vn',
-	                hipdata_codes: safeHipdataCodes,
-	                condition: 'missing_temp_authen_claimcode'
-	            };
-	        } catch (hosxpError) {
-	            console.warn('HOSxP temp authencode not-imported summary unavailable:', hosxpError.message);
-	        }
+            notImportedTotal = {
+                count: Number(hosxpNotImportedTotal?.count || 0),
+                total_money: Number(hosxpNotImportedTotal?.total_money || 0),
+                source: 'hosxp_temp_authen_code',
+                count_type: 'distinct_vn',
+                hipdata_codes: safeHipdataCodes,
+                condition: 'missing_temp_authen_claimcode'
+            };
+        } catch (hosxpError) {
+            console.warn('HOSxP temp authencode not-imported summary unavailable:', hosxpError.message);
+        }
         if (!notImportedTotal) {
             [[notImportedTotal]] = await trackerPool.query(
             `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
@@ -2018,6 +2018,13 @@ app.delete('/api/admin/schedules/:id', authenticateToken, requireAdmin, async (r
     }
 });
 
+
+app.use('/api', (req, res) => {
+    res.status(404).json({
+        success: false,
+        message: `ไม่พบ API endpoint: ${req.method} ${req.originalUrl}`
+    });
+});
 
 // For any other requests, serve the index.html from the root
 app.use((req, res) => {

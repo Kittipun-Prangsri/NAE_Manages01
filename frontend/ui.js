@@ -228,7 +228,7 @@ export const ui = {
 
             const checkClaimClass = item.check_claimcode === 'ตรง' ? 'status-green' :
                                   item.check_claimcode === 'ตรวจสอบ' ? 'status-yellow' :
-                                  item.check_claimcode === 'ไม่ตรง' ? 'status-red' :
+                                  ['ไม่ตรง', 'ยังไม่ได้นำเข้า', 'ยังไม่เปิด Authen'].includes(item.check_claimcode) ? 'status-red' :
                                   'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400';
 
             const checkClaimVal = item.check_claimcode || 'ยังไม่ได้นำเข้า';
@@ -290,7 +290,7 @@ export const ui = {
                 ? 'status-green'
                 : item.check_claimcode === 'ตรวจสอบ'
                     ? 'status-yellow'
-                    : item.check_claimcode === 'ไม่ตรง'
+                    : ['ไม่ตรง', 'ยังไม่ได้นำเข้า', 'ยังไม่เปิด Authen'].includes(item.check_claimcode)
                         ? 'status-red'
                         : 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400';
             const tr = document.createElement('tr');

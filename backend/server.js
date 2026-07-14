@@ -83,6 +83,35 @@ function checkSyncStatusTimeout() {
 const loginAttempts = new Map();
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = Number(process.env.LOGIN_MAX_ATTEMPTS || 8);
+const RIGHT_CARD_DEFINITIONS = Object.freeze([
+    { key: 'comptroller_general', label: 'เบิกจ่ายตรงกรมบัญชีกลาง', pttypeSppIds: [1] },
+    { key: 'agency_reimburse', label: 'เบิกต้นสังกัด', pttypeSppIds: [11] },
+    { key: 'local_government', label: 'เบิกจ่ายตรง อปท.', pttypeSppIds: [7] },
+    { key: 'ucs_goldcard', label: 'บัตรทอง', pttypeSppIds: [3, 4] },
+    { key: 'migrant', label: 'คนต่างด้าว', pttypeSppIds: [5, 8] },
+    { key: 'stateless', label: 'ผู้มีปัญหาสถานะและสิทธิ', pttypeSppIds: [10] },
+    { key: 'social_security', label: 'บัตรประกันสังคม', pttypeSppIds: [2] },
+    { key: 'motor_insurance', label: 'พรบ.ผู้ประสบภัยจากรถ', pttypeSppIds: [9] },
+    { key: 'self_pay', label: 'อื่นๆ (ชำระเงินเอง)', pttypeSppIds: [6] }
+]);
+
+function buildNumericSqlCondition(values) {
+    const normalizedValues = values
+        .map(value => Number(value))
+        .filter(value => Number.isInteger(value) && value > 0);
+    if (normalizedValues.length === 0) {
+        throw new Error('Right card pttype_spp_id mapping is empty');
+    }
+    if (normalizedValues.length === 1) return `= ${normalizedValues[0]}`;
+    return `IN (${normalizedValues.join(', ')})`;
+}
+
+function buildRightCardCountColumn(definition) {
+    if (!/^[a-z0-9_]+$/i.test(definition.key)) {
+        throw new Error(`Invalid right card key: ${definition.key}`);
+    }
+    return `COUNT(DISTINCT CASE WHEN py.pttype_spp_id ${buildNumericSqlCondition(definition.pttypeSppIds)} THEN v.hn ELSE NULL END) AS ${definition.key}`;
+}
 
 function isLoginRateLimited(key) {
     const now = Date.now();
@@ -1119,7 +1148,7 @@ app.get('/api/tracking/rights-table', authenticateToken, async (req, res) => {
         const [rows] = await hosxpPool.query(
             `SELECT
                 IF(ov.an IS NULL, v.vn, 'Admit') AS vn,
-                -- CONCAT('cid_', v.cid) AS cid_check--
+                CONCAT('cid_', v.cid) AS cid_check,
                 v.cid,
                 vp.pttype,
                 py.hipdata_code AS pcode,
@@ -1129,11 +1158,13 @@ app.get('/api/tracking/rights-table', authenticateToken, async (req, res) => {
                 td.authen_code_type,
                 vp.pttype_note,
                 vp.staff,
-                IF(
-                    (SELECT COUNT(cid) FROM vn_stat WHERE vstdate = v.vstdate AND cid = v.cid) > 1,
-                    'ตรวจสอบ',
-                    IF(vp.claim_code = td.claimcode, 'ตรง', IF(td.claimcode IS NULL, 'ยังไม่ได้นำเข้า', 'ไม่ตรง'))
-                ) AS check_claimcode,
+                CASE
+                    WHEN td.claimcode IS NULL THEN 'ยังไม่ได้นำเข้า'
+                    WHEN NULLIF(TRIM(vp.Auth_Code), '') IS NULL THEN 'ยังไม่เปิด Authen'
+                    WHEN (SELECT COUNT(cid) FROM vn_stat WHERE vstdate = v.vstdate AND cid = v.cid) > 1 THEN 'ตรวจสอบ'
+                    WHEN vp.claim_code = td.claimcode THEN 'ตรง'
+                    ELSE 'ไม่ตรง'
+                END AS check_claimcode,
                 v.uc_money,
                 CAST(CONVERT(k.department USING utf8) AS CHAR) AS department,
                 COUNT(DISTINCT v.cid) AS cc_cid
@@ -1313,10 +1344,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
             const [[hosxpServiceTotal]] = await hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) AS count
                  FROM vn_stat v
-                 LEFT JOIN ovst ov ON ov.vn = v.vn
-                 WHERE v.vstdate = ?
-                   AND COALESCE(ov.pt_subtype, '') <> '1'
-                   AND ov.an IS NULL`,
+                 WHERE v.vstdate = ?`,
                 [date]
             );
             serviceTotal = {
@@ -1336,8 +1364,6 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                     AND t.amppart = p.amppart
                     AND t.tmbpart = p.tmbpart
                  WHERE v.vstdate = ?
-                   AND COALESCE(ov.pt_subtype, '') <> '1'
-                   AND ov.an IS NULL
                  GROUP BY group_key
                  ORDER BY count DESC
                  LIMIT 10`,
@@ -1361,32 +1387,34 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
 
         let notImportedTotal = null;
         try {
-            const [[hosxpNotImportedTotal]] = await hosxpPool.query(
-                `SELECT COUNT(DISTINCT v.vn) AS count, COALESCE(SUM(v.uc_money), 0) AS total_money
-                 FROM vn_stat v
-                 LEFT JOIN ovst ov ON ov.vn = v.vn
-                 LEFT JOIN pttype py ON py.pttype = v.pttype
-                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
-                    AND td.status_use <> 'C'
-                    AND td.dateser = v.vstdate
-                    AND td.flag = 'D'
-                 WHERE v.vstdate = ?
-                   AND UPPER(py.hipdata_code) = 'UCS'
-                   AND COALESCE(ov.pt_subtype, '') <> '1'
-                   AND ov.an IS NULL
-                   AND td.claimcode IS NULL`,
-                [date]
+            const hipdataPlaceholders = safeHipdataCodes.map(() => '?').join(',');
+	            const [[hosxpNotImportedTotal]] = await hosxpPool.query(
+	                `SELECT COUNT(DISTINCT v.vn) AS count, COALESCE(SUM(v.uc_money), 0) AS total_money
+	                 FROM vn_stat v
+	                 LEFT JOIN ovst ov ON ov.vn = v.vn
+	                 LEFT JOIN pttype py ON py.pttype = v.pttype
+	                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+	                    AND td.status_use <> 'C'
+	                    AND td.dateser = v.vstdate
+	                    AND td.flag = 'D'
+	                 WHERE v.vstdate = ?
+	                   AND UPPER(py.hipdata_code) IN (${hipdataPlaceholders})
+	                   AND COALESCE(ov.pt_subtype, '') <> '1'
+	                   AND ov.an IS NULL
+	                   AND td.claimcode IS NULL`,
+                [date, ...safeHipdataCodes]
             );
-            notImportedTotal = {
-                count: Number(hosxpNotImportedTotal?.count || 0),
-                total_money: Number(hosxpNotImportedTotal?.total_money || 0),
-                source: 'hosxp_temp_authen_code',
-                count_type: 'distinct_vn',
-                hipdata_codes: ['UCS']
-            };
-        } catch (hosxpError) {
-            console.warn('HOSxP temp authencode not-imported summary unavailable:', hosxpError.message);
-        }
+	            notImportedTotal = {
+	                count: Number(hosxpNotImportedTotal?.count || 0),
+	                total_money: Number(hosxpNotImportedTotal?.total_money || 0),
+	                source: 'hosxp_temp_authen_code',
+	                count_type: 'distinct_vn',
+	                hipdata_codes: safeHipdataCodes,
+	                condition: 'missing_temp_authen_claimcode'
+	            };
+	        } catch (hosxpError) {
+	            console.warn('HOSxP temp authencode not-imported summary unavailable:', hosxpError.message);
+	        }
         if (!notImportedTotal) {
             [[notImportedTotal]] = await trackerPool.query(
             `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
@@ -1416,18 +1444,22 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
         let debtorBySpp = [];
         let hosxpDebtorTotal = null;
         try {
-            const hipdataPlaceholders = safeHipdataCodes.map(() => '?').join(',');
+            const rightCardCountColumns = RIGHT_CARD_DEFINITIONS
+                .map(buildRightCardCountColumn)
+                .join(',\n                    ');
             const [sppRows] = await hosxpPool.query(
                 `SELECT
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'OFC' THEN v.hn ELSE NULL END) AS comptroller_general,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'BMT' THEN v.hn ELSE NULL END) AS agency_reimburse,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'LGO' THEN v.hn ELSE NULL END) AS local_government,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.hn ELSE NULL END) AS ucs_goldcard,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('A2', 'A9', 'XXX') THEN v.hn ELSE NULL END) AS migrant,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'STP' THEN v.hn ELSE NULL END) AS stateless,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('SSS', 'SSI') THEN v.hn ELSE NULL END) AS social_security,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'PTY' THEN v.hn ELSE NULL END) AS motor_insurance,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('OTH', 'BKK') THEN v.hn ELSE NULL END) AS self_pay,
+                    ${rightCardCountColumns}
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL`,
+                [date]
+            );
+            const [[hosxpDebtorSummary]] = await hosxpPool.query(
+                `SELECT
                     COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.vn ELSE NULL END) AS count,
                     COALESCE(SUM(CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.uc_money ELSE 0 END), 0) AS total_money
                  FROM vn_stat v
@@ -1437,51 +1469,26 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                     AND td.dateser = v.vstdate
                     AND td.flag = 'D'
                  LEFT JOIN pttype py ON py.pttype = v.pttype
-                 LEFT JOIN pttype_spp pg ON pg.pttype_spp_id = py.pttype_spp_id
                  WHERE v.vstdate = ?
-                   AND UPPER(py.hipdata_code) IN (${hipdataPlaceholders})
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
                    AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))`,
-                [date, ...safeHipdataCodes]
-            );
-            const sppSummary = sppRows[0] || {};
-            const [[allUcsToday]] = await hosxpPool.query(
-                `SELECT COUNT(DISTINCT v.hn) AS count
-                 FROM vn_stat v
-                 LEFT JOIN ovst ov ON ov.vn = v.vn
-                 LEFT JOIN pttype py ON py.pttype = v.pttype
-                 WHERE v.vstdate = ?
-                   AND UPPER(py.hipdata_code) = 'UCS'
-                   AND COALESCE(ov.pt_subtype, '') <> '1'
-                   AND ov.an IS NULL`,
                 [date]
             );
-            sppSummary.ucs_goldcard = Number(allUcsToday?.count || 0);
-            const sppDefinitions = [
-                ['comptroller_general', 'เบิกจ่ายตรงกรมบัญชีกลาง', ['OFC']],
-                ['agency_reimburse', 'เบิกต้นสังกัด', ['BMT']],
-                ['local_government', 'เบิกจ่ายตรง อปท.', ['LGO']],
-                ['ucs_goldcard', 'บัตรทอง', ['UCS']],
-                ['migrant', 'คนต่างด้าว', ['A2', 'A9', 'XXX']],
-                ['stateless', 'ผู้มีปัญหาสถานะและสิทธิ', ['STP']],
-                ['social_security', 'บัตรประกันสังคม', ['SSS', 'SSI']],
-                ['motor_insurance', 'พรบ.ผู้ประสบภัยจากรถ', ['PTY']],
-                ['self_pay', 'อื่นๆ (ชำระเงินเอง)', ['OTH', 'BKK']]
-            ];
-            debtorBySpp = sppDefinitions.map(([key, label, hipdataCodes]) => ({
-                key,
-                right_name: label,
-                count: Number(sppSummary[key] || 0),
+            const sppSummary = sppRows[0] || {};
+            debtorBySpp = RIGHT_CARD_DEFINITIONS.map(definition => ({
+                key: definition.key,
+                right_name: definition.label,
+                count: Number(sppSummary[definition.key] || 0),
                 total_money: 0,
                 count_type: 'distinct_hn',
                 source: 'hosxp_vn_stat',
-                group_by: 'hipdata_code',
-                hipdata_codes: hipdataCodes
+                group_by: 'pttype_spp_id',
+                pttype_spp_ids: definition.pttypeSppIds
             }));
             hosxpDebtorTotal = {
-                count: Number(sppSummary.count || 0),
-                total_money: Number(sppSummary.total_money || 0),
+                count: Number(hosxpDebtorSummary?.count || 0),
+                total_money: Number(hosxpDebtorSummary?.total_money || 0),
                 source: 'hosxp_vn_stat',
                 count_type: 'distinct_vn',
                 hipdata_codes: ['UCS']

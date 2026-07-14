@@ -40,6 +40,7 @@ description: Assists in writing, reviewing, and validating HOSxP SQL queries, ch
 * `pttype`: รหัสสิทธิ์ (Primary Key)
 * `name`: ชื่อสิทธิ์รักษา
 * `hipdata_code`: รหัสกลุ่มสิทธิ์ระดับชาติ (เช่น `UCS`, `WEL`, `OFC`, `SSS`)
+* `pttype_spp_id`: รหัสประเภทการเบิก/กลุ่มสิทธิย่อย ใช้กับการ์ดสรุปสิทธิรายวัน
 * `pttype_group1`: กลุ่มสิทธิ์หลักทั่วไป (เช่น `UC`)
 
 ---
@@ -54,6 +55,56 @@ description: Assists in writing, reviewing, and validating HOSxP SQL queries, ch
 2. **`$hipdata_code`**
    * จะถูกแทนที่ด้วยรายการรหัสสิทธิ์ในเครื่องหมายคำพูดเดี่ยวคั่นด้วยจุลภาค เช่น `'UCS','WEL'`
    * **ตัวอย่างการใช้:** `WHERE py.hipdata_code IN ($hipdata_code)`
+
+---
+
+## 🧾 มาตรฐานการ์ดสรุปสิทธิรายวัน (Right Card Daily Summary)
+
+ใช้เมื่อต้องแสดงจำนวนผู้ป่วยแยกตามประเภทสิทธิบนการ์ดรายวัน โดยนับจาก HOSxP จริงแบบวันต่อวัน เช่น Today หรือวันที่ที่ผู้ใช้เลือกในระบบ
+
+### หลักการนับ
+* ใช้ `COUNT(DISTINCT v.hn)` เพื่อ “นับคนไข้ไม่ซ้ำ” ตามสูตร Grafana เดิม
+* ใช้ `py.pttype_spp_id` เป็นตัวแบ่งกลุ่มสิทธิ ไม่ใช้ `hipdata_code` สำหรับการ์ดชุดนี้
+* ใช้ `v.vstdate = ?` หรือ `$__timeFilter(v.vstdate)` เพื่อจำกัดวันที่เสมอ
+* เอาเฉพาะ OPD ด้วย `ov.an IS NULL`
+* ตัด subtype ที่ไม่ต้องนับด้วย `COALESCE(ov.pt_subtype, '') <> '1'`
+* ไม่ต้องกรอง `EP`, `ENDPOINT`, `PP`, `claimcode` สำหรับการ์ดชุดนี้ เพราะต้องเป็นยอดรวมผู้มารับบริการรายวันตามสิทธิ ไม่ใช่ยอดค้าง endpoint
+
+### Mapping มาตรฐาน `pttype_spp_id`
+* `1` → เบิกจ่ายตรงกรมบัญชีกลาง
+* `11` → เบิกต้นสังกัด
+* `7` → เบิกจ่ายตรง อปท.
+* `3,4` → บัตรทอง
+* `5,8` → คนต่างด้าว
+* `10` → ผู้มีปัญหาสถานะและสิทธิ
+* `2` → บัตรประกันสังคม
+* `9` → พรบ.ผู้ประสบภัยจากรถ
+* `6` → อื่นๆ/ชำระเงินเอง
+
+### Query Template
+```sql
+SELECT
+    COUNT(DISTINCT CASE py.pttype_spp_id WHEN 1 THEN v.hn ELSE NULL END) AS "เบิกจ่ายตรงกรมบัญชีกลาง",
+    COUNT(DISTINCT CASE py.pttype_spp_id WHEN 11 THEN v.hn ELSE NULL END) AS "เบิกต้นสังกัด",
+    COUNT(DISTINCT CASE py.pttype_spp_id WHEN 7 THEN v.hn ELSE NULL END) AS "เบิกจ่ายตรง อปท.",
+    COUNT(DISTINCT CASE WHEN py.pttype_spp_id IN (3,4) THEN v.hn ELSE NULL END) AS "บัตรทอง",
+    COUNT(DISTINCT CASE WHEN py.pttype_spp_id IN (5,8) THEN v.hn ELSE NULL END) AS "คนต่างด้าว",
+    COUNT(DISTINCT CASE py.pttype_spp_id WHEN 10 THEN v.hn ELSE NULL END) AS "ผู้มีปัญหาสถานะและสิทธิ",
+    COUNT(DISTINCT CASE py.pttype_spp_id WHEN 2 THEN v.hn ELSE NULL END) AS "บัตรประกันสังคม",
+    COUNT(DISTINCT CASE py.pttype_spp_id WHEN 9 THEN v.hn ELSE NULL END) AS "พรบ.ผู้ประสบภัยจากรถ",
+    COUNT(DISTINCT CASE py.pttype_spp_id WHEN 6 THEN v.hn ELSE NULL END) AS "อื่นๆ (ชำระเงินเอง)"
+FROM vn_stat v
+LEFT JOIN ovst ov ON ov.vn = v.vn
+LEFT JOIN pttype py ON py.pttype = v.pttype
+WHERE v.vstdate = ?
+  AND COALESCE(ov.pt_subtype, '') <> '1'
+  AND ov.an IS NULL;
+```
+
+### แยกจาก Metric ลูกหนี้/Endpoint
+* ยอด “การ์ดสิทธิรายวัน” ใช้ `pttype_spp_id` และไม่ดู endpoint
+* ยอด “ค่ารักษาลูกหนี้ UC” หรือ “UC Pending” เป็นคนละ metric สามารถใช้ `hipdata_code = 'UCS'` และเงื่อนไข `temp_authen_code`/`authen_code_type` เพื่อดูสถานะค้าง endpoint ได้
+* ห้ามนำ filter endpoint ไปใส่ใน Right Card Daily Summary เพราะจะทำให้ยอดสิทธิรายวันไม่ตรงกับยอดผู้รับบริการจริง
 
 ---
 

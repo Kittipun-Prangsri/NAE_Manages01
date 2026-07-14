@@ -337,6 +337,10 @@ async function waitForDownload(downloadsDir, timeoutMs) {
 }
 
 async function sendToTelegram(filepath, filename, token, chatId, text = '', actionUrl = null) {
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ Telegram photo sending is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
     try {
         const fileBuffer = fs.readFileSync(filepath);
         const blob = new Blob([fileBuffer], { type: 'image/png' });
@@ -375,6 +379,10 @@ async function sendToTelegram(filepath, filename, token, chatId, text = '', acti
 }
 
 async function sendToLineBot(filepath, filename, token, groupId, imgbbKey, publicUrl, captionText, actionUrl = null) {
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ LINE Flex message sending is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
     console.log('📲 Processing image hosting for LINE Messaging API...');
     let imageUrl = '';
 
@@ -438,13 +446,17 @@ async function sendToLineBot(filepath, filename, token, groupId, imgbbKey, publi
         };
 
         if (imageUrl) {
-            flexBubble.hero = {
-                "type": "image",
-                "url": imageUrl,
-                "size": "full",
-                "aspectRatio": actionUrl ? "1:1" : "1.91:1",
-                "aspectMode": "fit"
-            };
+            if (imageUrl.startsWith('https://')) {
+                flexBubble.hero = {
+                    "type": "image",
+                    "url": imageUrl,
+                    "size": "full",
+                    "aspectRatio": actionUrl ? "1:1" : "1.91:1",
+                    "aspectMode": "fit"
+                };
+            } else {
+                console.warn(`⚠️ Skipping hero image in LINE Flex message: URL must start with https:// (provided: "${imageUrl}")`);
+            }
         }
 
         if (actionUrl) {

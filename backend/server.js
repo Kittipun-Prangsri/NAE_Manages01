@@ -1105,6 +1105,66 @@ app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
     }
 });
 
+app.get('/api/tracking/rights-table', authenticateToken, async (req, res) => {
+    try {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
+
+        const date = req.query.date || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+        if (!isValidDateString(date)) {
+            return res.status(400).json({ message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
+        }
+
+        const [rows] = await hosxpPool.query(
+            `SELECT
+                IF(ov.an IS NULL, v.vn, 'Admit') AS vn,
+                -- CONCAT('cid_', v.cid) AS cid_check--
+                v.cid,
+                vp.pttype,
+                py.hipdata_code AS pcode,
+                vp.Auth_Code AS authCode,
+                vp.claim_code,
+                td.claimcode AS nhso_claim_code,
+                td.authen_code_type,
+                vp.pttype_note,
+                vp.staff,
+                IF(
+                    (SELECT COUNT(cid) FROM vn_stat WHERE vstdate = v.vstdate AND cid = v.cid) > 1,
+                    'ตรวจสอบ',
+                    IF(vp.claim_code = td.claimcode, 'ตรง', IF(td.claimcode IS NULL, 'ยังไม่ได้นำเข้า', 'ไม่ตรง'))
+                ) AS check_claimcode,
+                v.uc_money,
+                CAST(CONVERT(k.department USING utf8) AS CHAR) AS department,
+                COUNT(DISTINCT v.cid) AS cc_cid
+             FROM vn_stat v
+             LEFT OUTER JOIN visit_pttype vp ON vp.vn = v.vn
+             LEFT OUTER JOIN temp_authen_code td ON td.cid = v.cid
+                AND td.status_use <> 'C'
+                AND td.dateser = v.vstdate
+                AND td.flag = 'D'
+             LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+             LEFT OUTER JOIN ovst ov ON ov.vn = v.vn
+             LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
+             WHERE v.vstdate = ?
+             GROUP BY v.vn
+             ORDER BY py.hipdata_code, vp.Auth_Code, vp.claim_code`,
+            [date]
+        );
+
+        res.json({
+            success: true,
+            visit_date: date,
+            count: rows.length,
+            rows,
+            generated_at: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('Rights Tracking Table Fetch Error:', error);
+        res.status(500).json({ message: 'ไม่สามารถดึงข้อมูลตารางทุกสิทธิได้' });
+    }
+});
+
 app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
     try {
         res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -1161,10 +1221,10 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                    AND UPPER(py.hipdata_code) = 'UCS'
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
-                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
                  GROUP BY group_key
                  ORDER BY count DESC, total_money DESC
-                 LIMIT 5`,
+                 LIMIT 10`,
                 [date]
             );
         } catch (hosxpError) {
@@ -1183,7 +1243,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                    AND color_status IN ('RED', 'YELLOW')
                  GROUP BY group_key
                  ORDER BY count DESC, total_money DESC
-                 LIMIT 5`,
+                 LIMIT 10`,
                 [date]
             );
         }
@@ -1203,7 +1263,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                AND COALESCE(uc_money, 0) > 0
              GROUP BY group_key
              ORDER BY total_money DESC, count DESC
-             LIMIT 5`,
+             LIMIT 10`,
             [date]
         );
 
@@ -1280,7 +1340,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                    AND ov.an IS NULL
                  GROUP BY group_key
                  ORDER BY count DESC
-                 LIMIT 12`,
+                 LIMIT 10`,
                 [date]
             );
         } catch (hosxpError) {
@@ -1294,19 +1354,49 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                  WHERE visit_date = ?
                  GROUP BY group_key
                  ORDER BY count DESC
-                 LIMIT 12`,
+                 LIMIT 10`,
                 [date]
             );
         }
 
-        const [[notImportedTotal]] = await trackerPool.query(
+        let notImportedTotal = null;
+        try {
+            const [[hosxpNotImportedTotal]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) AS count, COALESCE(SUM(v.uc_money), 0) AS total_money
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) = 'UCS'
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND td.claimcode IS NULL`,
+                [date]
+            );
+            notImportedTotal = {
+                count: Number(hosxpNotImportedTotal?.count || 0),
+                total_money: Number(hosxpNotImportedTotal?.total_money || 0),
+                source: 'hosxp_temp_authen_code',
+                count_type: 'distinct_vn',
+                hipdata_codes: ['UCS']
+            };
+        } catch (hosxpError) {
+            console.warn('HOSxP temp authencode not-imported summary unavailable:', hosxpError.message);
+        }
+        if (!notImportedTotal) {
+            [[notImportedTotal]] = await trackerPool.query(
             `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
              FROM visit_tracking
              WHERE visit_date = ?
                AND UPPER(COALESCE(pcode, '')) = 'UC'
                AND color_status = 'RED'`,
-            [date]
-        );
+                [date]
+            );
+        }
 
         const [ucPendingByRight] = await trackerPool.query(
             `SELECT
@@ -1329,15 +1419,15 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
             const hipdataPlaceholders = safeHipdataCodes.map(() => '?').join(',');
             const [sppRows] = await hosxpPool.query(
                 `SELECT
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'OFC' THEN v.vn ELSE NULL END) AS comptroller_general,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'BMT' THEN v.vn ELSE NULL END) AS agency_reimburse,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'LGO' THEN v.vn ELSE NULL END) AS local_government,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.vn ELSE NULL END) AS ucs_goldcard,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('A2', 'A9', 'XXX') THEN v.vn ELSE NULL END) AS migrant,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'STP' THEN v.vn ELSE NULL END) AS stateless,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('SSS', 'SSI') THEN v.vn ELSE NULL END) AS social_security,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'PTY' THEN v.vn ELSE NULL END) AS motor_insurance,
-                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('OTH', 'BKK') THEN v.vn ELSE NULL END) AS self_pay,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'OFC' THEN v.hn ELSE NULL END) AS comptroller_general,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'BMT' THEN v.hn ELSE NULL END) AS agency_reimburse,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'LGO' THEN v.hn ELSE NULL END) AS local_government,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.hn ELSE NULL END) AS ucs_goldcard,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('A2', 'A9', 'XXX') THEN v.hn ELSE NULL END) AS migrant,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'STP' THEN v.hn ELSE NULL END) AS stateless,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('SSS', 'SSI') THEN v.hn ELSE NULL END) AS social_security,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'PTY' THEN v.hn ELSE NULL END) AS motor_insurance,
+                    COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) IN ('OTH', 'BKK') THEN v.hn ELSE NULL END) AS self_pay,
                     COUNT(DISTINCT CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.vn ELSE NULL END) AS count,
                     COALESCE(SUM(CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.uc_money ELSE 0 END), 0) AS total_money
                  FROM vn_stat v
@@ -1352,12 +1442,12 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                    AND UPPER(py.hipdata_code) IN (${hipdataPlaceholders})
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
-                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')`,
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))`,
                 [date, ...safeHipdataCodes]
             );
             const sppSummary = sppRows[0] || {};
             const [[allUcsToday]] = await hosxpPool.query(
-                `SELECT COUNT(DISTINCT v.vn) AS count
+                `SELECT COUNT(DISTINCT v.hn) AS count
                  FROM vn_stat v
                  LEFT JOIN ovst ov ON ov.vn = v.vn
                  LEFT JOIN pttype py ON py.pttype = v.pttype
@@ -1384,7 +1474,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                 right_name: label,
                 count: Number(sppSummary[key] || 0),
                 total_money: 0,
-                count_type: 'distinct_vn',
+                count_type: 'distinct_hn',
                 source: 'hosxp_vn_stat',
                 group_by: 'hipdata_code',
                 hipdata_codes: hipdataCodes
@@ -1393,6 +1483,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                 count: Number(sppSummary.count || 0),
                 total_money: Number(sppSummary.total_money || 0),
                 source: 'hosxp_vn_stat',
+                count_type: 'distinct_vn',
                 hipdata_codes: ['UCS']
             };
         } catch (hosxpError) {

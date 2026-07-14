@@ -12,11 +12,13 @@ export function processCrossCheck(hosxpData, excelData) {
             // ดึง Claim Code (Authen Code)
             const authenCode = row['CLAIM CODE'] || row.authenCode || row.CLAIM_CODE || null;
             const channel = String(row['ช่องทางการขอ Authen Code'] || '');
+            const channelCode = channel.trim().toUpperCase();
             
             acc[cid] = {
                 authenCode: authenCode,
                 channel: channel,
-                isEndpointClosed: channel.toUpperCase() === 'ENDPOINT' && !!authenCode
+                hasAuthenOpened: ['PP', 'EP', 'ENDPOINT'].includes(channelCode) && !!authenCode,
+                isEndpointClosed: ['EP', 'ENDPOINT'].includes(channelCode) && !!authenCode
             };
         }
         return acc;
@@ -46,7 +48,7 @@ export function processCrossCheck(hosxpData, excelData) {
         if (nhso) {
             authenCode = nhso.authenCode;
             authenCodeType = nhso.channel;
-            authenStatus = !!authenCode; // มี Authen Code ถือว่าเปิดแล้ว
+            authenStatus = nhso.hasAuthenOpened;
             endpointStatus = nhso.isEndpointClosed;
 
             if (authenStatus && endpointStatus) {

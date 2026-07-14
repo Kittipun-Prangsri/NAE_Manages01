@@ -342,15 +342,16 @@
                     <div class="p-5 border-b border-slate-200/60 dark:border-slate-800/80 flex flex-col md:flex-row md:justify-between md:items-center gap-4 bg-slate-50/50 dark:bg-slate-900/40">
                         <div class="flex items-center gap-3">
                             <div>
-                                <h2 class="font-bold text-base">รายการผู้ป่วยสิทธิ สปสช.</h2>
-                                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">แสดงรายละเอียดข้อมูลและสถานะการเคลมสิทธิ์</p>
+                                <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-indigo-500 dark:text-indigo-400">Rights Authen Review</p>
+                                <h2 class="font-bold text-base">ตารางตรวจสอบทุกสิทธิรายวัน</h2>
+                                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">ดึงทุกสิทธิจาก HOSxP ตามวันที่เลือก และเช็ค Claim Code กับ Temp Authen Code</p>
                             </div>
-                            <button id="toggle-list-btn" class="p-2 rounded-xl bg-slate-100/50 dark:bg-slate-800/50 text-slate-400 hover:text-blue-500 transition-all focus:outline-none" title="ยืด/หด แผงข้อมูล">
+                            <button id="toggle-list-btn" class="hidden p-2 rounded-xl bg-slate-100/50 dark:bg-slate-800/50 text-slate-400 hover:text-blue-500 transition-all focus:outline-none" title="ยืด/หด แผงข้อมูล">
                                 <i id="toggle-list-icon" class="fas fa-chevron-up text-xs transition-transform duration-300"></i>
                             </button>
                         </div>
                         <div class="flex flex-wrap items-center gap-2.5">
-                            <div class="relative w-full sm:w-60">
+                            <div class="hidden relative w-full sm:w-60">
                                 <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400 pointer-events-none">
                                     <i class="fas fa-search text-xs"></i>
                                 </span>
@@ -378,25 +379,24 @@
                     <div id="patient-list-content" class="transition-all duration-300 ease-in-out">
                         <!-- Data Table View -->
                         <div class="overflow-x-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse min-w-[1400px]">
+                            <table class="w-full text-left border-collapse min-w-[1320px]">
                                 <thead id="tracking-table-thead">
                                     <tr class="bg-slate-100/60 dark:bg-slate-900/60 border-b border-slate-200/80 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
                                         <th class="py-3 px-4 w-32 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="vn">VN</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="cid_check">CID Check</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="cid">เลขบัตรประชาชน</th>
                                         <th class="py-3 px-4 w-20 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pttype">PTType</th>
-                                        <th class="py-3 px-4 w-20 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pcode">PCode</th>
+                                        <th class="py-3 px-4 w-24 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pcode">HIPDATA</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="authCode">Auth Code (HOS)</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="claim_code">Claim Code (HOS)</th>
-                                        <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="nhso_claim_code">Claim Code (NHSO)</th>
+                                        <th class="py-3 px-4 w-44 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="nhso_claim_code">Claim Code (Temp Authen)</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="authen_code_type">Authen Type</th>
                                         <th class="py-3 px-4 w-48 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pttype_note">PTType Note</th>
                                         <th class="py-3 px-4 w-32 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="staff">เจ้าหน้าที่</th>
                                         <th class="py-3 px-4 w-32 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="check_claimcode">ผลการเช็ค</th>
                                         <th class="py-3 px-4 w-32 text-right cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="uc_money">UC Money</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="department">Department</th>
-                                        <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="subdistrict_name">ตำบล</th>
-                                        <th class="py-3 px-4 w-44 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="color_status">สถานะ</th>
+                                        <th class="py-3 px-4 w-24 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="cc_cid">CC CID</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tracking-table-body" class="text-sm divide-y divide-slate-100 dark:divide-slate-800/80 bg-transparent">
@@ -411,6 +411,49 @@
                             <p class="text-xs mt-1">กรุณาเลือกวันที่หรือนำเข้าข้อมูลที่ตรวจสอบ</p>
                         </div>
                     </div>
+
+                    <section class="hidden glass-panel rounded-2xl overflow-hidden border border-slate-200/70 dark:border-slate-800/80">
+                        <div class="p-5 border-b border-slate-200/70 dark:border-slate-800/80 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div>
+                                <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-indigo-500 dark:text-indigo-400">Rights Authen Review</p>
+                                <h3 class="text-base font-extrabold text-slate-900 dark:text-white mt-1">ตารางตรวจสอบทุกสิทธิรายวัน</h3>
+                                <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">ดึงทุกสิทธิจาก HOSxP ตามวันที่เลือก และเช็ค Claim Code กับ Temp Authen Code</p>
+                            </div>
+                            <div class="text-xs font-bold text-slate-500 dark:text-slate-400">
+                                <span id="lgo-table-count">0</span> รายการ
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse min-w-[1280px]">
+                                <thead>
+                                    <tr class="bg-slate-100/60 dark:bg-slate-900/60 border-b border-slate-200/80 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+                                        <th class="py-3 px-4 w-32">VN</th>
+                                        <th class="py-3 px-4 w-40">CID Check</th>
+                                        <th class="py-3 px-4 w-40">เลขบัตรประชาชน</th>
+                                        <th class="py-3 px-4 w-20">PTType</th>
+                                        <th class="py-3 px-4 w-20">PCode</th>
+                                        <th class="py-3 px-4 w-40">Auth Code (HOS)</th>
+                                        <th class="py-3 px-4 w-40">Claim Code (HOS)</th>
+                                        <th class="py-3 px-4 w-40">Claim Code (NHSO)</th>
+                                        <th class="py-3 px-4 w-40">Authen Type</th>
+                                        <th class="py-3 px-4 w-48">PTType Note</th>
+                                        <th class="py-3 px-4 w-32">เจ้าหน้าที่</th>
+                                        <th class="py-3 px-4 w-32 text-center">ผลการเช็ค</th>
+                                        <th class="py-3 px-4 w-32 text-right">UC Money</th>
+                                        <th class="py-3 px-4 w-40">Department</th>
+                                        <th class="py-3 px-4 w-24 text-center">CC CID</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="lgo-tracking-table-body" class="text-sm divide-y divide-slate-100 dark:divide-slate-800/80 bg-transparent">
+                                    <!-- Rights rows will be loaded here -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="lgo-table-empty" class="hidden p-10 text-center text-slate-500 dark:text-slate-400">
+                            <i class="fas fa-clipboard-check text-3xl text-slate-400 dark:text-slate-600 mb-2"></i>
+                            <p class="font-bold">ไม่พบข้อมูลทุกสิทธิตามวันที่เลือก</p>
+                        </div>
+                    </section>
                     </div>
             </div>
 

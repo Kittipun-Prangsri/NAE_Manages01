@@ -13,6 +13,7 @@ const getInitialState = () => {
             token: null,
             user: null,
             rawTableData: [],
+            lgoTableData: [],
             savedQueries: [],
             queryHistory: [],
             currentQueryResults: [],
@@ -39,6 +40,7 @@ const getInitialState = () => {
         token: localStorage.getItem('nhso_token'),
         user: JSON.parse(localStorage.getItem('nhso_user')),
         rawTableData: [],
+        lgoTableData: [],
         savedQueries: [],
         queryHistory: [],
         currentQueryResults: [],
@@ -895,13 +897,40 @@ async function loadDashboardData() {
             // data now contains { trackingData: [], hosxpStats: { totalPersons: X, totalVisits: Y } }
             appState.rawTableData = data.trackingData || [];
             appState.hosxpStats = data.hosxpStats || null;
+            appState.lgoTableData = [];
             renderTrackerTable();
+            await loadRightsTrackingTable(date);
             await loadGroupInsights(date);
         }
     } catch (error) {
         console.error('Fetch error:', error);
     } finally {
         ui.setLoading(false);
+    }
+}
+
+async function loadRightsTrackingTable(date = visitDateInput.value) {
+    if (!date || !appState.token) return;
+
+    try {
+        const response = await api.fetchRightsTrackingTable(date, appState.token);
+        if (handleApiResponse(response)) {
+            appState.lgoTableData = (response.data?.rows || []).map(row => ({
+                ...row,
+                color_status: row.check_claimcode === 'ตรง'
+                    ? 'GREEN'
+                    : row.check_claimcode === 'ตรวจสอบ'
+                        ? 'YELLOW'
+                        : 'RED'
+            }));
+            renderTrackerTable();
+            ui.renderLgoTrackingTable(appState.lgoTableData);
+        }
+    } catch (error) {
+        console.error('Failed to load rights tracking table:', error);
+        appState.lgoTableData = [];
+        ui.renderTable([], appState.trackerSortBy, appState.trackerSortDesc);
+        ui.renderLgoTrackingTable([]);
     }
 }
 
@@ -1051,10 +1080,38 @@ function getFilteredAndSortedTrackerData() {
     return data;
 }
 
+function getSortedLgoTableData() {
+    const data = [...appState.lgoTableData];
+    const sortBy = appState.trackerSortBy;
+    const sortDesc = appState.trackerSortDesc;
+
+    if (sortBy) {
+        data.sort((a, b) => {
+            let valA = a[sortBy];
+            let valB = b[sortBy];
+
+            if (valA !== null && valB !== null && !isNaN(valA) && !isNaN(valB) && String(valA).trim() !== '' && String(valB).trim() !== '') {
+                valA = Number(valA);
+                valB = Number(valB);
+            } else {
+                valA = String(valA || '').toLowerCase();
+                valB = String(valB || '').toLowerCase();
+            }
+
+            if (valA < valB) return sortDesc ? 1 : -1;
+            if (valA > valB) return sortDesc ? -1 : 1;
+            return 0;
+        });
+    }
+
+    return data;
+}
+
 function renderTrackerTable() {
     const data = getFilteredAndSortedTrackerData();
+    const tableData = appState.lgoTableData.length > 0 ? getSortedLgoTableData() : data;
     const hasFilters = Boolean(appState.trackerDashboardFilter?.value || appState.trackerSearchFilter);
-    ui.renderTable(data, appState.trackerSortBy, appState.trackerSortDesc);
+    ui.renderTable(tableData, appState.trackerSortBy, appState.trackerSortDesc);
     ui.renderTrackerDashboardFilter(appState.trackerDashboardFilter, data.length);
     ui.updateStats(data, hasFilters ? null : appState.hosxpStats);
     ui.initTiltEffect();

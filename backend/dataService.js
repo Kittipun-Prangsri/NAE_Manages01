@@ -89,7 +89,7 @@ export async function getHosxpTotalVisits(visitDate) {
           AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
           AND ov.an IS NULL
           AND td.claimcode IS NOT NULL
-          AND UPPER(td.authen_code_type) = 'ENDPOINT'
+          AND UPPER(td.authen_code_type) IN ('EP', 'ENDPOINT')
     `;
     const completedTreatmentQuery = `
         SELECT COUNT(DISTINCT v.vn) as completedTreatmentEndpointCount
@@ -104,7 +104,7 @@ export async function getHosxpTotalVisits(visitDate) {
           AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
           AND ov.an IS NULL
           AND td.claimcode IS NOT NULL
-          AND UPPER(td.authen_code_type) = 'ENDPOINT'
+          AND UPPER(td.authen_code_type) IN ('EP', 'ENDPOINT')
           AND EXISTS (
               SELECT 1
               FROM opitemrece oi
@@ -536,7 +536,7 @@ export async function getHosxpSummaryStats(visitDate) {
         WHERE v.vstdate = ?
           AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
           AND td.claimcode IS NOT NULL
-          AND (td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')
+          AND UPPER(td.authen_code_type) = 'PP'
     `;
 
     const notImportedCountQuery = `
@@ -563,7 +563,7 @@ export async function getHosxpSummaryStats(visitDate) {
         WHERE v.vstdate = ?
           AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
           AND td.claimcode IS NOT NULL
-          AND UPPER(td.authen_code_type) = 'ENDPOINT'
+          AND UPPER(td.authen_code_type) IN ('EP', 'ENDPOINT')
     `;
 
     const rightsQuery = `
@@ -588,7 +588,7 @@ export async function getHosxpSummaryStats(visitDate) {
         LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
         WHERE v.vstdate = ?
           AND py.hipdata_code = 'UCS'
-          AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')
+          AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
     `;
 
     const ucsDepartmentsQuery = `
@@ -603,7 +603,7 @@ export async function getHosxpSummaryStats(visitDate) {
         LEFT OUTER JOIN kskdepartment k ON k.depcode = ov.main_dep
         WHERE v.vstdate = ?
           AND py.hipdata_code = 'UCS'
-          AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'ENDPOINT')
+          AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
         GROUP BY dept_name
         ORDER BY cnt DESC
         LIMIT 3

@@ -217,29 +217,20 @@ export const ui = {
             else els.exportBtn.classList.add('hidden');
         }
 
-        // แสดงผลเพียง 10 รายการแรก
-        const displayData = data.slice(0, 10);
+        // แสดงผลสูงสุด 50 รายการแรกเพื่อให้ตรวจสอบข้อมูลได้มากขึ้นโดยไม่ทำให้หน้าเว็บหนักเกินไป
+        const displayData = data.slice(0, 50);
 
         displayData.forEach(item => {
             const tr = document.createElement('tr');
             const isGreen = item.color_status === 'GREEN';
             const rowClass = isGreen ? 'bg-emerald-50/20 dark:bg-emerald-900/10' : '';
             tr.className = `hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 ${rowClass}`;
-            
-            const statusClass = item.color_status === 'RED' ? 'status-red' : 
-                              item.color_status === 'YELLOW' ? 'status-yellow' : 'status-green';
-            
-            const statusText = item.color_status === 'RED' ? 'ยังไม่เปิด Authen' : 
-                              item.color_status === 'YELLOW' ? 'รอปิด Endpoint' : 'สมบูรณ์';
-            
-            const statusIcon = item.color_status === 'RED' ? '<i class="fas fa-times-circle mr-1"></i>' : 
-                              item.color_status === 'YELLOW' ? '<i class="fas fa-clock mr-1"></i>' : '<i class="fas fa-check-circle mr-1"></i>';
 
-            const checkClaimClass = item.check_claimcode === 'ตรง' ? 'status-green' : 
-                                  item.check_claimcode === 'ตรวจสอบ' ? 'status-yellow' : 
-                                  item.check_claimcode === 'ไม่ตรง' ? 'status-red' : 
+            const checkClaimClass = item.check_claimcode === 'ตรง' ? 'status-green' :
+                                  item.check_claimcode === 'ตรวจสอบ' ? 'status-yellow' :
+                                  item.check_claimcode === 'ไม่ตรง' ? 'status-red' :
                                   'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400';
-            
+
             const checkClaimVal = item.check_claimcode || 'ยังไม่ได้นำเข้า';
 
             tr.innerHTML = `
@@ -265,15 +256,69 @@ export const ui = {
                 </td>
                 <td class="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 text-right">${(item.uc_money != null && !isNaN(item.uc_money)) ? Number(item.uc_money).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${item.department || '-'}</td>
-                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${item.subdistrict_name || '-'}</td>
-                <td class="py-3.5 px-4 text-center">
-                    <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-[11px] font-bold shadow-sm leading-none ${statusClass}">
-                        ${statusIcon}
-                        ${statusText}
-                    </span>
-                </td>
+                <td class="py-3.5 px-4 text-xs text-center text-slate-600 dark:text-slate-300 font-bold">${item.cc_cid ?? '-'}</td>
             `;
             els.tableBody.appendChild(tr);
+        });
+    },
+
+    renderLgoTrackingTable(rows = []) {
+        if (typeof document === 'undefined') return;
+        const tableBody = document.getElementById('lgo-tracking-table-body');
+        const emptyState = document.getElementById('lgo-table-empty');
+        const countEl = document.getElementById('lgo-table-count');
+        if (!tableBody) return;
+
+        const escapeHtml = (value) => String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
+        if (countEl) countEl.textContent = Number(rows.length || 0).toLocaleString();
+        tableBody.innerHTML = '';
+
+        if (!rows.length) {
+            emptyState?.classList.remove('hidden');
+            return;
+        }
+
+        emptyState?.classList.add('hidden');
+        rows.forEach(item => {
+            const checkClaimClass = item.check_claimcode === 'ตรง'
+                ? 'status-green'
+                : item.check_claimcode === 'ตรวจสอบ'
+                    ? 'status-yellow'
+                    : item.check_claimcode === 'ไม่ตรง'
+                        ? 'status-red'
+                        : 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400';
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150';
+            tr.innerHTML = `
+                <td class="py-3.5 px-4 font-mono text-xs font-semibold">
+                    <span class="text-blue-600 dark:text-blue-400 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100/50 dark:border-blue-900/30 rounded-lg px-2.5 py-1 inline-block">${escapeHtml(item.vn || '-')}</span>
+                </td>
+                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-mono">${escapeHtml(item.cid_check || '-')}</td>
+                <td class="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-medium tracking-wide">${escapeHtml(item.cid || '-')}</td>
+                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400">${escapeHtml(item.pttype || '-')}</td>
+                <td class="py-3.5 px-4 text-xs font-medium text-slate-500 dark:text-slate-400">${escapeHtml(item.pcode || '-')}</td>
+                <td class="py-3.5 px-4 font-mono text-xs text-slate-600">${item.authCode ? `<span class="bg-slate-100 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 px-2 py-0.5 rounded font-medium dark:text-slate-300">${escapeHtml(item.authCode)}</span>` : '-'}</td>
+                <td class="py-3.5 px-4 text-xs text-emerald-600 dark:text-emerald-400 font-bold">${escapeHtml(item.claim_code || '-')}</td>
+                <td class="py-3.5 px-4 text-xs text-blue-600 dark:text-blue-400 font-bold">${escapeHtml(item.nhso_claim_code || '-')}</td>
+                <td class="py-3.5 px-4 text-xs text-indigo-500 dark:text-indigo-400 font-semibold">${escapeHtml(item.authen_code_type || '-')}</td>
+                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]" title="${escapeHtml(item.pttype_note || '')}">${escapeHtml(item.pttype_note || '-')}</td>
+                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${escapeHtml(item.staff || '-')}</td>
+                <td class="py-3.5 px-4 text-center">
+                    <span class="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold shadow-sm leading-none ${checkClaimClass}">
+                        ${escapeHtml(item.check_claimcode || 'ยังไม่ได้นำเข้า')}
+                    </span>
+                </td>
+                <td class="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 text-right">${(item.uc_money != null && !isNaN(item.uc_money)) ? Number(item.uc_money).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${escapeHtml(item.department || '-')}</td>
+                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-semibold text-center">${Number(item.cc_cid || 0).toLocaleString()}</td>
+            `;
+            tableBody.appendChild(tr);
         });
     },
 

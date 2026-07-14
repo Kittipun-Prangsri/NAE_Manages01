@@ -116,6 +116,18 @@ export const api = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
+    async fetchRightsTrackingTable(date, token) {
+        const params = new URLSearchParams({ date, _ts: String(Date.now()) });
+        const res = await fetch(`${API_BASE}/tracking/rights-table?${params.toString()}`, {
+            cache: 'no-store',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Cache-Control': 'no-cache'
+            }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
     async fetchLiveDashboardData(date, token) {
         const res = await fetch(`${API_BASE}/dashboard/live-data?date=${date}`, {
             headers: { 'Authorization': `Bearer ${token}` }

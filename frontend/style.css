@@ -192,6 +192,30 @@ body::before {
   box-shadow: var(--shadow-card-hover);
 }
 
+.tracker-wide-section {
+  width: 100%;
+}
+
+.tracker-table-scroll {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-bottom: 0.25rem;
+}
+
+@media (min-width: 1280px) {
+  .tracker-wide-section {
+    width: min(94vw, 1680px);
+    margin-left: 50%;
+    transform: translateX(-50%);
+  }
+}
+
+@media (min-width: 1536px) {
+  .tracker-wide-section {
+    width: min(92vw, 1760px);
+  }
+}
+
 .stats-summary-grid {
   display: grid;
   grid-template-columns: 1fr;

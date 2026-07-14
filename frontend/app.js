@@ -23,6 +23,7 @@ const getInitialState = () => {
             trackerSortBy: '',
             trackerSortDesc: false,
             trackerSearchFilter: '',
+            trackerColumnFilters: {},
             trackerDashboardFilter: null,
             liveDashboardInterval: null,
             liveDashboardCountdownInterval: null,
@@ -50,6 +51,7 @@ const getInitialState = () => {
         trackerSortBy: '',
         trackerSortDesc: false,
         trackerSearchFilter: '',
+        trackerColumnFilters: {},
         trackerDashboardFilter: null,
         liveDashboardInterval: null,
         liveDashboardCountdownInterval: null,
@@ -65,6 +67,25 @@ const getInitialState = () => {
 };
 
 let appState = getInitialState();
+let activeColumnFilterField = null;
+
+const TRACKER_COLUMN_FILTERS = [
+    { field: 'vn', label: 'VN' },
+    { field: 'cid_check', label: 'CID Check' },
+    { field: 'cid', label: 'เลขบัตรประชาชน' },
+    { field: 'pttype', label: 'PTType' },
+    { field: 'pcode', label: 'HIPDATA' },
+    { field: 'authCode', label: 'Auth Code (HOS)' },
+    { field: 'claim_code', label: 'Claim Code (HOS)' },
+    { field: 'nhso_claim_code', label: 'Claim Code (Temp Authen)' },
+    { field: 'authen_code_type', label: 'Authen Type' },
+    { field: 'pttype_note', label: 'PTType Note' },
+    { field: 'staff', label: 'เจ้าหน้าที่' },
+    { field: 'check_claimcode', label: 'ผลการเช็ค' },
+    { field: 'issue_reason', label: 'สาเหตุที่ต้องแก้' },
+    { field: 'department', label: 'Department' },
+    { field: 'cc_cid', label: 'CC CID' }
+];
 
 // Form Elements
 let visitDateInput;
@@ -144,6 +165,8 @@ function setupEventListeners() {
         });
     });
 
+    setupTrackerColumnFilters();
+
     // Homepage table search input
     document.getElementById('tracker-search-input')?.addEventListener('input', (e) => {
         appState.trackerSearchFilter = e.target.value;
@@ -205,6 +228,184 @@ function setupEventListeners() {
             handleRunQuery();
         }
     });
+}
+
+function setupTrackerColumnFilters() {
+    if (typeof document === 'undefined') return;
+
+    document.querySelectorAll('#tracking-table-thead th[data-sort]').forEach(th => {
+        if (th.dataset.columnFilterReady === 'true') return;
+        const field = th.getAttribute('data-sort');
+        const meta = TRACKER_COLUMN_FILTERS.find(item => item.field === field);
+        if (!field || !meta) return;
+
+        th.dataset.columnFilterReady = 'true';
+        th.dataset.columnLabel = meta.label;
+        th.innerHTML = '';
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'flex items-center justify-between gap-2';
+
+        const labelWrapper = document.createElement('span');
+        labelWrapper.className = 'inline-flex items-center gap-1 min-w-0';
+
+        const label = document.createElement('span');
+        label.className = 'truncate';
+        label.textContent = meta.label;
+
+        const sortIndicator = document.createElement('span');
+        sortIndicator.dataset.sortIndicator = field;
+        sortIndicator.className = 'text-[10px] leading-none';
+
+        const filterButton = document.createElement('button');
+        filterButton.type = 'button';
+        filterButton.dataset.columnFilter = field;
+        filterButton.className = 'tracker-column-filter-btn shrink-0 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition cursor-pointer';
+        filterButton.title = `กรอง ${meta.label}`;
+        filterButton.innerHTML = '<i class="fas fa-filter text-[11px] pointer-events-none"></i>';
+        filterButton.addEventListener('click', event => {
+            event.stopPropagation();
+            openTrackerColumnFilterMenu(field, filterButton);
+        });
+
+        labelWrapper.append(label, sortIndicator);
+        wrapper.append(labelWrapper, filterButton);
+        th.appendChild(wrapper);
+    });
+
+    document.addEventListener('click', event => {
+        const menu = document.getElementById('tracker-column-filter-menu');
+        if (!menu || menu.contains(event.target) || event.target.closest('.tracker-column-filter-btn')) return;
+        closeTrackerColumnFilterMenu();
+    });
+}
+
+function closeTrackerColumnFilterMenu() {
+    document.getElementById('tracker-column-filter-menu')?.remove();
+    activeColumnFilterField = null;
+}
+
+function openTrackerColumnFilterMenu(field, anchor) {
+    const rows = appState.lgoTableData.length > 0 ? appState.lgoTableData : appState.rawTableData;
+    const values = getTrackerColumnFilterValues(rows, field);
+    const meta = TRACKER_COLUMN_FILTERS.find(item => item.field === field);
+    const existingFilter = appState.trackerColumnFilters[field];
+    const selectedValues = new Set(Array.isArray(existingFilter) ? existingFilter : values.map(item => item.value));
+
+    if (activeColumnFilterField === field) {
+        closeTrackerColumnFilterMenu();
+        return;
+    }
+    closeTrackerColumnFilterMenu();
+    activeColumnFilterField = field;
+
+    const menu = document.createElement('div');
+    menu.id = 'tracker-column-filter-menu';
+    menu.className = 'fixed z-[9999] w-80 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 shadow-2xl p-3 text-xs text-slate-700 dark:text-slate-200';
+    menu.addEventListener('click', event => event.stopPropagation());
+
+    const title = document.createElement('div');
+    title.className = 'font-extrabold text-slate-700 dark:text-slate-200 mb-2 flex items-center justify-between';
+    title.innerHTML = `<span>Filter: ${meta?.label || field}</span><span class="text-slate-400">${values.length.toLocaleString()} ค่า</span>`;
+
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.placeholder = 'ค้นหาค่าในคอลัมน์นี้';
+    search.className = 'w-full mb-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:ring-2 focus:ring-blue-500/30';
+
+    const list = document.createElement('div');
+    list.className = 'max-h-64 overflow-auto custom-scrollbar border border-slate-100 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-800';
+
+    values.forEach(item => {
+        const row = document.createElement('label');
+        row.className = 'tracker-column-filter-option flex items-center gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer';
+        row.dataset.filterText = item.label.toLowerCase();
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = item.value;
+        checkbox.checked = selectedValues.has(item.value);
+        checkbox.className = 'rounded border-slate-300 text-blue-600 focus:ring-blue-500';
+
+        const text = document.createElement('span');
+        text.className = item.value === '' ? 'text-slate-400 italic' : 'font-semibold';
+        text.textContent = item.label;
+
+        row.append(checkbox, text);
+        list.appendChild(row);
+    });
+
+    const actionRow = document.createElement('div');
+    actionRow.className = 'flex items-center justify-between gap-2 mt-3';
+
+    const selectAllBtn = document.createElement('button');
+    selectAllBtn.type = 'button';
+    selectAllBtn.className = 'px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 font-bold';
+    selectAllBtn.textContent = 'เลือกทั้งหมด';
+    selectAllBtn.addEventListener('click', () => {
+        list.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = true; });
+    });
+
+    const clearAllBtn = document.createElement('button');
+    clearAllBtn.type = 'button';
+    clearAllBtn.className = 'px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 font-bold';
+    clearAllBtn.textContent = 'ล้างทั้งหมด';
+    clearAllBtn.addEventListener('click', () => {
+        list.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = false; });
+    });
+
+    const footer = document.createElement('div');
+    footer.className = 'flex items-center justify-end gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800';
+
+    const clearFilterBtn = document.createElement('button');
+    clearFilterBtn.type = 'button';
+    clearFilterBtn.className = 'mr-auto text-blue-600 dark:text-blue-300 font-bold hover:underline';
+    clearFilterBtn.textContent = 'Clear filter';
+    clearFilterBtn.addEventListener('click', () => {
+        delete appState.trackerColumnFilters[field];
+        closeTrackerColumnFilterMenu();
+        renderTrackerTable();
+    });
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 font-bold';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', closeTrackerColumnFilterMenu);
+
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'px-3 py-1.5 rounded-lg bg-blue-600 text-white font-bold shadow-sm';
+    okBtn.textContent = 'OK';
+    okBtn.addEventListener('click', () => {
+        const checkedValues = Array.from(list.querySelectorAll('input[type="checkbox"]:checked')).map(input => input.value);
+        if (checkedValues.length === values.length) {
+            delete appState.trackerColumnFilters[field];
+        } else {
+            appState.trackerColumnFilters[field] = checkedValues;
+        }
+        closeTrackerColumnFilterMenu();
+        renderTrackerTable();
+    });
+
+    search.addEventListener('input', () => {
+        const query = search.value.trim().toLowerCase();
+        list.querySelectorAll('.tracker-column-filter-option').forEach(option => {
+            option.classList.toggle('hidden', Boolean(query) && !option.dataset.filterText.includes(query));
+        });
+    });
+
+    actionRow.append(selectAllBtn, clearAllBtn);
+    footer.append(clearFilterBtn, cancelBtn, okBtn);
+    menu.append(title, search, list, actionRow, footer);
+    document.body.appendChild(menu);
+
+    const rect = anchor.getBoundingClientRect();
+    const left = Math.min(rect.left, window.innerWidth - 336);
+    const top = Math.min(rect.bottom + 8, window.innerHeight - menu.offsetHeight - 12);
+    menu.style.left = `${Math.max(12, left)}px`;
+    menu.style.top = `${Math.max(12, top)}px`;
+    search.focus();
 }
 
 // --- Handlers ---
@@ -917,6 +1118,7 @@ async function loadRightsTrackingTable(date = visitDateInput.value) {
         if (handleApiResponse(response)) {
             appState.lgoTableData = (response.data?.rows || []).map(row => ({
                 ...row,
+                issue_reason: getTrackingIssueReason(row),
                 color_status: row.check_claimcode === 'ตรง'
                     ? 'GREEN'
                     : row.check_claimcode === 'ตรวจสอบ'
@@ -1107,12 +1309,96 @@ function getSortedLgoTableData() {
     return data;
 }
 
+function getTrackerStatusKey(item = {}) {
+    const status = String(item.check_claimcode || '').trim();
+    if (status === 'ยังไม่ได้นำเข้า') return 'not_imported';
+    if (status === 'ยังไม่เปิด Authen') return 'no_auth';
+    if (status === 'ไม่ตรง') return 'mismatch';
+    if (status === 'ตรวจสอบ') return 'duplicate';
+    if (status === 'ตรง') return 'matched';
+    if (item.color_status === 'GREEN') return 'matched';
+    if (item.color_status === 'YELLOW') return 'duplicate';
+    return 'not_imported';
+}
+
+function getTrackingIssueReason(item = {}) {
+    switch (getTrackerStatusKey(item)) {
+        case 'not_imported':
+            return 'ไม่มีข้อมูลนำเข้าใน Temp Authen';
+        case 'no_auth':
+            return 'มีข้อมูลนำเข้าแล้ว แต่ Auth Code (HOS) ว่าง';
+        case 'mismatch':
+            return 'Claim Code HOS ไม่ตรงกับ Temp Authen';
+        case 'duplicate':
+            return 'CID เดียวมีหลาย VN ในวันเดียวกัน';
+        case 'matched':
+            return 'ข้อมูลตรง ไม่ต้องแก้ไข';
+        default:
+            return 'รอตรวจสอบข้อมูล';
+    }
+}
+
+function normalizeTrackerColumnValue(value) {
+    if (value === null || value === undefined) return '';
+    return String(value).trim();
+}
+
+function getTrackerColumnValue(item = {}, field) {
+    if (field === 'issue_reason') return item.issue_reason || getTrackingIssueReason(item);
+    if (field === 'pcode') return item.pcode || item.hipdata_code || item.hipdata || '';
+    if (field === 'authCode') return item.authCode || item.Auth_Code || item.auth_code || '';
+    if (field === 'nhso_claim_code') return item.nhso_claim_code || item.claimcode || '';
+    return item[field];
+}
+
+function getTrackerColumnFilterValues(data = [], field) {
+    const valueMap = new Map();
+    data.forEach(item => {
+        const value = normalizeTrackerColumnValue(getTrackerColumnValue(item, field));
+        const label = value || '(ว่าง)';
+        valueMap.set(value, label);
+    });
+
+    return Array.from(valueMap, ([value, label]) => ({ value, label }))
+        .sort((a, b) => {
+            if (a.value === '') return -1;
+            if (b.value === '') return 1;
+            return a.label.localeCompare(b.label, 'th');
+        });
+}
+
+function applyTrackerColumnFilters(data = []) {
+    const filters = Object.entries(appState.trackerColumnFilters || {})
+        .filter(([, values]) => Array.isArray(values));
+    if (!filters.length) return data;
+
+    return data.filter(item => filters.every(([field, values]) => {
+        const value = normalizeTrackerColumnValue(getTrackerColumnValue(item, field));
+        return values.includes(value);
+    }));
+}
+
+function updateTrackerColumnFilterHeaders() {
+    if (typeof document === 'undefined') return;
+    document.querySelectorAll('.tracker-column-filter-btn').forEach(button => {
+        const field = button.dataset.columnFilter;
+        const isActive = Array.isArray(appState.trackerColumnFilters?.[field]);
+        button.className = isActive
+            ? 'tracker-column-filter-btn shrink-0 text-blue-600 dark:text-blue-300 transition cursor-pointer'
+            : 'tracker-column-filter-btn shrink-0 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition cursor-pointer';
+    });
+}
+
 function renderTrackerTable() {
     const data = getFilteredAndSortedTrackerData();
-    const tableData = appState.lgoTableData.length > 0 ? getSortedLgoTableData() : data;
-    const hasFilters = Boolean(appState.trackerDashboardFilter?.value || appState.trackerSearchFilter);
+    const baseTableData = appState.lgoTableData.length > 0 ? getSortedLgoTableData() : data;
+    const columnFilteredData = applyTrackerColumnFilters(baseTableData);
+    const tableData = columnFilteredData;
+    const hasColumnFilters = Object.values(appState.trackerColumnFilters || {}).some(values => Array.isArray(values));
+    const hasFilters = Boolean(appState.trackerDashboardFilter?.value || appState.trackerSearchFilter || hasColumnFilters);
     ui.renderTable(tableData, appState.trackerSortBy, appState.trackerSortDesc);
     ui.renderTrackerDashboardFilter(appState.trackerDashboardFilter, data.length);
+    updateTrackerColumnFilterHeaders();
     ui.updateStats(data, hasFilters ? null : appState.hosxpStats);
     ui.initTiltEffect();
 }

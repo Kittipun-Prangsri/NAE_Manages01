@@ -34,6 +34,35 @@ const getEls = () => {
     };
 };
 
+function getTrackerStatusKey(item = {}) {
+    const status = String(item.check_claimcode || '').trim();
+    if (status === 'ยังไม่ได้นำเข้า') return 'not_imported';
+    if (status === 'ยังไม่เปิด Authen') return 'no_auth';
+    if (status === 'ไม่ตรง') return 'mismatch';
+    if (status === 'ตรวจสอบ') return 'duplicate';
+    if (status === 'ตรง') return 'matched';
+    if (item.color_status === 'GREEN') return 'matched';
+    if (item.color_status === 'YELLOW') return 'duplicate';
+    return 'not_imported';
+}
+
+function getIssueReason(item = {}) {
+    switch (getTrackerStatusKey(item)) {
+        case 'not_imported':
+            return 'ไม่มีข้อมูลนำเข้าใน Temp Authen';
+        case 'no_auth':
+            return 'มีข้อมูลนำเข้าแล้ว แต่ Auth Code (HOS) ว่าง';
+        case 'mismatch':
+            return 'Claim Code HOS ไม่ตรงกับ Temp Authen';
+        case 'duplicate':
+            return 'CID เดียวมีหลาย VN ในวันเดียวกัน';
+        case 'matched':
+            return 'ข้อมูลตรง ไม่ต้องแก้ไข';
+        default:
+            return 'รอตรวจสอบข้อมูล';
+    }
+}
+
 export const ui = {
     initTheme() {
         if (typeof document === 'undefined' || typeof localStorage === 'undefined') return;
@@ -190,15 +219,17 @@ export const ui = {
         const headers = document.querySelectorAll('#tracking-table-thead th[data-sort]');
         headers.forEach(th => {
             const field = th.getAttribute('data-sort');
-            // Remove existing sort indicators from text
-            let text = th.textContent.replace(/  [▲▼]/g, '');
             th.className = th.className.replace(' text-blue-600 dark:text-blue-400', '');
+            const sortIndicator = th.querySelector('[data-sort-indicator]');
             
             if (field === sortBy) {
-                text += sortDesc ? '  ▼' : '  ▲';
+                if (sortIndicator) sortIndicator.textContent = sortDesc ? '▼' : '▲';
                 th.classList.add('text-blue-600', 'dark:text-blue-400');
+            } else if (sortIndicator) {
+                sortIndicator.textContent = '';
+            } else {
+                th.textContent = th.textContent.replace(/  [▲▼]/g, '');
             }
-            th.textContent = text;
         });
 
         els.tableBody.innerHTML = '';
@@ -232,6 +263,12 @@ export const ui = {
                                   'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400';
 
             const checkClaimVal = item.check_claimcode || 'ยังไม่ได้นำเข้า';
+            const issueReason = item.issue_reason || getIssueReason(item);
+            const issueClass = item.check_claimcode === 'ตรง'
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : item.check_claimcode === 'ตรวจสอบ'
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-red-600 dark:text-red-400';
 
             tr.innerHTML = `
                 <td class="py-3.5 px-4 font-mono text-xs font-semibold">
@@ -254,6 +291,7 @@ export const ui = {
                         ${checkClaimVal}
                     </span>
                 </td>
+                <td class="py-3.5 px-4 text-xs font-semibold ${issueClass}">${issueReason}</td>
                 <td class="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 text-right">${(item.uc_money != null && !isNaN(item.uc_money)) ? Number(item.uc_money).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${item.department || '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-center text-slate-600 dark:text-slate-300 font-bold">${item.cc_cid ?? '-'}</td>

@@ -130,7 +130,7 @@
             <!-- Tracker View Container (Original View) -->
             <div id="tracker-view-container" class="space-y-6">
                 <!-- Controls Card -->
-                <div class="glass-panel p-6 rounded-2xl">
+                <div class="tracker-wide-section glass-panel p-6 rounded-2xl">
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
                         <!-- Column 1: Date picker -->
                         <div class="space-y-2">
@@ -199,7 +199,7 @@
                 </div>
 
                 <!-- Status Overview Groups -->
-                <div class="summary-command-board">
+                <div class="tracker-wide-section summary-command-board">
                     <div class="summary-group summary-group-service">
                         <div class="summary-group-header">
                             <div>
@@ -262,7 +262,7 @@
                 </div>
 
                 <!-- Smart Group Insights -->
-                <div id="group-insights-section" class="space-y-3">
+                <div id="group-insights-section" class="tracker-wide-section space-y-3">
                     <div class="flex justify-between items-center px-1">
                         <div>
                             <h2 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Smart Group Insights</h2>
@@ -328,7 +328,7 @@
                 </div>
 
                 <!-- Weekly Overview -->
-                <div id="weekly-summary-section" class="hidden space-y-3">
+                <div id="weekly-summary-section" class="tracker-wide-section hidden space-y-3">
                     <div class="flex justify-between items-center px-1">
                         <h2 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">สรุปภาพรวม 7 วันล่าสุด</h2>
                     </div>
@@ -338,7 +338,7 @@
                 </div>
 
                 <!-- Table Card -->
-                <div class="glass-panel rounded-2xl overflow-hidden flex flex-col">
+                <div class="tracker-wide-section tracker-table-card glass-panel rounded-2xl overflow-hidden flex flex-col">
                     <div class="p-5 border-b border-slate-200/60 dark:border-slate-800/80 flex flex-col md:flex-row md:justify-between md:items-center gap-4 bg-slate-50/50 dark:bg-slate-900/40">
                         <div class="flex items-center gap-3">
                             <div>
@@ -378,8 +378,8 @@
 
                     <div id="patient-list-content" class="transition-all duration-300 ease-in-out">
                         <!-- Data Table View -->
-                        <div class="overflow-x-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse min-w-[1320px]">
+                        <div class="tracker-table-scroll overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse min-w-[1500px]">
                                 <thead id="tracking-table-thead">
                                     <tr class="bg-slate-100/60 dark:bg-slate-900/60 border-b border-slate-200/80 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
                                         <th class="py-3 px-4 w-32 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="vn">VN</th>
@@ -394,6 +394,7 @@
                                         <th class="py-3 px-4 w-48 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pttype_note">PTType Note</th>
                                         <th class="py-3 px-4 w-32 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="staff">เจ้าหน้าที่</th>
                                         <th class="py-3 px-4 w-32 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="check_claimcode">ผลการเช็ค</th>
+                                        <th class="py-3 px-4 w-52 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="issue_reason">สาเหตุที่ต้องแก้</th>
                                         <th class="py-3 px-4 w-32 text-right cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="uc_money">UC Money</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="department">Department</th>
                                         <th class="py-3 px-4 w-24 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="cc_cid">CC CID</th>

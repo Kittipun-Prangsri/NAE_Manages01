@@ -16,6 +16,8 @@ export async function initInternalDb() {
             authen_code_type VARCHAR(100),
             pttype_note TEXT,
             department VARCHAR(150),
+            subdistrict_code VARCHAR(10) DEFAULT NULL,
+            subdistrict_name VARCHAR(150) DEFAULT NULL,
             nhso_authen_code VARCHAR(50) DEFAULT NULL,
             authen_status BOOLEAN DEFAULT FALSE,
             endpoint_status BOOLEAN DEFAULT FALSE,
@@ -40,6 +42,22 @@ export async function initInternalDb() {
         );
     `;
 
+    const queryHistorySchema = `
+        CREATE TABLE IF NOT EXISTS query_history (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(100) DEFAULT NULL,
+            db_type VARCHAR(20) NOT NULL DEFAULT 'hosxp',
+            query_text LONGTEXT NOT NULL,
+            visit_date DATE DEFAULT NULL,
+            hipdata_code VARCHAR(120) DEFAULT NULL,
+            rows_count INT DEFAULT 0,
+            execution_time_ms INT DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_query_history_user_time (username, created_at),
+            INDEX idx_query_history_db_type (db_type)
+        );
+    `;
+
     const cronSchedulesSchema = `
         CREATE TABLE IF NOT EXISTS cron_schedules (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -47,6 +65,42 @@ export async function initInternalDb() {
             is_enabled BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        );
+    `;
+
+    const syncRunsSchema = `
+        CREATE TABLE IF NOT EXISTS sync_runs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            source VARCHAR(50) NOT NULL,
+            visit_date DATE NOT NULL,
+            status ENUM('running', 'success', 'failed') NOT NULL DEFAULT 'running',
+            username VARCHAR(100) DEFAULT NULL,
+            total_records INT DEFAULT 0,
+            message TEXT,
+            error TEXT,
+            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            finished_at TIMESTAMP NULL DEFAULT NULL,
+            INDEX idx_sync_runs_date (visit_date),
+            INDEX idx_sync_runs_status (status)
+        );
+    `;
+
+    const auditLogsSchema = `
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(100) DEFAULT NULL,
+            role VARCHAR(30) DEFAULT NULL,
+            action VARCHAR(80) NOT NULL,
+            entity_type VARCHAR(80) NOT NULL,
+            entity_id VARCHAR(120) DEFAULT NULL,
+            details LONGTEXT DEFAULT NULL,
+            ip_address VARCHAR(64) DEFAULT NULL,
+            user_agent VARCHAR(255) DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_audit_created_at (created_at),
+            INDEX idx_audit_action (action),
+            INDEX idx_audit_entity (entity_type, entity_id),
+            INDEX idx_audit_username (username)
         );
     `;
 
@@ -93,11 +147,36 @@ export async function initInternalDb() {
         await trackerPool.query(schema);
         console.log('✅ Internal database table "visit_tracking" is ready.');
 
+        const [subdistrictCodeCols] = await trackerPool.query('SHOW COLUMNS FROM visit_tracking LIKE "subdistrict_code"');
+        if (subdistrictCodeCols.length === 0) {
+            await trackerPool.query(`
+                ALTER TABLE visit_tracking
+                ADD COLUMN subdistrict_code VARCHAR(10) DEFAULT NULL AFTER department,
+                ADD COLUMN subdistrict_name VARCHAR(150) DEFAULT NULL AFTER subdistrict_code
+            `);
+            console.log('✅ Added subdistrict columns to "visit_tracking" table.');
+        }
+
         await trackerPool.query(savedQueriesSchema);
         console.log('✅ Internal database table "saved_queries" is ready.');
 
+        await trackerPool.query(queryHistorySchema);
+        console.log('✅ Internal database table "query_history" is ready.');
+
         await trackerPool.query(cronSchedulesSchema);
         console.log('✅ Internal database table "cron_schedules" is ready.');
+
+        await trackerPool.query(syncRunsSchema);
+        console.log('✅ Internal database table "sync_runs" is ready.');
+
+        await trackerPool.query(auditLogsSchema);
+        console.log('✅ Internal database table "audit_logs" is ready.');
+
+        const [auditDetailCols] = await trackerPool.query('SHOW COLUMNS FROM audit_logs LIKE "details"');
+        if (auditDetailCols.length > 0 && !String(auditDetailCols[0].Type || '').toLowerCase().includes('text')) {
+            await trackerPool.query('ALTER TABLE audit_logs MODIFY COLUMN details LONGTEXT DEFAULT NULL');
+            console.log('✅ Updated "audit_logs.details" column to LONGTEXT.');
+        }
 
         // Prepopulate default cron schedules if empty
         const [schedRows] = await trackerPool.query('SELECT COUNT(*) as count FROM cron_schedules');
@@ -166,7 +245,7 @@ ORDER BY ผู้รับบริการทั้งหมด DESC;`
                     db_type: 'tracker',
                     query_text: `SELECT 
     vn, hn, cid, full_name, visit_date, pttype, 
-    claim_code, authen_code_type, department, color_status, updated_at
+    claim_code, authen_code_type, department, subdistrict_name, color_status, updated_at
 FROM visit_tracking 
 WHERE visit_date = CURDATE()
 ORDER BY color_status ASC;`

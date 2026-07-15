@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ระบบค้นหาสาขาร้านค้า — จังหวัดสระแก้ว</title>
+    <!-- Tailwind CSS (via CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- amCharts 5 Core & Map Packages -->
+    <script src="https://cdn.amcharts.com/lib/5/index.js"></script>
+    <script src="https://cdn.amcharts.com/lib/5/map.js"></script>
+    <script src="https://cdn.amcharts.com/lib/5/themes/Animated.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Outfit', 'Sarabun', sans-serif;
+            background-color: #f8fafc;
+        }
+        /* Custom scrollbar for sidebar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 99px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-800 flex flex-col">
+
+    <!-- Premium Navbar -->
+    <header class="bg-white border-b border-slate-100 px-6 py-4 flex justify-between items-center shrink-0 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-md shadow-teal-500/20">
+                <i class="fas fa-store text-lg"></i>
+            </div>
+            <div>
+                <h1 class="text-base font-extrabold tracking-tight text-slate-900">ระบบค้นหาสาขาจังหวัดสระแก้ว</h1>
+                <p class="text-xs text-slate-400 font-medium">Interactive Multi-level Store Locator Map (Sa Kaeo)</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-4">
+            <a href="/" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-xl transition flex items-center gap-2">
+                <i class="fas fa-arrow-left"></i> ย้อนกลับไปหน้าหลัก
+            </a>
+            <span class="px-3 py-1.5 text-xs font-bold text-teal-700 bg-teal-50 border border-teal-500/10 rounded-full flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span> amCharts 5 Active
+            </span>
+        </div>
+    </header>
+
+    <!-- App Body Layout -->
+    <main class="flex-1 flex flex-col md:flex-row overflow-hidden">
+        
+        <!-- Interactive Sidebar Directory -->
+        <aside class="w-full md:w-80 border-r border-slate-100 bg-white flex flex-col overflow-hidden shrink-0">
+            <div class="p-4 border-b border-slate-50">
+                <h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3">รายชื่อสาขาแบ่งตามอำเภอ</h2>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+                        <i class="fas fa-search text-xs"></i>
+                    </span>
+                    <input type="text" id="search-input" placeholder="ค้นหาอำเภอ หรือ ตำบล..." class="w-full pl-9 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition" />
+                </div>
+            </div>
+            
+            <!-- Directory List -->
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1.5" id="directory-list">
+                <!-- Injected via JavaScript -->
+            </div>
+
+            <!-- Footer Stats -->
+            <div class="p-4 border-t border-slate-100 bg-slate-50/50 text-xs font-semibold text-slate-400 flex justify-between">
+                <span>จำนวนอำเภอที่มีสาขา: <span class="text-slate-800" id="stat-states">0</span></span>
+                <span>จำนวนสาขาทั้งหมด: <span class="text-slate-800" id="stat-stores">0</span></span>
+            </div>
+        </aside>
+
+        <!-- Map Container Area -->
+        <section class="flex-1 p-6 relative flex flex-col overflow-hidden">
+            <!-- Glassmorphic Map Container Card -->
+            <div class="flex-1 bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col relative overflow-hidden">
+                
+                <!-- Map Header & Description -->
+                <div class="p-5 border-b border-slate-50 flex justify-between items-center shrink-0 z-10">
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-800 flex items-center gap-2" id="map-title">
+                            แผนที่แสดงสาขาในจังหวัดสระแก้ว
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-0.5" id="map-subtitle">
+                            แสดงสถิติจำนวนสาขารวมรายอำเภอ (คลิกบนอำเภอเพื่อดูรายละเอียด)
+                        </p>
+                    </div>
+
+                    <!-- Custom Floating Zoom Out Button -->
+                    <button id="zoom-out-btn" class="hidden px-3.5 py-2 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-500/20 rounded-xl shadow-sm transition items-center gap-2">
+                        <i class="fas fa-arrow-left"></i> ซูมออกไปแผนที่จังหวัด
+                    </button>
+                </div>
+
+                <!-- amCharts 5 Target Div -->
+                <div class="flex-1 w-full bg-slate-50/30" id="chartdiv"></div>
+
+                <!-- Interactive Legend -->
+                <div class="absolute bottom-5 left-5 bg-white/95 border border-slate-100 rounded-xl shadow-md p-3.5 flex flex-col gap-1.5 text-xs font-semibold text-slate-600 z-10 max-w-[220px]">
+                    <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">ระดับมุมมองการซูม</div>
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-3 h-3 rounded-full bg-slate-900 border border-white shadow-sm shrink-0"></span>
+                        <span>ยอดรวมรายอำเภอ (ระดับที่ 1)</span>
+                    </div>
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-3.5 h-3.5 rounded-full bg-sky-500 border border-white shadow-sm shrink-0"></span>
+                        <span>ยอดรวมรายตำบล (ระดับที่ 2)</span>
+                    </div>
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-3.5 h-3.5 rounded-full bg-rose-600 border border-white shadow-sm shrink-0"></span>
+                        <span>พิกัดสาขาจริง (ระดับที่ 3)</span>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Map Logic Script -->
+    <script>
+        // Store Application States
+        let root = null;
+        let chart = null;
+        let polygonSeries = null;
+        let statePointSeries = null;
+        let cityPointSeries = null;
+        let storePointSeries = null;
+
+        let rawStores = [];
+        let stateCounts = {};
+        let geojson = null;
+        
+        let currentLevel = 1; // 1 = National/Province, 2 = State/Amphoe, 3 = City/Store
+        let currentStateCode = null;
+        let currentStateName = null;
+        let currentCityName = null;
+
+        // Start Initializing
+        document.addEventListener("DOMContentLoaded", async () => {
+            try {
+                // Fetch stores from local JSON
+                const res = await fetch("stores.json");
+                rawStores = await res.json();
+
+                // Fetch GeoJSON boundary
+                const geoRes = await fetch("sakaeo-districts.geojson");
+                geojson = await geoRes.json();
+
+                // Compute aggregate district counts
+                rawStores.forEach(s => {
+                    stateCounts[s.state] = (stateCounts[s.state] || 0) + 1;
+                });
+
+                // Update counts display in sidebar
+                document.getElementById("stat-states").textContent = Object.keys(stateCounts).length;
+                document.getElementById("stat-stores").textContent = rawStores.length;
+
+                // Build sidebar list
+                renderSidebarList();
+                
+                // Initialize Map Chart
+                initMap();
+            } catch (err) {
+                console.error("Initialization Failed:", err);
+            }
+        });
+
+        // Search Input Filter
+        document.getElementById("search-input").addEventListener("input", (e) => {
+            const query = e.target.value.toLowerCase();
+            renderSidebarList(query);
+        });
+
+        const stateNames = {
+            "Mueang Sa Kaeo": "เมืองสระแก้ว",
+            "Khlong Hat": "คลองหาด",
+            "Aranyaprathet": "อรัญประเทศ",
+            "Watthana Nakhon": "วัฒนานคร",
+            "Wang Nam Yen": "วังน้ำเย็น",
+            "Khao Chakan": "เขาฉกรรจ์",
+            "Khok Sung": "โคกสูง",
+            "Ta Phraya": "ตาพระยา",
+            "Wang Sombun": "วังสมบูรณ์"
+        };
+
+        function renderSidebarList(filterQuery = "") {
+            const listContainer = document.getElementById("directory-list");
+            listContainer.innerHTML = "";
+
+            // Group stores by district
+            const statesMap = {};
+            rawStores.forEach(s => {
+                if (!statesMap[s.state]) {
+                    statesMap[s.state] = {
+                        stateCode: s.state,
+                        cities: {}
+                    };
+                }
+                statesMap[s.state].cities[s.city] = (statesMap[s.state].cities[s.city] || 0) + 1;
+            });
+
+            const sortedStates = Object.values(statesMap).sort((a, b) => b.stateCode.localeCompare(a.stateCode));
+
+            sortedStates.forEach(st => {
+                const fullStateName = stateNames[st.stateCode] || st.stateCode;
+                const stateTotal = stateCounts[st.stateCode] || 0;
+
+                // Check search filter matches district
+                const matchesState = fullStateName.toLowerCase().includes(filterQuery) || st.stateCode.toLowerCase().includes(filterQuery);
+                
+                // Filter subdistricts (cities)
+                const matchingCities = Object.entries(st.cities).filter(([cityName]) => 
+                    cityName.toLowerCase().includes(filterQuery)
+                );
+
+                if (!matchesState && matchingCities.length === 0) return;
+
+                // Create district header block
+                const stateBox = document.createElement("div");
+                stateBox.className = "bg-slate-50/70 border border-slate-100 rounded-xl p-3 mb-2 flex flex-col gap-1.5 transition hover:bg-slate-50";
+                
+                const header = document.createElement("div");
+                header.className = "flex justify-between items-center cursor-pointer";
+                header.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <i class="fas fa-map-marker-alt text-teal-600"></i>
+                        <span class="font-bold text-sm text-slate-800">อ.${fullStateName}</span>
+                    </div>
+                    <span class="text-xs font-bold text-teal-800 bg-teal-50 px-2.5 py-0.5 rounded-full border border-teal-500/10">${stateTotal} สาขา</span>
+                `;
+                
+                // Clicking district in sidebar triggers zoom
+                header.addEventListener("click", () => {
+                    const polygonDataItem = findStatePolygonDataItem(st.stateCode);
+                    if (polygonDataItem) {
+                        polygonSeries.zoomToDataItem(polygonDataItem);
+                    }
+                    drillToState(st.stateCode, fullStateName);
+                });
+
+                stateBox.appendChild(header);
+
+                // Add list of matching subdistricts
+                const citiesList = document.createElement("div");
+                citiesList.className = "pl-5 mt-1 border-l-2 border-slate-200/60 flex flex-col gap-1 text-xs text-slate-500";
+                
+                const citiesToRender = matchesState ? Object.entries(st.cities) : matchingCities;
+                citiesToRender.forEach(([cityName, cityCount]) => {
+                    const cityLink = document.createElement("div");
+                    cityLink.className = "flex justify-between items-center py-1 hover:text-slate-800 cursor-pointer transition";
+                    cityLink.innerHTML = `
+                        <span>ต.${cityName}</span>
+                        <span class="font-bold text-slate-700">${cityCount}</span>
+                    `;
+
+                    cityLink.addEventListener("click", () => {
+                        // Find the center of this subdistrict
+                        const stateStores = rawStores.filter(s => s.state === st.stateCode && s.city === cityName);
+                        if (stateStores.length > 0) {
+                            const avgLat = stateStores.reduce((sum, s) => sum + s.latitude, 0) / stateStores.length;
+                            const avgLng = stateStores.reduce((sum, s) => sum + s.longitude, 0) / stateStores.length;
+                            
+                            // Drill to district first
+                            const polygonDataItem = findStatePolygonDataItem(st.stateCode);
+                            if (polygonDataItem) {
+                                polygonSeries.zoomToDataItem(polygonDataItem);
+                            }
+                            drillToState(st.stateCode, fullStateName);
+
+                            // Zoom to subdistrict
+                            chart.zoomToGeoPoint({ longitude: avgLng, latitude: avgLat }, 12, true);
+                            drillToCity(st.stateCode, cityName, stateStores);
+                        }
+                    });
+
+                    citiesList.appendChild(cityLink);
+                });
+
+                if (citiesToRender.length > 0) {
+                    stateBox.appendChild(citiesList);
+                }
+
+                listContainer.appendChild(stateBox);
+            });
+        }
+
+        // Search for matching map polygon dataItem by district code
+        function findStatePolygonDataItem(stateCode) {
+            let targetDataItem = null;
+            polygonSeries.mapPolygons.each(polygon => {
+                if (polygon.dataItem.dataContext.id === stateCode) {
+                    targetDataItem = polygon.dataItem;
+                }
+            });
+            return targetDataItem;
+        }
+
+        // Zoom Out Button click action
+        document.getElementById("zoom-out-btn").addEventListener("click", function() {
+            if (currentLevel === 3) {
+                // Go back to Level 2 (Subdistrict list of current district)
+                const polygonDataItem = findStatePolygonDataItem(currentStateCode);
+                if (polygonDataItem) {
+                    polygonSeries.zoomToDataItem(polygonDataItem);
+                }
+                drillToState(currentStateCode, currentStateName);
+            } else if (currentLevel === 2) {
+                // Go back to Level 1 (Province View)
+                currentLevel = 1;
+                currentStateCode = null;
+                currentStateName = null;
+
+                cityPointSeries.hide();
+                storePointSeries.hide();
+                statePointSeries.show();
+
+                // Reset zoom to show all districts
+                chart.zoomToRectangle(polygonSeries.getBounds());
+
+                this.style.display = "none";
+                document.getElementById("map-title").textContent = "แผนที่แสดงสาขาในจังหวัดสระแก้ว";
+                document.getElementById("map-subtitle").textContent = "แสดงสถิติจำนวนสาขารวมรายอำเภอ (คลิกบนอำเภอเพื่อดูรายละเอียด)";
+            }
+        });
+
+        // Create amCharts 5 Map
+        function initMap() {
+            // Clean up existing root to prevent crashes/leaks
+            am5.array.each(am5.registry.rootElements, function(r) {
+                if (r.dom.id === "chartdiv") {
+                    r.dispose();
+                }
+            });
+
+            root = am5.Root.new("chartdiv");
+
+            // Apply Animated themes
+            root.setThemes([am5themes_Animated.new(root)]);
+
+            // Create Map Chart using Mercator projection for local province mapping
+            chart = root.container.children.push(
+                am5map.MapChart.new(root, {
+                    panX: "none",
+                    panY: "none",
+                    projection: am5map.geoMercator(),
+                    wheelable: false
+                })
+            );
+
+            // Create primary map polygon series (Sa Kaeo districts)
+            polygonSeries = chart.series.push(
+                am5map.MapPolygonSeries.new(root, {
+                    geoJSON: geojson,
+                    valueField: "value",
+                    calculateAggregates: true
+                })
+            );
+
+            polygonSeries.mapPolygons.template.setAll({
+                tooltipText: "อ.{name}",
+                interactive: true,
+                fill: am5.color(0xf1f5f9), // premium light-slate
+                stroke: am5.color(0xffffff),
+                strokeWidth: 2
+            });
+
+            // Teal hover color on district polygons
+            polygonSeries.mapPolygons.template.states.create("hover", {
+                fill: am5.color(0x0d9488) // teal-600
+            });
+
+            // Handle clicking district polygons
+            polygonSeries.mapPolygons.template.events.on("click", (ev) => {
+                const dataItem = ev.target.dataItem;
+                if (dataItem) {
+                    const stateCode = dataItem.dataContext.id;
+                    
+                    // Zoom to polygon
+                    polygonSeries.zoomToDataItem(dataItem);
+
+                    // Drill down to Level 2
+                    drillToState(stateCode, dataItem.dataContext.name);
+                }
+            });
+
+            // 1. Create Point Series for Province level (District aggregated circles)
+            statePointSeries = chart.series.push(
+                am5map.MapPointSeries.new(root, {
+                    valueField: "value"
+                })
+            );
+
+            // Set state point bullets
+            statePointSeries.bullets.push((root, series, dataItem) => {
+                const value = dataItem.dataContext.value;
+                const radius = 12 + Math.min(18, value * 1.5); // scaled based on count
+
+                const container = am5.Container.new(root, {
+                    centerX: am5.p50,
+                    centerY: am5.p50,
+                    cursorOverStyle: "pointer"
+                });
+
+                container.children.push(am5.Circle.new(root, {
+                    radius: radius,
+                    fill: am5.color(0x0f172a), // dark circle
+                    stroke: am5.color(0xffffff),
+                    strokeWidth: 2,
+                    shadowColor: am5.color(0x000000),
+                    shadowBlur: 8,
+                    shadowOpacity: 0.25
+                }));
+
+                container.children.push(am5.Label.new(root, {
+                    text: "{value}",
+                    populateText: true,
+                    centerX: am5.p50,
+                    centerY: am5.p50,
+                    fill: am5.color(0xffffff),
+                    fontSize: 12,
+                    fontWeight: "bold"
+                }));
+
+                // Clicking the count bubble also drills down
+                container.events.on("click", () => {
+                    const stateCode = dataItem.dataContext.stateCode;
+                    const stateName = dataItem.dataContext.name;
+                    const polyDataItem = findStatePolygonDataItem(stateCode);
+                    if (polyDataItem) {
+                        polygonSeries.zoomToDataItem(polyDataItem);
+                    }
+                    drillToState(stateCode, stateName);
+                });
+
+                return am5.Bullet.new(root, {
+                    sprite: container
+                });
+            });
+
+            // 2. Create Point Series for Subdistrict-level (Level 2)
+            cityPointSeries = chart.series.push(
+                am5map.MapPointSeries.new(root, {
+                    valueField: "value"
+                })
+            );
+            cityPointSeries.hide(); // Hidden at start
+
+            cityPointSeries.bullets.push((root, series, dataItem) => {
+                const container = am5.Container.new(root, {
+                    centerX: am5.p50,
+                    centerY: am5.p50,
+                    cursorOverStyle: "pointer",
+                    tooltipText: "ต.[bold]{city}[/]\n{value} สาขา"
+                });
+
+                container.children.push(am5.Circle.new(root, {
+                    radius: 8,
+                    fill: am5.color(0x0ea5e9), // sky-500
+                    stroke: am5.color(0xffffff),
+                    strokeWidth: 2,
+                    shadowColor: am5.color(0x000000),
+                    shadowBlur: 5,
+                    shadowOpacity: 0.15
+                }));
+
+                container.children.push(am5.Label.new(root, {
+                    text: "ต.{city}",
+                    y: 12,
+                    centerX: am5.p50,
+                    fill: am5.color(0x334155),
+                    fontSize: 10.5,
+                    fontWeight: "bold",
+                    background: am5.RoundedRectangle.new(root, {
+                        fill: am5.color(0xffffff),
+                        fillOpacity: 0.85,
+                        strokeOpacity: 0,
+                        cornerRadius: 4
+                    })
+                }));
+
+                container.events.on("click", () => {
+                    const cData = dataItem.dataContext;
+                    
+                    // Zoom closer to the subdistrict
+                    chart.zoomToGeoPoint({ longitude: cData.longitude, latitude: cData.latitude }, 12, true);
+                    
+                    drillToCity(cData.stateCode, cData.city, cData.stores);
+                });
+
+                return am5.Bullet.new(root, {
+                    sprite: container
+                });
+            });
+
+            // 3. Create Point Series for Individual Stores (Level 3)
+            storePointSeries = chart.series.push(
+                am5map.MapPointSeries.new(root, {})
+            );
+            storePointSeries.hide(); // Hidden at start
+
+            storePointSeries.bullets.push((root, series, dataItem) => {
+                const container = am5.Container.new(root, {
+                    centerX: am5.p50,
+                    centerY: am5.p50,
+                    tooltipText: "[bold]ข้อมูลสาขา[/]\n{store_name}\nตำบล: {city}"
+                });
+
+                // Custom marker point (rose-600 pin marker)
+                container.children.push(am5.Circle.new(root, {
+                    radius: 6,
+                    fill: am5.color(0xe11d48), // rose-600
+                    stroke: am5.color(0xffffff),
+                    strokeWidth: 1.5,
+                    shadowColor: am5.color(0x000000),
+                    shadowBlur: 4,
+                    shadowOpacity: 0.2
+                }));
+
+                return am5.Bullet.new(root, {
+                    sprite: container
+                });
+            });
+
+            // Calculate visual centroids of districts on polygon validation and populate State aggregate markers
+            polygonSeries.events.on("datavalidated", () => {
+                const statePoints = [];
+                polygonSeries.mapPolygons.each((polygon) => {
+                    const dContext = polygon.dataItem.dataContext;
+                    const stateCode = dContext.id;
+                    const count = stateCounts[stateCode] || 0;
+
+                    if (count > 0) {
+                        const center = polygon.visualCentroid();
+                        statePoints.push({
+                            latitude: center.latitude,
+                            longitude: center.longitude,
+                            value: count,
+                            stateCode: stateCode,
+                            name: dContext.name
+                        });
+                    }
+                });
+                statePointSeries.data.setAll(statePoints);
+
+                // Auto zoom to Sa Kaeo boundaries
+                chart.zoomToRectangle(polygonSeries.getBounds());
+            });
+        }
+
+        // Logic for Level 2 (District Subdistricts View)
+        function drillToState(stateCode, stateName) {
+            currentLevel = 2;
+            currentStateCode = stateCode;
+            currentStateName = stateName;
+
+            statePointSeries.hide();
+            storePointSeries.hide();
+            cityPointSeries.show();
+
+            // Group state stores by subdistrict (city)
+            const stateStores = rawStores.filter(s => s.state === stateCode);
+            const citiesMap = {};
+            stateStores.forEach(s => {
+                if (!citiesMap[s.city]) {
+                    citiesMap[s.city] = {
+                        city: s.city,
+                        stateCode: stateCode,
+                        latitude: 0,
+                        longitude: 0,
+                        value: 0,
+                        stores: []
+                    };
+                }
+                citiesMap[s.city].latitude += s.latitude;
+                citiesMap[s.city].longitude += s.longitude;
+                citiesMap[s.city].value += 1;
+                citiesMap[s.city].stores.push(s);
+            });
+
+            const citiesData = Object.values(citiesMap).map(c => {
+                c.latitude = c.latitude / c.value;
+                c.longitude = c.longitude / c.value;
+                return c;
+            });
+
+            cityPointSeries.data.setAll(citiesData);
+
+            // Display and update floating Zoom Out button
+            const btn = document.getElementById("zoom-out-btn");
+            btn.style.display = "flex";
+            btn.innerHTML = `<i class="fas fa-arrow-left"></i> ซูมออกไปแผนที่จังหวัด`;
+
+            // Update title/status headers
+            document.getElementById("map-title").textContent = `สาขาร้านค้า — อำเภอ${stateName}`;
+            document.getElementById("map-subtitle").textContent = `แสดงรายชื่อและยอดรวมตำบลในอำเภอ`;
+        }
+
+        // Logic for Level 3 (Subdistrict Stores View)
+        function drillToCity(stateCode, cityName, stores) {
+            currentLevel = 3;
+            currentCityName = cityName;
+
+            cityPointSeries.hide();
+            storePointSeries.show();
+
+            // Map individual stores data
+            const storesData = stores.map(s => ({
+                latitude: s.latitude,
+                longitude: s.longitude,
+                store_name: s.store_name,
+                city: s.city
+            }));
+
+            storePointSeries.data.setAll(storesData);
+
+            // Update Zoom Out button text
+            const btn = document.getElementById("zoom-out-btn");
+            btn.innerHTML = `<i class="fas fa-arrow-left"></i> ซูมออกไปอำเภอ${currentStateName}`;
+
+            // Update title headers
+            document.getElementById("map-title").textContent = `พิกัดร้านค้าจริง — ตำบล${cityName}, อำเภอ${stateNames[stateCode]}`;
+            document.getElementById("map-subtitle").textContent = `แสดงตำแหน่งและชื่อสาขาในระดับตำบล`;
+        }
+    </script>
+
+</body>
+</html>

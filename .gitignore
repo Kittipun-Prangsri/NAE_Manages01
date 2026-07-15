@@ -3,3 +3,6 @@ node_modules
 dist
 .DS_Store
 package-lock.json
+puppeteer_session/
+**/screenshots/
+downloads/

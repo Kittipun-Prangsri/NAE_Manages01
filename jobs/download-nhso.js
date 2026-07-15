@@ -12,7 +12,7 @@ puppeteer.use(StealthPlugin());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export async function downloadNhsoReport() {
+export async function downloadNhsoReport(statusCallback = null) {
     const url = process.env.NHSO_PORTAL_URL || 'https://authenservice.nhso.go.th/authencode/';
     const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
     const telegramChatId = process.env.TELEGRAM_CHAT_ID;
@@ -33,6 +33,7 @@ export async function downloadNhsoReport() {
     cleanOldDownloads(downloadsDir);
 
     console.log('🕵️‍♂️ Starting automated NHSO Report Downloader...');
+    if (statusCallback) statusCallback('starting_browser', 'กำลังรันบราวเซอร์ Puppeteer เบื้องหลัง...');
     
     let browser;
     try {
@@ -82,6 +83,7 @@ export async function downloadNhsoReport() {
         });
 
         console.log('🔗 Navigating to NHSO portal to check session...');
+        if (statusCallback) statusCallback('checking_session', 'กำลังตรวจสอบเซสชันกับหน้าเว็บ สปสช....');
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
         await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -96,19 +98,18 @@ export async function downloadNhsoReport() {
             });
             if (!hasLoginButton) {
                 console.log('✅ Existing active session found! Skipping ThaiD QR Code login.');
+                if (statusCallback) statusCallback('session_found', 'พบเซสชันเดิมที่ยังไม่หมดอายุ ข้ามขั้นตอนเข้าสู่ระบบ...');
                 authenticated = true;
             }
         }
 
-        let retries = 3;
-        for (let attempt = 1; attempt <= retries; attempt++) {
-            if (authenticated) break;
-
-            console.log(`🔗 Navigating to NHSO portal (Attempt ${attempt}/${retries})...`);
+        if (!authenticated) {
+            console.log(`🔗 Navigating to NHSO portal...`);
             await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
             // Wait and click ThaiD
             console.log('🔑 Clicking ThaiD login option...');
+            if (statusCallback) statusCallback('generating_qr', 'กำลังสลับหน้าจอไปขอรหัส QR Code ล็อกอินด้วยแอป ThaiD...');
             try {
                 await page.waitForSelector('a[href*="/broker/thaid/login"]', { timeout: 15000 });
                 await Promise.all([
@@ -121,80 +122,93 @@ export async function downloadNhsoReport() {
                 if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
                     console.log('🎉 Detected authentication during transition!');
                     authenticated = true;
-                    break;
+                } else {
+                    throw err;
                 }
-                throw err;
             }
 
-            // Wait for ThaiD QR page to render
-            await new Promise(resolve => setTimeout(resolve, 5000));
+            if (!authenticated) {
+                // Wait for ThaiD QR page to render
+                await new Promise(resolve => setTimeout(resolve, 5000));
 
-            const thaidUrl = page.url();
-            console.log(`📍 Current URL (ThaiD Page): ${thaidUrl}`);
+                const thaidUrl = page.url();
+                console.log(`📍 Current URL (ThaiD Page): ${thaidUrl}`);
 
-            // Temporarily set a mobile viewport for large QR code rendering
-            await page.setViewport({ width: 440, height: 600 });
-            await new Promise(resolve => setTimeout(resolve, 1000));
+                // Temporarily set a mobile viewport for large QR code rendering
+                await page.setViewport({ width: 440, height: 600 });
+                await new Promise(resolve => setTimeout(resolve, 1000));
 
-            // Capture QR Code page screenshot in screenshots directory
-            const screenshotsDir = path.join(__dirname, 'screenshots');
-            if (!fs.existsSync(screenshotsDir)) {
-                fs.mkdirSync(screenshotsDir, { recursive: true });
-            }
-            const thaidQrFilename = `thaid_qr_${attempt}.png`;
-            const thaidQrPath = path.join(screenshotsDir, thaidQrFilename);
-            await page.screenshot({ path: thaidQrPath });
-
-            // Restore desktop viewport for subsequent operations
-            await page.setViewport({ width: 1440, height: 900 });
-
-            // Send QR Code to Telegram & LINE so the user can scan it
-            const caption = attempt === 1 
-                ? '📲 กรุณาสแกน QR Code เพื่อให้ระบบดาวน์โหลดรายงาน Authen Code อัตโนมัติ (จำกัดเวลา 2 นาที)'
-                : `⚠️ QR Code ก่อนหน้านี้หมดอายุแล้ว กรุณาสแกน QR Code ใหม่นี้แทน (จำกัดเวลา 2 นาที, ครั้งที่ ${attempt}/${retries})`;
-            
-            if (hasTelegram) {
-                const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
-                for (const id of chatIds) {
-                    await sendTelegramPhoto(thaidQrPath, 'thaid_qr.png', telegramToken, id, caption, thaidUrl);
+                // Capture QR Code page screenshot in screenshots directory
+                const screenshotsDir = path.join(__dirname, 'screenshots');
+                if (!fs.existsSync(screenshotsDir)) {
+                    fs.mkdirSync(screenshotsDir, { recursive: true });
                 }
-                console.log(`📲 QR Code (Attempt ${attempt}) sent to Telegram.`);
-            }
+                const thaidQrFilename = 'thaid_qr.png';
+                const thaidQrPath = path.join(screenshotsDir, thaidQrFilename);
+                await page.screenshot({ path: thaidQrPath });
 
-            if (hasLine) {
-                await sendToLineBot(thaidQrPath, thaidQrFilename, lineAccessToken, lineGroupId, imgbbApiKey, serverPublicUrl, caption, thaidUrl);
-                console.log(`📲 QR Code (Attempt ${attempt}) sent to LINE.`);
-            }
+                // Restore desktop viewport for subsequent operations
+                await page.setViewport({ width: 1440, height: 900 });
 
-            // Wait for scan (Timeout: 120 seconds)
-            const startTime = Date.now();
-            const timeoutMs = 120000;
-
-            while (Date.now() - startTime < timeoutMs) {
-                const currentUrl = page.url();
-                if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
-                    console.log(`🎉 Detected redirect to NHSO Portal! URL: ${currentUrl}`);
-                    console.log('⏳ Waiting 5 seconds for session and cookies to settle...');
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                    authenticated = true;
-                    break;
+                // Send QR Code to Telegram & LINE so the user can scan it
+                const caption = '📲 กรุณาสแกน QR Code เพื่อให้ระบบดาวน์โหลดรายงาน Authen Code อัตโนมัติ';
+                
+                if (hasTelegram) {
+                    const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
+                    for (const id of chatIds) {
+                        await sendTelegramPhoto(thaidQrPath, 'thaid_qr.png', telegramToken, id, caption, thaidUrl);
+                    }
+                    console.log(`📲 QR Code sent to Telegram.`);
                 }
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
 
-            if (authenticated) {
-                console.log('✅ Authentication successful!');
-                break;
-            }
+                if (hasLine) {
+                    await sendToLineBot(thaidQrPath, thaidQrFilename, lineAccessToken, lineGroupId, imgbbApiKey, serverPublicUrl, caption, thaidUrl);
+                    console.log(`📲 QR Code sent to LINE.`);
+                }
 
-            console.warn(`⚠️ Attempt ${attempt} timed out waiting for scan.`);
+                let qrUrl = `/screenshots/thaid_qr.png?t=${Date.now()}`;
+                try {
+                    if (fs.existsSync(thaidQrPath)) {
+                        const base64Image = fs.readFileSync(thaidQrPath, { encoding: 'base64' });
+                        qrUrl = `data:image/png;base64,${base64Image}`;
+                    }
+                } catch (err) {
+                    console.error('❌ Failed to read QR Code as base64:', err);
+                }
+                
+                if (statusCallback) statusCallback('waiting_thaid_scan', 'กรุณาสแกน QR Code เพื่อล็อกอินผ่านแอป ThaiD', qrUrl);
+
+                // Wait for scan (Timeout: 10 minutes)
+                const startTime = Date.now();
+                const timeoutMs = 600000; // 10 minutes
+
+                while (Date.now() - startTime < timeoutMs) {
+                    const currentUrl = page.url();
+                    if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
+                        console.log('🎉 Detected redirect to NHSO Portal! URL:', currentUrl);
+                        if (statusCallback) statusCallback('auth_success', 'ตรวจพบการยืนยันตัวตนสำเร็จแล้ว! กำลังโหลดเซสชัน...');
+                        console.log('⏳ Waiting 5 seconds for session and cookies to settle...');
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        authenticated = true;
+                        break;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+
+                if (authenticated) {
+                    console.log('✅ Authentication successful!');
+                } else {
+                    console.warn('⚠️ Timed out waiting for scan.');
+                }
+            }
         }
 
         if (!authenticated) {
-            throw new Error('การยืนยันตัวตน ThaiD หมดเวลา หรือไม่สำเร็จในทุกความพยายาม');
+            throw new Error('การยืนยันตัวตน ThaiD หมดเวลา หรือไม่สำเร็จ');
         }
 
         console.log('✅ Authentication successful! Navigating to report/eclaim page...');
+        if (statusCallback) statusCallback('navigating_report', 'เข้าสู่ระบบสำเร็จ กำลังเปิดหน้าเมนูดาวน์โหลดรายงาน...');
         await page.goto('https://authenservice.nhso.go.th/authencode/report/eclaim', { waitUntil: 'networkidle2', timeout: 60000 });
         
         console.log('⏳ Waiting for page elements to load...');
@@ -212,6 +226,7 @@ export async function downloadNhsoReport() {
         const date_ad = `${dd}/${mm}/${yyyy_ad}`;
 
         console.log(`📅 Prepared search dates -> BE: ${date_be}, AD: ${date_ad}`);
+        if (statusCallback) statusCallback('searching_data', `กำลังสืบค้นรายงานของวันที่ ${date_be}...`);
 
         // Fill dates in inputs (try BE first)
         console.log(`✍️ Setting date inputs to (BE): ${date_be}...`);
@@ -269,11 +284,13 @@ export async function downloadNhsoReport() {
         await new Promise(resolve => setTimeout(resolve, 3000));
 
         console.log('📥 Clicking "ดาวน์โหลดรายงาน" button...');
+        if (statusCallback) statusCallback('downloading_file', 'กำลังสั่งให้ระบบส่งรายงานและรอรับการดาวน์โหลดไฟล์ Excel...');
         await page.click('button.btn-default.float-end');
 
         console.log('⏳ Waiting for file download to complete...');
         const filePath = await waitForDownload(downloadsDir, 60000);
         console.log(`🎉 Download successful! Saved to: ${filePath}`);
+        if (statusCallback) statusCallback('download_complete', 'ดาวน์โหลดไฟล์รายงาน Excel สำเร็จเรียบร้อยแล้ว!');
 
         return { success: true, filePath };
 
@@ -308,6 +325,10 @@ async function waitForDownload(downloadsDir, timeoutMs) {
 }
 
 async function sendTelegramPhoto(filepath, filename, token, chatId, text, actionUrl = null) {
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ Telegram photo sending is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
     try {
         const fileBuffer = fs.readFileSync(filepath);
         const blob = new Blob([fileBuffer], { type: 'image/png' });
@@ -341,6 +362,10 @@ async function sendTelegramPhoto(filepath, filename, token, chatId, text, action
 }
 
 async function sendToLineBot(filepath, filename, token, groupId, imgbbKey, publicUrl, captionText, actionUrl = null) {
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ LINE Flex message sending is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
     console.log('📲 Processing image hosting for LINE Messaging API...');
     let imageUrl = '';
 
@@ -404,13 +429,17 @@ async function sendToLineBot(filepath, filename, token, groupId, imgbbKey, publi
         };
 
         if (imageUrl) {
-            flexBubble.hero = {
-                "type": "image",
-                "url": imageUrl,
-                "size": "full",
-                "aspectRatio": actionUrl ? "1:1" : "1.91:1",
-                "aspectMode": "fit"
-            };
+            if (imageUrl.startsWith('https://')) {
+                flexBubble.hero = {
+                    "type": "image",
+                    "url": imageUrl,
+                    "size": "full",
+                    "aspectRatio": actionUrl ? "1:1" : "1.91:1",
+                    "aspectMode": "fit"
+                };
+            } else {
+                console.warn(`⚠️ Skipping hero image in LINE Flex message: URL must start with https:// (provided: "${imageUrl}")`);
+            }
         }
 
         if (actionUrl) {

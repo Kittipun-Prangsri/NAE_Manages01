@@ -104,11 +104,8 @@ async function testThaiDFlow() {
             }
         }
 
-        let retries = 3;
-        for (let attempt = 1; attempt <= retries; attempt++) {
-            if (authenticated) break;
-
-            console.log(`🔗 Navigating to NHSO portal (Attempt ${attempt}/${retries})...`);
+        if (!authenticated) {
+            console.log(`🔗 Navigating to NHSO portal...`);
             await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
             console.log('🔑 Clicking ThaiD login option...');
@@ -126,84 +123,83 @@ async function testThaiDFlow() {
                 if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
                     console.log('🎉 Detected authentication during transition!');
                     authenticated = true;
-                    break;
+                } else {
+                    throw err;
                 }
-                throw err;
             }
 
-            console.log('⏳ Waiting for ThaiD QR Code page to render...');
-            await new Promise(resolve => setTimeout(resolve, 5000));
+            if (!authenticated) {
+                console.log('⏳ Waiting for ThaiD QR Code page to render...');
+                await new Promise(resolve => setTimeout(resolve, 5000));
 
-            const thaidUrl = page.url();
-            console.log(`📍 Current URL (ThaiD Page): ${thaidUrl}`);
+                const thaidUrl = page.url();
+                console.log(`📍 Current URL (ThaiD Page): ${thaidUrl}`);
 
-            // Temporarily set a mobile viewport for large QR code rendering
-            await page.setViewport({ width: 440, height: 600 });
-            await new Promise(resolve => setTimeout(resolve, 1000));
+                // Temporarily set a mobile viewport for large QR code rendering
+                await page.setViewport({ width: 440, height: 600 });
+                await new Promise(resolve => setTimeout(resolve, 1000));
 
-            // Capture QR Code page screenshot in screenshots directory
-            const screenshotsDir = path.join(__dirname, 'screenshots');
-            if (!fs.existsSync(screenshotsDir)) {
-                fs.mkdirSync(screenshotsDir, { recursive: true });
-            }
-            const thaidQrFilename = `thaid_qr_${attempt}.png`;
-            const thaidQrPath = path.join(screenshotsDir, thaidQrFilename);
-            await page.screenshot({ path: thaidQrPath });
-            console.log(`📸 QR Code screenshot saved to: ${thaidQrPath}`);
-
-            // Restore desktop viewport
-            await page.setViewport({ width: 1280, height: 800 });
-
-            // Send QR Code to Telegram & LINE
-            const caption = attempt === 1 
-                ? '📲 สแกน QR Code นี้ด้วยแอป ThaiD เพื่อเข้าใช้งานระบบ สปสช. (จำกัดเวลา 2 นาที)'
-                : `⚠️ QR Code ก่อนหน้านี้หมดอายุแล้ว กรุณาสแกน QR Code ใหม่นี้แทน (จำกัดเวลา 2 นาที, ครั้งที่ ${attempt}/${retries})`;
-
-            if (hasTelegram) {
-                const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
-                for (const id of chatIds) {
-                    await sendToTelegram(thaidQrPath, 'thaid_qr.png', telegramToken, id, caption, thaidUrl);
+                // Capture QR Code page screenshot in screenshots directory
+                const screenshotsDir = path.join(__dirname, 'screenshots');
+                if (!fs.existsSync(screenshotsDir)) {
+                    fs.mkdirSync(screenshotsDir, { recursive: true });
                 }
-                console.log(`📲 QR Code (Attempt ${attempt}) sent to Telegram.`);
-            }
+                const thaidQrFilename = 'thaid_qr.png';
+                const thaidQrPath = path.join(screenshotsDir, thaidQrFilename);
+                await page.screenshot({ path: thaidQrPath });
+                console.log(`📸 QR Code screenshot saved to: ${thaidQrPath}`);
 
-            if (hasLine) {
-                await sendToLineBot(thaidQrPath, thaidQrFilename, lineAccessToken, lineGroupId, imgbbApiKey, serverPublicUrl, caption, thaidUrl);
-                console.log(`📲 QR Code (Attempt ${attempt}) sent to LINE.`);
-            }
+                // Restore desktop viewport
+                await page.setViewport({ width: 1280, height: 800 });
 
-            // Wait loop: Poll every 2 seconds to check if we are redirected back to authencode dashboard
-            console.log('⏳ Waiting for user to scan QR Code (Timeout: 120 seconds)...');
-            const startTime = Date.now();
-            const timeoutMs = 120000; // 2 minutes
+                // Send QR Code to Telegram & LINE
+                const caption = '📲 สแกน QR Code นี้ด้วยแอป ThaiD เพื่อเข้าใช้งานระบบ สปสช.';
 
-            while (Date.now() - startTime < timeoutMs) {
-                const currentUrl = page.url();
-                
-                // Check if we are redirected back to authenservice/authencode
-                if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
-                    console.log(`🎉 Detected redirect to NHSO Portal! URL: ${currentUrl}`);
-                    console.log('⏳ Waiting 5 seconds for session and cookies to settle...');
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                    authenticated = true;
-                    break;
+                if (hasTelegram) {
+                    const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
+                    for (const id of chatIds) {
+                        await sendToTelegram(thaidQrPath, 'thaid_qr.png', telegramToken, id, caption, thaidUrl);
+                    }
+                    console.log(`📲 QR Code sent to Telegram.`);
                 }
 
-                // Print countdown status
-                const elapsed = Math.round((Date.now() - startTime) / 1000);
-                process.stdout.write(`⏳ Polling session... ${elapsed}s elapsed. Current URL: ${currentUrl.substring(0, 60)}...\r`);
-                
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                if (hasLine) {
+                    await sendToLineBot(thaidQrPath, thaidQrFilename, lineAccessToken, lineGroupId, imgbbApiKey, serverPublicUrl, caption, thaidUrl);
+                    console.log(`📲 QR Code sent to LINE.`);
+                }
+
+                // Wait loop: Poll every 2 seconds to check if we are redirected back to authencode dashboard
+                console.log('⏳ Waiting for user to scan QR Code (Timeout: 10 minutes)...');
+                const startTime = Date.now();
+                const timeoutMs = 600000; // 10 minutes
+
+                while (Date.now() - startTime < timeoutMs) {
+                    const currentUrl = page.url();
+                    
+                    // Check if we are redirected back to authenservice/authencode
+                    if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
+                        console.log(`🎉 Detected redirect to NHSO Portal! URL: ${currentUrl}`);
+                        console.log('⏳ Waiting 5 seconds for session and cookies to settle...');
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        authenticated = true;
+                        break;
+                    }
+
+                    // Print countdown status
+                    const elapsed = Math.round((Date.now() - startTime) / 1000);
+                    process.stdout.write(`⏳ Polling session... ${elapsed}s elapsed. Current URL: ${currentUrl.substring(0, 60)}...\r`);
+                    
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+
+                console.log('\n');
+
+                if (authenticated) {
+                    console.log('✅ Authentication successful!');
+                } else {
+                    console.warn(`⚠️ Timed out waiting for scan.`);
+                }
             }
-
-            console.log('\n');
-
-            if (authenticated) {
-                console.log('✅ Authentication successful!');
-                break;
-            }
-
-            console.warn(`⚠️ Attempt ${attempt} timed out waiting for scan.`);
         }
 
         if (authenticated) {
@@ -341,6 +337,10 @@ async function waitForDownload(downloadsDir, timeoutMs) {
 }
 
 async function sendToTelegram(filepath, filename, token, chatId, text = '', actionUrl = null) {
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ Telegram photo sending is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
     try {
         const fileBuffer = fs.readFileSync(filepath);
         const blob = new Blob([fileBuffer], { type: 'image/png' });
@@ -379,6 +379,10 @@ async function sendToTelegram(filepath, filename, token, chatId, text = '', acti
 }
 
 async function sendToLineBot(filepath, filename, token, groupId, imgbbKey, publicUrl, captionText, actionUrl = null) {
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ LINE Flex message sending is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
     console.log('📲 Processing image hosting for LINE Messaging API...');
     let imageUrl = '';
 
@@ -442,13 +446,17 @@ async function sendToLineBot(filepath, filename, token, groupId, imgbbKey, publi
         };
 
         if (imageUrl) {
-            flexBubble.hero = {
-                "type": "image",
-                "url": imageUrl,
-                "size": "full",
-                "aspectRatio": actionUrl ? "1:1" : "1.91:1",
-                "aspectMode": "fit"
-            };
+            if (imageUrl.startsWith('https://')) {
+                flexBubble.hero = {
+                    "type": "image",
+                    "url": imageUrl,
+                    "size": "full",
+                    "aspectRatio": actionUrl ? "1:1" : "1.91:1",
+                    "aspectMode": "fit"
+                };
+            } else {
+                console.warn(`⚠️ Skipping hero image in LINE Flex message: URL must start with https:// (provided: "${imageUrl}")`);
+            }
         }
 
         if (actionUrl) {

@@ -16,6 +16,7 @@ import {
 import { processCrossCheck } from '../backend/crossCheckLogic.js';
 import { captureAndNotify } from './capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
+import { keepAliveNhsoSession } from './keep-alive-nhso.js';
 
 dotenv.config();
 
@@ -50,10 +51,10 @@ async function handleScheduledSyncAndCapture() {
             
             // นำข้อมูลเข้าสู่ฐานข้อมูลและประมวลผลเปรียบเทียบ
             await saveAuthenLog(excelData, visit_date);
+            await executeAdvancedRunLogic(visit_date);
             const hosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(hosxpData, excelData);
             await saveTrackingResults(processedData);
-            await executeAdvancedRunLogic(visit_date);
             
             // Keep only the latest Excel download as backup
             cleanOldDownloads(downloadsDir);
@@ -129,6 +130,10 @@ async function checkAndReloadSchedules() {
 let lastUpdateId = 0;
 
 async function sendTelegramMessage(token, chatId, text) {
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ Telegram message is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
     try {
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
@@ -141,6 +146,10 @@ async function sendTelegramMessage(token, chatId, text) {
 }
 
 async function sendLineMessage(text) {
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ LINE message is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        return;
+    }
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     const groupId = process.env.LINE_GROUP_ID;
     if (!token || !groupId || token === 'your_line_token_here' || groupId === 'your_group_id_here') {
@@ -189,10 +198,10 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             
             // นำเข้าข้อมูลและประมวลผล Sync
             await saveAuthenLog(excelData, visit_date);
+            await executeAdvancedRunLogic(visit_date);
             const hosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(hosxpData, excelData);
             await saveTrackingResults(processedData);
-            await executeAdvancedRunLogic(visit_date);
             console.log('✅ [Telegram Trigger] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
             
             // เคลียร์ไฟล์ดาวน์โหลด
@@ -299,10 +308,50 @@ async function startTelegramBotListener() {
             setTimeout(poll, 1000);
             
         } catch (error) {
-            console.error('Error polling Telegram updates:', error);
             isPolling = false;
-            // Wait 10 seconds before retrying on network error/timeout to avoid hammering
-            setTimeout(poll, 10000);
+            
+            // Check if it's a network/timeout error to print a cleaner message and avoid log spam
+            const isNetworkError = 
+                error.code === 'ETIMEDOUT' || 
+                error.code === 'ENOTFOUND' || 
+                error.code === 'ECONNREFUSED' || 
+                error.code === 'EHOSTUNREACH' || 
+                error.code === 'ECONNRESET' || 
+                error.message?.includes('timeout') || 
+                error.message?.includes('fetch failed') ||
+                (error.cause && (
+                    error.cause.code === 'ETIMEDOUT' || 
+                    error.cause.code === 'ENOTFOUND' || 
+                    error.cause.code === 'ECONNREFUSED' || 
+                    error.cause.code === 'EHOSTUNREACH' || 
+                    error.cause.code === 'ECONNRESET' || 
+                    error.cause.message?.includes('timeout') || 
+                    error.cause.message?.includes('connect') ||
+                    (Array.isArray(error.cause.errors) && error.cause.errors.some(e => 
+                        e.code === 'ETIMEDOUT' || 
+                        e.code === 'ENOTFOUND' || 
+                        e.code === 'ECONNREFUSED' || 
+                        e.code === 'EHOSTUNREACH' || 
+                        e.code === 'ECONNRESET' || 
+                        e.message?.includes('timeout') || 
+                        e.message?.includes('connect')
+                    ))
+                ));
+                
+            if (isNetworkError) {
+                let details = error.message;
+                if (error.cause) {
+                    details = error.cause.message || error.cause.code || error.message;
+                    if (Array.isArray(error.cause.errors) && error.cause.errors.length > 0) {
+                        details += ` [${error.cause.errors.map(e => e.message || e.code).join(', ')}]`;
+                    }
+                }
+                console.warn(`⚠️ [Telegram Bot] Network connection/timeout while polling updates: ${details}. Retrying in 30s...`);
+                setTimeout(poll, 30000);
+            } else {
+                console.error('❌ [Telegram Bot] Error polling Telegram updates:', error);
+                setTimeout(poll, 10000);
+            }
         }
     }
     
@@ -324,8 +373,24 @@ async function startWorker() {
         
         // Start Telegram message listener
         startTelegramBotListener();
+
+        // Setup recurring keep-alive task (every 30 minutes: '*/30 * * * *')
+        cron.schedule('*/30 * * * *', () => {
+            console.log('⏰ [Worker-Cron] Automatically triggering NHSO session keep-alive refresh...');
+            keepAliveNhsoSession().catch(err => {
+                console.error('❌ [Worker-Cron] NHSO session keep-alive error:', err);
+            });
+        }, {
+            scheduled: true,
+            timezone: "Asia/Bangkok"
+        });
+
+        // Trigger session keep-alive once immediately on startup
+        keepAliveNhsoSession().catch(err => {
+            console.error('❌ [Worker-Cron] Initial NHSO session keep-alive error:', err);
+        });
         
-        console.log('✅ Background Cron Scheduler and Telegram Polling are fully active.');
+        console.log('✅ Background Cron Scheduler, Session Keep-Alive, and Telegram Polling are fully active.');
     } catch (err) {
         console.error('❌ Failed to start Worker Service:', err);
         process.exit(1);

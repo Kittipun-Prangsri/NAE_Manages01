@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบรายงานสุขภาพเชิงสถิติ - อำเภอคลองหาด</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Apache ECharts CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+    
+    <style>
+        :root {
+            --bg-body: #f1f5f9;
+            --bg-card: rgba(255, 255, 255, 0.85);
+            --border-color: rgba(226, 232, 240, 0.8);
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            --shadow-panel: 0 10px 25px -5px rgba(15, 23, 42, 0.04), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
+            --font-family: 'Outfit', 'Sarabun', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* Top Navigation Bar */
+        header {
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .header-title i {
+            color: #3b82f6;
+            font-size: 1.5rem;
+        }
+
+        .header-title h1 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .header-meta {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            background-color: #f8fafc;
+            padding: 0.4rem 0.8rem;
+            border-radius: 8px;
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .header-meta span.live-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #10b981;
+            border-radius: 50%;
+            animation: pulse-live 1.5s infinite;
+        }
+
+        @keyframes pulse-live {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        /* Dashboard Container Layout */
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: 7fr 3fr;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            flex: 1;
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Panel Glassmorphism Card Style */
+        .glass-panel {
+            background-color: var(--bg-card);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            box-shadow: var(--shadow-panel);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            transition: all 0.3s ease;
+        }
+
+        .glass-panel:hover {
+            box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.06), 0 10px 10px -5px rgba(15, 23, 42, 0.04);
+        }
+
+        .panel-header {
+            margin-bottom: 1.25rem;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+            padding-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #0f172a;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        /* Map Section Left */
+        .map-section {
+            position: relative;
+        }
+
+        .map-chart {
+            width: 100%;
+            height: 600px;
+            flex: 1;
+        }
+
+        /* Donut Charts Section Right */
+        .charts-section {
+            gap: 1.25rem;
+            overflow-y: auto;
+        }
+
+        .donut-card {
+            display: flex;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            border-radius: 16px;
+            padding: 0.75rem 1rem;
+            gap: 1rem;
+            box-shadow: var(--shadow-soft);
+            transition: transform 0.2s ease;
+        }
+
+        .donut-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .donut-chart-container {
+            width: 80px;
+            height: 80px;
+            flex-shrink: 0;
+        }
+
+        .donut-meta {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .donut-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .donut-stats {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .donut-badge {
+            align-self: flex-start;
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+        }
+
+        /* Map Legend Widget */
+        .map-legend {
+            position: absolute;
+            bottom: 2rem;
+            left: 2rem;
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 0.75rem 1rem;
+            box-shadow: var(--shadow-soft);
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .legend-color {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Top Navigation -->
+    <header>
+        <div class="header-title">
+            <i class="fa-solid fa-map-location-dot"></i>
+            <div>
+                <h1>Statistical Health Dashboard</h1>
+            </div>
+        </div>
+        <div class="header-meta">
+            <span class="live-dot"></span>
+            <span>เรียลไทม์ วันนี้ (Today)</span>
+        </div>
+    </header>
+
+    <!-- Main Container Layout -->
+    <div class="dashboard-container">
+        
+        <!-- Left Pane: Thematic Map (70% space) -->
+        <div class="glass-panel map-section">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <i class="fa-solid fa-earth-asia" style="color: #3b82f6;"></i>
+                    <span>แผนที่ความหนาแน่นของผู้ป่วยในอำเภอคลองหาด</span>
+                </div>
+            </div>
+            
+            <!-- Target Div for Map Chart -->
+            <div id="map-chart" class="map-chart"></div>
+
+            <!-- Absolute Map Legend -->
+            <div class="map-legend">
+                <div class="legend-item">
+                    <span class="legend-color" style="background-color: rgba(239, 68, 68, 0.8);"></span>
+                    <span>หนาแน่นสูง (&gt; 70 คน)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background-color: rgba(249, 115, 22, 0.8);"></span>
+                    <span>หนาแน่นปานกลาง (40 - 70 คน)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color" style="background-color: rgba(59, 130, 246, 0.8);"></span>
+                    <span>หนาแน่นน้อย (&lt; 40 คน)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Pane: Donut Charts (30% space) -->
+        <div class="glass-panel charts-section">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <i class="fa-solid fa-chart-pie" style="color: #10b981;"></i>
+                    <span>ปริมาณคนไข้ตามแผนกบริการ</span>
+                </div>
+            </div>
+
+            <!-- Donut Charts list -->
+            <!-- 1. OPD -->
+            <div class="donut-card">
+                <div id="chart-opd" class="donut-chart-container"></div>
+                <div class="donut-meta">
+                    <span class="donut-title">Outpatient Dept. (OPD)</span>
+                    <span class="donut-stats">เป้าหมายสะสมรายวัน: 72/85 ราย</span>
+                    <span class="donut-badge" style="background-color: rgba(45, 212, 191, 0.1); color: #0f766e;">สิทธิ์ สปสช. (UCS)</span>
+                </div>
+            </div>
+
+            <!-- 2. ER -->
+            <div class="donut-card">
+                <div id="chart-er" class="donut-chart-container"></div>
+                <div class="donut-meta">
+                    <span class="donut-title">Emergency Room (ER)</span>
+                    <span class="donut-stats">เป้าหมายสะสมรายวัน: 17/26 ราย</span>
+                    <span class="donut-badge" style="background-color: rgba(249, 115, 22, 0.1); color: #c2410c;">เคสฉุกเฉินด่วน</span>
+                </div>
+            </div>
+
+            <!-- 3. NCD -->
+            <div class="donut-card">
+                <div id="chart-ncd" class="donut-chart-container"></div>
+                <div class="donut-meta">
+                    <span class="donut-title">NCD Clinic</span>
+                    <span class="donut-stats">เป้าหมายสะสมรายวัน: 94/120 ราย</span>
+                    <span class="donut-badge" style="background-color: rgba(56, 189, 248, 0.1); color: #0369a1;">คลินิกโรคเรื้อรัง</span>
+                </div>
+            </div>
+
+            <!-- 4. Dental -->
+            <div class="donut-card">
+                <div id="chart-dental" class="donut-chart-container"></div>
+                <div class="donut-meta">
+                    <span class="donut-title">Dental Clinic</span>
+                    <span class="donut-stats">เป้าหมายสะสมรายวัน: 21/40 ราย</span>
+                    <span class="donut-badge" style="background-color: rgba(34, 197, 94, 0.1); color: #15803d;">ทันตกรรมทั่วไป</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // กำหนด API Base URL
+        const API_BASE = window.location.origin;
+
+        // เรียกดึงข้อมูลเมื่อโหลดหน้าจอสำเร็จ
+        document.addEventListener('DOMContentLoaded', initDashboard);
+
+        async function initDashboard() {
+            try {
+                // 1. ดึงข้อมูลพิกัดสถิติแผนที่และกราฟโดนัท
+                const dataRes = await fetch(`${API_BASE}/api/dashboard-data`);
+                const dashboardData = await dataRes.json();
+
+                // 2. ดึงไฟล์ GeoJSON ขอบเขตตำบล
+                const geojsonRes = await fetch(`${API_BASE}/api/geojson`);
+                const geojson = await geojsonRes.json();
+
+                // 3. เริ่มสร้างแผนที่และกราฟโดนัท
+                renderMapChart(geojson, dashboardData.mapData);
+                renderDonutCharts(dashboardData.donutCharts);
+
+            } catch (error) {
+                console.error('❌ เกิดข้อผิดพลาดในการโหลดข้อมูลบอร์ด:', error);
+            }
+        }
+
+        /**
+         * ฟังก์ชันวาดแผนที่ Thematic Map ด้วย ECharts
+         */
+        function renderMapChart(geojson, mapData) {
+            const chartDom = document.getElementById('map-chart');
+            const myChart = echarts.init(chartDom);
+
+            // ลงทะเบียน GeoJSON ขอบเขตแผนที่ใน ECharts
+            echarts.registerMap('khlonghat', geojson);
+
+            // คำนวณค่าสูงสุดเพื่อกำหนดสีและขนาด Bubble
+            const maxVal = Math.max(...mapData.map(item => item.value[2])) || 100;
+
+            const option = {
+                tooltip: {
+                    trigger: 'item',
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    borderColor: '#e2e8f0',
+                    borderWidth: 1,
+                    textStyle: { color: '#0f172a', fontFamily: 'Sarabun', fontSize: 12 },
+                    formatter: function (params) {
+                        if (params.seriesType === 'effectScatter') {
+                            return `📍 <b>ตำบล ${params.name}</b><br/>👥 จำนวนคนไข้วันนี้: <b>${params.value[2]} คน</b>`;
+                        }
+                        return `🗺️ ตำบล ${params.name}`;
+                    }
+                },
+                // พิกัดระบบภูมิศาสตร์ (Geographic Coordinate System)
+                geo: {
+                    map: 'khlonghat',
+                    roam: false, // ปิดการซูมและแพนเพื่อให้แผนที่นิ่ง สวย มินิมอล
+                    aspectScale: 0.9,
+                    label: {
+                        show: true,
+                        color: '#64748b',
+                        fontFamily: 'Sarabun',
+                        fontSize: 11,
+                        fontWeight: 'bold'
+                    },
+                    itemStyle: {
+                        // สีพื้นหลังแผนที่แบบพาสเทลสะอาดตาตามสไตล์ Light Theme
+                        areaColor: '#f8fafc', 
+                        borderColor: '#cbd5e1',
+                        borderWidth: 1.5
+                    },
+                    emphasis: {
+                        label: { show: true, color: '#1e293b' },
+                        itemStyle: { areaColor: '#e2e8f0' }
+                    }
+                },
+                series: [
+                    // ซ้อนเลเยอร์ Effect Scatter บนแผนที่ (ฟองอากาศแสดงความหนาแน่น)
+                    {
+                        name: 'ความหนาแน่นคนไข้',
+                        type: 'effectScatter',
+                        coordinateSystem: 'geo',
+                        data: mapData,
+                        symbolSize: function (val) {
+                            // สเกลขนาด Bubble ตามปริมาณข้อมูล
+                            return 15 + (val[2] / maxVal) * 35;
+                        },
+                        rippleEffect: {
+                            brushType: 'stroke',
+                            scale: 3,
+                            period: 4
+                        },
+                        itemStyle: {
+                            // สีของฟองอากาศไล่ระดับตามปริมาณความหนาแน่น
+                            color: function (params) {
+                                const count = params.value[2];
+                                if (count > 70) return '#ef4444'; // หนาแน่นสูง
+                                if (count > 40) return '#f97316'; // หนาแน่นปานกลาง
+                                return '#3b82f6';          // หนาแน่นน้อย
+                            },
+                            shadowBlur: 10,
+                            shadowColor: 'rgba(0, 0, 0, 0.15)'
+                        }
+                    }
+                ]
+            };
+
+            myChart.setOption(option);
+
+            // รองรับการปรับขนาดความกว้างตามหน้าจอ
+            window.addEventListener('resize', () => myChart.resize());
+        }
+
+        /**
+         * ฟังก์ชันวาด Donut Charts (4 ตัวด้านขวา)
+         */
+        function renderDonutCharts(donutData) {
+            const chartIds = {
+                opd: 'chart-opd',
+                er: 'chart-er',
+                ncd: 'chart-ncd',
+                dental: 'chart-dental'
+            };
+
+            Object.keys(donutData).forEach(key => {
+                const config = donutData[key];
+                const chartDom = document.getElementById(chartIds[key]);
+                if (!chartDom) return;
+
+                const myChart = echarts.init(chartDom);
+                const remaining = config.total - config.completed;
+
+                const option = {
+                    series: [
+                        {
+                            type: 'pie',
+                            radius: ['70%', '95%'], // pie มีรูตรงกลาง (Donut Chart)
+                            avoidLabelOverlap: false,
+                            label: {
+                                show: true,
+                                position: 'center',
+                                formatter: `${config.percentage}%`,
+                                fontSize: 13,
+                                fontWeight: 'bold',
+                                color: '#0f172a',
+                                fontFamily: 'Outfit'
+                            },
+                            labelLine: { show: false },
+                            data: [
+                                { 
+                                    value: config.completed, 
+                                    name: 'ดำเนินการแล้ว',
+                                    itemStyle: { color: config.color } 
+                                },
+                                { 
+                                    value: remaining, 
+                                    name: 'เป้าหมายที่เหลือ',
+                                    itemStyle: { color: '#e2e8f0' } 
+                                }
+                            ]
+                        }
+                    ]
+                };
+
+                myChart.setOption(option);
+                window.addEventListener('resize', () => myChart.resize());
+            });
+        }
+    </script>
+</body>
+</html>

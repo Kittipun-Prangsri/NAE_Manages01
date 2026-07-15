@@ -123,13 +123,14 @@ async function sendTextSummaryToTelegram(token, chatId, targetDate, stats) {
 /**
  * Capture Grafana dashboard as screenshot and send notifications
  */
-async function captureAndNotify(targetDate = null, channels = ['line', 'telegram'], reportTypes = ['summary', 'screenshot']) {
-    const lineAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const lineGroupId = process.env.LINE_GROUP_ID;
+async function captureAndNotify(targetDate = null, channels = ['line', 'telegram'], reportTypes = ['summary', 'screenshot'], userCredentials = null) {
+    // Use userCredentials if provided, otherwise fall back to .env values
+    const lineAccessToken = (userCredentials && userCredentials.line_token) || process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    const lineGroupId = (userCredentials && userCredentials.line_group_id) || process.env.LINE_GROUP_ID;
+    const telegramBotToken = (userCredentials && userCredentials.telegram_token) || process.env.TELEGRAM_BOT_TOKEN;
+    const telegramChatId = (userCredentials && userCredentials.telegram_chat_id) || process.env.TELEGRAM_CHAT_ID;
     const imgbbApiKey = process.env.IMGBB_API_KEY;
     const serverPublicUrl = process.env.SERVER_PUBLIC_URL || 'http://localhost:3000';
-    const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
-    const telegramChatId = process.env.TELEGRAM_CHAT_ID;
 
     const queryDate = targetDate || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
 
@@ -262,6 +263,11 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
     }
 
     // Now send notifications
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
+        console.log('ℹ️ Notifications are globally disabled via DISABLE_NOTIFICATIONS=true. Skipping send.');
+        return { success: true, filepath, filename };
+    }
+
     const notificationPromises = [];
 
     // Fetch database stats once if summary is needed

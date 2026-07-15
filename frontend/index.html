@@ -72,7 +72,7 @@
                 <div>
                     <span class="text-lg font-bold tracking-tight flex items-baseline">
                         NHSO Tracker 
-                        <span class="ml-2 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-md">v1.1</span>
+                        <span class="ml-2 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-md">ver.2</span>
                     </span>
                     <p class="text-[10px] text-slate-500 dark:text-slate-400 font-medium">National Health Security Office Monitoring</p>
                 </div>
@@ -109,6 +109,10 @@
                     <i class="fas fa-tasks"></i>
                     <span>ระบบตรวจสอบ (NHSO Tracker)</span>
                 </button>
+                <button id="tab-live-dashboard" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase">
+                    <i class="fas fa-chart-pie"></i>
+                    <span>แดชบอร์ดเรียลไทม์ (Live Dashboard)</span>
+                </button>
                 <button id="tab-grafana" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase">
                     <i class="fas fa-chart-line"></i>
                     <span>ตารางวิเคราะห์คำสั่ง SQL (Grafana Panel)</span>
@@ -126,7 +130,7 @@
             <!-- Tracker View Container (Original View) -->
             <div id="tracker-view-container" class="space-y-6">
                 <!-- Controls Card -->
-                <div class="glass-panel p-6 rounded-2xl">
+                <div class="tracker-wide-section glass-panel p-6 rounded-2xl">
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
                         <!-- Column 1: Date picker -->
                         <div class="space-y-2">
@@ -194,77 +198,137 @@
                     </div>
                 </div>
 
-                <!-- Stats Summary -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                    <!-- Card 1: Total Users -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-blue-500 flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">ผู้รับบริการ (คน/Visit)</p>
-                            <h3 id="stat-total" class="text-2xl font-bold tracking-tight">0 <span class="text-base font-medium text-slate-500 dark:text-slate-400">/ 0</span></h3>
+                <!-- Status Overview Groups -->
+                <div class="tracker-wide-section summary-command-board">
+                    <div class="summary-group summary-group-service">
+                        <div class="summary-group-header">
+                            <div>
+                                <span>Service Overview</span>
+                                <h2>ภาพรวมผู้รับบริการ</h2>
+                            </div>
+                            <i class="fas fa-chart-pie"></i>
                         </div>
-                        <div class="bg-blue-50 dark:bg-blue-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-blue-500 dark:text-blue-400">
-                            <i class="fas fa-users text-xl"></i>
-                        </div>
-                    </div>
-                    
-                    <!-- Card 2: Authen not open -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-red-500 flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">ยังไม่เปิด Authen</p>
-                            <h3 id="stat-red" class="text-2xl font-bold text-red-600 dark:text-red-400 tracking-tight">0</h3>
-                        </div>
-                        <div class="bg-red-50 dark:bg-red-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-red-500 dark:text-red-400">
-                            <i class="fas fa-exclamation-circle text-xl"></i>
-                        </div>
-                    </div>
-                    
-                    <!-- Card 3: Waiting to close Endpoint -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-amber-500 flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">รอปิด Endpoint</p>
-                            <h3 id="stat-yellow" class="text-2xl font-bold text-amber-600 dark:text-amber-400 tracking-tight">0</h3>
-                        </div>
-                        <div class="bg-amber-50 dark:bg-amber-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-amber-500 dark:text-amber-400">
-                            <i class="fas fa-clock text-xl"></i>
-                        </div>
-                    </div>
-                    
-                    <!-- Card 4: Count UC Pending -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-cyan-500 flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">สิทธิ UC ที่ยังไม่ปิดงาน</p>
-                            <h3 id="stat-uc-count" class="text-2xl font-bold text-cyan-600 dark:text-cyan-400 tracking-tight">0</h3>
-                        </div>
-                        <div class="bg-cyan-50 dark:bg-cyan-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-cyan-500 dark:text-cyan-400">
-                            <i class="fas fa-id-card text-xl"></i>
+                        <div class="summary-metric-grid">
+                            <div class="summary-metric-card tilt-card is-blue">
+                                <div>
+                                    <p>ผู้รับบริการ</p>
+                                    <strong id="stat-total">0 <span>/ 0</span></strong>
+                                    <small>คน / Visit</small>
+                                </div>
+                                <i class="fas fa-users"></i>
+                            </div>
+                            <div class="summary-metric-card tilt-card is-emerald">
+                                <div>
+                                    <p>สมบูรณ์แล้ว</p>
+                                    <strong id="stat-green">0</strong>
+                                    <small>สิ้นสุดรักษาและปิด Endpoint</small>
+                                </div>
+                                <i class="fas fa-check-circle"></i>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Card 5: Debtor UC Money -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-indigo-500 flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">ค่ารักษาลูกหนี้ UC (บาท)</p>
-                            <h3 id="stat-uc-money" class="text-2xl font-bold text-indigo-600 dark:text-indigo-400 tracking-tight">0.00</h3>
+                    <div class="summary-group summary-group-workload">
+                        <div class="summary-group-header">
+                            <div>
+                                <span>Action Required</span>
+                                <h2>งานที่ต้องติดตาม</h2>
+                            </div>
+                            <i class="fas fa-triangle-exclamation"></i>
                         </div>
-                        <div class="bg-indigo-50 dark:bg-indigo-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-indigo-500 dark:text-indigo-400">
-                            <i class="fas fa-hand-holding-usd text-xl"></i>
+                        <div class="summary-metric-grid">
+                            <div class="summary-metric-card tilt-card is-red">
+                                <div>
+                                    <p>ยังไม่เปิด Authen</p>
+                                    <strong id="stat-red">0</strong>
+                                    <small>ต้องตรวจสอบสิทธิ/Visit Authen</small>
+                                </div>
+                                <i class="fas fa-exclamation-circle"></i>
+                            </div>
+                            <div class="summary-metric-card tilt-card is-amber">
+                                <div>
+                                    <p>รอปิด Endpoint</p>
+                                    <strong id="stat-yellow">0</strong>
+                                    <small>รอปิดงานหลังให้บริการ</small>
+                                </div>
+                                <i class="fas fa-clock"></i>
+                            </div>
                         </div>
                     </div>
+                    <div class="hidden" aria-hidden="true">
+                        <span id="stat-uc-count">0</span>
+                        <span id="stat-uc-money">0.00</span>
+                    </div>
+                </div>
 
-                    <!-- Card 6: Complete -->
-                    <div class="glass-panel p-5 rounded-2xl border-l-4 border-emerald-500 shadow-sm flex justify-between items-center transition duration-300 transform hover:-translate-y-0.5 hover:shadow-md">
-                        <div class="space-y-1">
-                            <p class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">สมบูรณ์แล้ว</p>
-                            <h3 id="stat-green" class="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">0</h3>
+                <!-- Smart Group Insights -->
+                <div id="group-insights-section" class="tracker-wide-section space-y-3">
+                    <div class="flex justify-between items-center px-1">
+                        <div>
+                            <h2 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Smart Group Insights</h2>
+                            <p id="group-insights-description" class="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">รวมกลุ่มงาน UC ที่ควรติดตาม แยกตามแผนก</p>
                         </div>
-                        <div class="bg-emerald-50 dark:bg-emerald-950/40 w-12 h-12 rounded-xl flex items-center justify-center text-emerald-500 dark:text-emerald-400">
-                            <i class="fas fa-check-circle text-xl"></i>
+                        <div class="flex items-center p-1 rounded-xl bg-slate-100/80 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-800/70">
+                            <button type="button" class="group-insights-toggle px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer" data-group-by="department">
+                                <i class="fas fa-hospital-user mr-1"></i> แผนก
+                            </button>
+                            <button type="button" class="group-insights-toggle px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer" data-group-by="subdistrict">
+                                <i class="fas fa-map-marker-alt mr-1"></i> ตำบล
+                            </button>
+                        </div>
+                    </div>
+                    <div class="uc-insight-board">
+                        <div class="uc-insight-layout">
+                            <div class="uc-insight-left">
+                                <div class="uc-insight-eyebrow">
+                                    <span>UCS ไม่ได้ปิดสิทธิ</span>
+                                    <small id="uc-insight-updated-at">อัปเดตล่าสุด: -</small>
+                                </div>
+                                <div class="uc-major-metric">
+                                    <p>ค่ารักษาลูกหนี้ (sum)</p>
+                                    <div id="uc-debtor-total-money">0.00</div>
+                                </div>
+                                <div class="uc-major-metric">
+                                    <p>จำนวนครั้ง (count)</p>
+                                    <div id="uc-pending-total-count">0</div>
+                                </div>
+                                <div id="uc-right-grid" class="uc-right-grid"></div>
+                            </div>
+
+                            <div class="uc-insight-right">
+                                <div class="uc-service-panel">
+                                    <div>
+                                        <p>จำนวนผู้มารับบริการ(ครั้ง)</p>
+                                        <div id="uc-service-total-count">0</div>
+                                    </div>
+                                    <div class="uc-sparkline" aria-hidden="true"></div>
+                                </div>
+                                <div class="uc-auth-panel">
+                                    <p>Visit Authen code</p>
+                                    <span>ยังไม่นำเข้า</span>
+                                    <div id="uc-not-imported-count">0</div>
+                                </div>
+                                <div class="uc-table-panel">
+                                    <div class="uc-table-title">
+                                        <span id="uc-pending-group-title">UCS ไม่ได้เปิดสิทธิ</span>
+                                        <span id="uc-pending-group-subtitle">แยกตามแผนก</span>
+                                    </div>
+                                    <div class="uc-table-header">
+                                        <span id="uc-group-header-label">แผนก</span>
+                                        <span>จำนวน</span>
+                                    </div>
+                                    <div id="uc-pending-group-list" class="uc-table-body"></div>
+                                    <div id="uc-debtor-group-list" class="hidden"></div>
+                                    <span id="uc-debtor-group-title" class="hidden">UC Debtor by Department</span>
+                                    <span id="uc-debtor-group-subtitle" class="hidden">แยกตามแผนก</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Weekly Overview -->
-                <div id="weekly-summary-section" class="hidden space-y-3">
+                <div id="weekly-summary-section" class="tracker-wide-section hidden space-y-3">
                     <div class="flex justify-between items-center px-1">
                         <h2 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">สรุปภาพรวม 7 วันล่าสุด</h2>
                     </div>
@@ -274,19 +338,20 @@
                 </div>
 
                 <!-- Table Card -->
-                <div class="glass-panel rounded-2xl overflow-hidden flex flex-col">
+                <div class="tracker-wide-section tracker-table-card glass-panel rounded-2xl overflow-hidden flex flex-col">
                     <div class="p-5 border-b border-slate-200/60 dark:border-slate-800/80 flex flex-col md:flex-row md:justify-between md:items-center gap-4 bg-slate-50/50 dark:bg-slate-900/40">
                         <div class="flex items-center gap-3">
                             <div>
-                                <h2 class="font-bold text-base">รายการผู้ป่วยสิทธิ สปสช.</h2>
-                                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">แสดงรายละเอียดข้อมูลและสถานะการเคลมสิทธิ์</p>
+                                <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-indigo-500 dark:text-indigo-400">Rights Authen Review</p>
+                                <h2 class="font-bold text-base">ตารางตรวจสอบทุกสิทธิรายวัน</h2>
+                                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">ดึงทุกสิทธิจาก HOSxP ตามวันที่เลือก และเช็ค Claim Code กับ Temp Authen Code</p>
                             </div>
-                            <button id="toggle-list-btn" class="p-2 rounded-xl bg-slate-100/50 dark:bg-slate-800/50 text-slate-400 hover:text-blue-500 transition-all focus:outline-none" title="ยืด/หด แผงข้อมูล">
+                            <button id="toggle-list-btn" class="hidden p-2 rounded-xl bg-slate-100/50 dark:bg-slate-800/50 text-slate-400 hover:text-blue-500 transition-all focus:outline-none" title="ยืด/หด แผงข้อมูล">
                                 <i id="toggle-list-icon" class="fas fa-chevron-up text-xs transition-transform duration-300"></i>
                             </button>
                         </div>
                         <div class="flex flex-wrap items-center gap-2.5">
-                            <div class="relative w-full sm:w-60">
+                            <div class="hidden relative w-full sm:w-60">
                                 <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400 pointer-events-none">
                                     <i class="fas fa-search text-xs"></i>
                                 </span>
@@ -301,27 +366,38 @@
                         </div>
                     </div>
 
+                    <div id="tracker-dashboard-filter-banner" class="hidden mx-5 mt-4 px-4 py-3 rounded-xl border border-blue-500/20 bg-blue-50/80 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 text-xs font-bold flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-filter"></i>
+                            <span id="tracker-dashboard-filter-label">กำลังกรองจาก Live Dashboard</span>
+                        </div>
+                        <button id="clear-tracker-dashboard-filter" class="self-start sm:self-auto px-3 py-1.5 rounded-lg bg-white/80 dark:bg-slate-900/70 hover:bg-white dark:hover:bg-slate-800 text-blue-600 dark:text-blue-300 border border-blue-500/20 transition cursor-pointer">
+                            <i class="fas fa-times mr-1"></i> ล้างตัวกรอง
+                        </button>
+                    </div>
+
                     <div id="patient-list-content" class="transition-all duration-300 ease-in-out">
                         <!-- Data Table View -->
-                        <div class="overflow-x-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse min-w-[1300px]">
+                        <div class="tracker-table-scroll overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse min-w-[1500px]">
                                 <thead id="tracking-table-thead">
                                     <tr class="bg-slate-100/60 dark:bg-slate-900/60 border-b border-slate-200/80 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
                                         <th class="py-3 px-4 w-32 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="vn">VN</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="cid_check">CID Check</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="cid">เลขบัตรประชาชน</th>
                                         <th class="py-3 px-4 w-20 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pttype">PTType</th>
-                                        <th class="py-3 px-4 w-20 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pcode">PCode</th>
+                                        <th class="py-3 px-4 w-24 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pcode">HIPDATA</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="authCode">Auth Code (HOS)</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="claim_code">Claim Code (HOS)</th>
-                                        <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="nhso_claim_code">Claim Code (NHSO)</th>
+                                        <th class="py-3 px-4 w-44 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="nhso_claim_code">Claim Code (Temp Authen)</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="authen_code_type">Authen Type</th>
                                         <th class="py-3 px-4 w-48 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pttype_note">PTType Note</th>
                                         <th class="py-3 px-4 w-32 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="staff">เจ้าหน้าที่</th>
                                         <th class="py-3 px-4 w-32 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="check_claimcode">ผลการเช็ค</th>
+                                        <th class="py-3 px-4 w-52 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="issue_reason">สาเหตุที่ต้องแก้</th>
                                         <th class="py-3 px-4 w-32 text-right cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="uc_money">UC Money</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="department">Department</th>
-                                        <th class="py-3 px-4 w-44 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="color_status">สถานะ</th>
+                                        <th class="py-3 px-4 w-24 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="cc_cid">CC CID</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tracking-table-body" class="text-sm divide-y divide-slate-100 dark:divide-slate-800/80 bg-transparent">
@@ -336,7 +412,227 @@
                             <p class="text-xs mt-1">กรุณาเลือกวันที่หรือนำเข้าข้อมูลที่ตรวจสอบ</p>
                         </div>
                     </div>
+
+                    <section class="hidden glass-panel rounded-2xl overflow-hidden border border-slate-200/70 dark:border-slate-800/80">
+                        <div class="p-5 border-b border-slate-200/70 dark:border-slate-800/80 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div>
+                                <p class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-indigo-500 dark:text-indigo-400">Rights Authen Review</p>
+                                <h3 class="text-base font-extrabold text-slate-900 dark:text-white mt-1">ตารางตรวจสอบทุกสิทธิรายวัน</h3>
+                                <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">ดึงทุกสิทธิจาก HOSxP ตามวันที่เลือก และเช็ค Claim Code กับ Temp Authen Code</p>
+                            </div>
+                            <div class="text-xs font-bold text-slate-500 dark:text-slate-400">
+                                <span id="lgo-table-count">0</span> รายการ
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse min-w-[1280px]">
+                                <thead>
+                                    <tr class="bg-slate-100/60 dark:bg-slate-900/60 border-b border-slate-200/80 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+                                        <th class="py-3 px-4 w-32">VN</th>
+                                        <th class="py-3 px-4 w-40">CID Check</th>
+                                        <th class="py-3 px-4 w-40">เลขบัตรประชาชน</th>
+                                        <th class="py-3 px-4 w-20">PTType</th>
+                                        <th class="py-3 px-4 w-20">PCode</th>
+                                        <th class="py-3 px-4 w-40">Auth Code (HOS)</th>
+                                        <th class="py-3 px-4 w-40">Claim Code (HOS)</th>
+                                        <th class="py-3 px-4 w-40">Claim Code (NHSO)</th>
+                                        <th class="py-3 px-4 w-40">Authen Type</th>
+                                        <th class="py-3 px-4 w-48">PTType Note</th>
+                                        <th class="py-3 px-4 w-32">เจ้าหน้าที่</th>
+                                        <th class="py-3 px-4 w-32 text-center">ผลการเช็ค</th>
+                                        <th class="py-3 px-4 w-32 text-right">UC Money</th>
+                                        <th class="py-3 px-4 w-40">Department</th>
+                                        <th class="py-3 px-4 w-24 text-center">CC CID</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="lgo-tracking-table-body" class="text-sm divide-y divide-slate-100 dark:divide-slate-800/80 bg-transparent">
+                                    <!-- Rights rows will be loaded here -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="lgo-table-empty" class="hidden p-10 text-center text-slate-500 dark:text-slate-400">
+                            <i class="fas fa-clipboard-check text-3xl text-slate-400 dark:text-slate-600 mb-2"></i>
+                            <p class="font-bold">ไม่พบข้อมูลทุกสิทธิตามวันที่เลือก</p>
+                        </div>
+                    </section>
                     </div>
+            </div>
+
+            <!-- Live Dashboard View Container -->
+            <div id="live-dashboard-view-container" class="hidden space-y-6">
+                <!-- TV Mode Toolbar -->
+                <div class="live-tv-toolbar glass-panel p-5 rounded-2xl flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                    <div>
+                        <h2 class="font-extrabold text-lg text-slate-900 dark:text-white flex items-center gap-2">
+                            <i class="fas fa-broadcast-tower text-emerald-500"></i>
+                            <span>แดชบอร์ดเรียลไทม์</span>
+                        </h2>
+                        <div class="flex flex-wrap items-center gap-2 mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                            <span id="live-refresh-state" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10">
+                                <i class="fas fa-circle text-[7px]"></i>
+                                พร้อมใช้งาน
+                            </span>
+                            <span class="inline-flex items-center gap-1.5">
+                                <i class="fas fa-clock text-slate-400"></i>
+                                อัปเดตล่าสุด: <span id="live-update-time">-</span>
+                            </span>
+                            <span class="inline-flex items-center gap-1.5">
+                                <i class="fas fa-satellite-dish text-slate-400"></i>
+                                <span id="live-auto-refresh-state">Auto refresh: ปิด</span>
+                            </span>
+                            <span class="inline-flex items-center gap-1.5">
+                                <i class="fas fa-hourglass-half text-slate-400"></i>
+                                รอบถัดไป: <span id="live-next-refresh">-</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="live-tv-toggle" class="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs flex items-center gap-2 transition cursor-pointer">
+                            <i class="fas fa-tv"></i>
+                            <span>TV Mode</span>
+                        </button>
+                        <button id="live-fullscreen-btn" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition cursor-pointer shadow-md shadow-emerald-500/20">
+                            <i class="fas fa-expand"></i>
+                            <span>เต็มจอ</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live KPI Row -->
+                <div class="live-kpi-grid grid grid-cols-1 sm:grid-cols-3 gap-6">
+                    <div class="live-kpi-card glass-panel tilt-card p-6 rounded-2xl flex items-center justify-between border-l-4 border-blue-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
+                        <div>
+                            <p class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">ผู้มารับบริการวันนี้ (Total Cases)</p>
+                            <h3 id="live-stat-total" class="text-3xl font-extrabold text-slate-800 dark:text-white mt-1">0</h3>
+                            <p class="text-[10px] text-emerald-600 font-bold mt-1"><i class="fas fa-caret-up"></i> ดึงจาก HOSxP เรียลไทม์</p>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-500">
+                            <i class="fas fa-users text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="live-kpi-card glass-panel tilt-card p-6 rounded-2xl flex items-center justify-between border-l-4 border-emerald-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
+                        <div>
+                            <p class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">แผนกที่กำลังให้บริการ (Active Depts)</p>
+                            <h3 id="live-stat-depts" class="text-3xl font-extrabold text-slate-800 dark:text-white mt-1">0</h3>
+                            <p class="text-[10px] text-emerald-600 font-bold mt-1"><i class="fas fa-clock animate-pulse"></i> เปิดรับบริการจริง</p>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-500">
+                            <i class="fas fa-hospital-user text-xl"></i>
+                        </div>
+                    </div>
+                    <div class="live-kpi-card glass-panel tilt-card p-6 rounded-2xl flex items-center justify-between border-l-4 border-amber-500 shadow-sm bg-white/70 dark:bg-slate-900/50">
+                        <div>
+                            <p class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">ค้างตรวจสอบ Authen (Pending)</p>
+                            <h3 id="live-stat-pending" class="text-3xl font-extrabold text-slate-800 dark:text-white mt-1">0</h3>
+                            <p class="text-[10px] text-amber-500 font-bold mt-1">สิทธิ์ สปสช. ประจำวันนี้</p>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center text-amber-500">
+                            <i class="fas fa-exclamation-triangle text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Dashboard Grid -->
+                <div class="live-dashboard-grid grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <!-- Map Card (Left) -->
+                    <div class="live-map-card lg:col-span-7 glass-panel p-6 rounded-2xl bg-white/80 dark:bg-slate-900/50 shadow-sm border border-slate-100/50 dark:border-slate-800/40 relative">
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <h3 class="font-extrabold text-base text-slate-800 dark:text-white flex items-center space-x-2">
+                                    <i class="fas fa-map-marked-alt text-blue-500"></i>
+                                    <span>แผนที่ความหนาแน่นของผู้ป่วยในอำเภอคลองหาด</span>
+                                </h3>
+                                <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">จำแนกตามที่อยู่อาศัยรายตำบล อำเภอคลองหาด</p>
+                            </div>
+                            <span class="px-2.5 py-1 text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 rounded-full border border-blue-500/10">วันนี้</span>
+                        </div>
+
+                        <!-- SVG Map of Amphoe Khlong Hat -->
+                        <div id="map-chart" class="w-full h-[550px] flex items-center justify-center relative overflow-hidden">
+                            <svg id="tambonMap" viewBox="0 0 1180 1992" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:100%; max-height:550px;">
+                                <!-- ไทรเดี่ยว (T01) -->
+                                <path id="path-T01" data-tambon="ไทรเดี่ยว" class="tambon" d="M618,183 L588,202 L550,173 L426,159 L399,138 L339,164 L257,217 L198,211 L160,270 L59,227 L101,313 L140,321 L188,372 L191,420 L204,465 L232,475 L294,512 L344,491 L391,523 L421,510 L490,461 L544,463 L636,389 L653,302 L619,243 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- ไทรทอง (T02) -->
+                                <path id="path-T02" data-tambon="ไทรทอง" class="tambon" d="M979,70 L912,85 L865,57 L780,57 L618,182 L624,250 L655,300 L639,390 L545,466 L491,462 L425,511 L547,593 L644,613 L707,584 L720,513 L643,482 L652,432 L700,427 L732,362 L895,383 L909,380 L943,349 L939,305 L988,178 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- เบญจขร (T03) -->
+                                <path id="path-T03" data-tambon="เบญจขร" class="tambon" d="M734,365 L698,431 L655,433 L646,477 L723,512 L711,584 L682,598 L687,625 L673,625 L672,602 L639,614 L551,598 L551,646 L622,701 L637,739 L606,790 L621,839 L659,847 L741,827 L800,875 L826,824 L860,819 L843,798 L852,714 L871,668 L909,650 L915,489 L937,453 L906,385 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- ซับมะกรูด (T04) -->
+                                <path id="path-T04" data-tambon="ซับมะกรูด" class="tambon" d="M229,477 L281,581 L218,672 L257,687 L262,740 L434,928 L480,898 L529,931 L593,913 L656,849 L617,840 L604,788 L635,743 L619,702 L547,646 L548,597 L423,513 L389,525 L341,494 L291,514 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- คลองหาด (T05) -->
+                                <path id="path-T05" data-tambon="คลองหาด" class="tambon" d="M437,930 L485,957 L469,990 L523,1053 L623,1074 L688,1133 L692,1183 L742,1201 L783,1295 L921,1430 L1006,1430 L1090,1371 L1112,1333 L1121,1220 L1100,1157 L1111,1116 L1086,1094 L1104,906 L892,953 L852,865 L861,825 L827,828 L802,877 L736,829 L660,850 L594,916 L528,934 L483,900 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- ไทยอุดม (T06) -->
+                                <path id="path-T06" data-tambon="ไทยอุดม" class="tambon" d="M468,994 L480,1190 L464,1261 L427,1272 L417,1301 L423,1562 L445,1601 L508,1636 L569,1596 L620,1518 L618,1481 L671,1448 L715,1371 L743,1376 L780,1295 L740,1204 L689,1185 L684,1133 L622,1077 L522,1056 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+                                <!-- คลองไก่เถื่อน (T07) -->
+                                <path id="path-T07" data-tambon="คลองไก่เถื่อน" class="tambon" d="M782,1299 L746,1377 L717,1373 L673,1451 L620,1483 L623,1519 L571,1599 L510,1639 L523,1660 L580,1657 L670,1715 L676,1735 L655,1747 L701,1782 L725,1845 L794,1888 L788,1918 L862,1933 L917,1887 L969,1779 L1049,1877 L1075,1873 L1107,1791 L1065,1702 L1068,1653 L1034,1611 L1092,1440 L1089,1376 L1007,1433 L920,1433 Z" fill="#cbd5e1" stroke="#ffffff" stroke-width="6" style="transition: all 0.25s ease;" />
+
+                                <!-- Labels -->
+                                <text x="391" y="307" class="tlabel" text-anchor="middle">ไทรเดี่ยว</text>
+                                <text x="391" y="345" class="tcount" id="count-T01" text-anchor="middle">— คน</text>
+
+                                <text x="749" y="293" class="tlabel" text-anchor="middle">ไทรทอง</text>
+                                <text x="749" y="331" class="tcount" id="count-T02" text-anchor="middle">— คน</text>
+
+                                <text x="765" y="621" class="tlabel" text-anchor="middle">เบญจขร</text>
+                                <text x="765" y="659" class="tcount" id="count-T03" text-anchor="middle">— คน</text>
+
+                                <text x="435" y="725" class="tlabel" text-anchor="middle">ซับมะกรูด</text>
+                                <text x="435" y="763" class="tcount" id="count-T04" text-anchor="middle">— คน</text>
+
+                                <text x="856" y="1106" class="tlabel" text-anchor="middle">คลองหาด</text>
+                                <text x="856" y="1144" class="tcount" id="count-T05" text-anchor="middle">— คน</text>
+
+                                <text x="568" y="1338" class="tlabel" text-anchor="middle">ไทยอุดม</text>
+                                <text x="568" y="1376" class="tcount" id="count-T06" text-anchor="middle">— คน</text>
+
+                                <text x="846" y="1645" class="tlabel" text-anchor="middle">คลองไก่เถื่อน</text>
+                                <text x="846" y="1683" class="tcount" id="count-T07" text-anchor="middle">— คน</text>
+                            </svg>
+                        </div>
+
+                        <!-- Map Tooltip -->
+                        <div id="map-tooltip" aria-hidden="true"></div>
+
+                        <!-- Map Legend -->
+                        <div class="absolute bottom-6 left-6 bg-white/95 dark:bg-slate-900/95 border border-slate-100 dark:border-slate-800/40 rounded-xl shadow-md p-3 flex flex-col gap-1.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300 z-10">
+                            <div class="flex items-start justify-between gap-5 mb-1">
+                                <div>
+                                    <div class="text-[9px] font-bold text-slate-400 uppercase tracking-wide">ความหนาแน่น</div>
+                                    <div id="map-legend-total" class="text-[11px] font-extrabold text-slate-800 dark:text-white mt-0.5">รวม — คน</div>
+                                </div>
+                                <div id="map-legend-max" class="text-right text-[9px] font-bold text-slate-400">สูงสุด —</div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="map-legend-high-color" class="w-3 h-3 rounded-full shadow-sm"></span>
+                                <span id="map-legend-high">สูง</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="map-legend-mid-color" class="w-3 h-3 rounded-full shadow-sm"></span>
+                                <span id="map-legend-mid">ปานกลาง</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="map-legend-low-color" class="w-3 h-3 rounded-full shadow-sm"></span>
+                                <span id="map-legend-low">น้อย</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic Top Departments Card (Right) -->
+                    <div class="live-dept-card lg:col-span-5 glass-panel p-6 rounded-2xl bg-white/80 dark:bg-slate-900/50 shadow-sm border border-slate-100/50 dark:border-slate-800/40 flex flex-col">
+                        <div class="flex justify-between items-center mb-6">
+                            <div>
+                                <h3 class="font-extrabold text-base text-slate-800 dark:text-white flex items-center space-x-2">
+                                    <i class="fas fa-ranking-star text-emerald-500"></i>
+                                    <span>Top Departments</span>
+                                </h3>
+                                <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">อันดับแผนกที่มีผู้รับบริการสูงสุดวันนี้ คลิกเพื่อกรอง Tracker</p>
+                            </div>
+                        </div>
+
+                        <div id="live-top-depts" class="live-top-depts space-y-3 flex-1">
+                            <!-- Dynamic department ranking renders here -->
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Grafana Custom SQL View Container -->
@@ -371,7 +667,8 @@
                                 <!-- Hipdata Code parameter -->
                                 <div class="flex flex-col space-y-1">
                                     <label class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">สิทธิ์ ($hipdata_code)</label>
-                                    <input type="text" id="query-hipdata" class="px-3 py-1.5 input-theme rounded-xl text-xs font-semibold focus:outline-none h-[38px] w-28" value="'UCS'" placeholder="'UCS','WEL'">
+                                    <input type="text" id="query-hipdata" list="hipdata-code-options" class="px-3 py-1.5 input-theme rounded-xl text-xs font-semibold focus:outline-none h-[38px] w-full md:w-80" value="'OFC','UCS','OTH','BMT','XXX','LGO','STP','SSS','SSI','A2','BKK','PTY','A9'" placeholder="'UCS','WEL'">
+                                    <datalist id="hipdata-code-options"></datalist>
                                 </div>
                             </div>
                         </div>
@@ -394,6 +691,28 @@
                                     <i class="fas fa-trash-alt"></i>
                                 </button>
                             </div>
+                        </div>
+
+                        <!-- Query History -->
+                        <div class="bg-slate-50/50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/40">
+                            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-3">
+                                <div>
+                                    <h3 class="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center space-x-2">
+                                        <i class="fas fa-clock-rotate-left text-indigo-500"></i>
+                                        <span>ประวัติคำสั่ง SQL ล่าสุด</span>
+                                    </h3>
+                                    <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">คลิกเพื่อโหลดคำสั่งกลับเข้า editor โดยไม่ต้องบันทึกเป็น template</p>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <button id="refresh-query-history-btn" class="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[10px] font-bold transition cursor-pointer">
+                                        <i class="fas fa-sync-alt mr-1"></i> รีเฟรช
+                                    </button>
+                                    <button id="clear-query-history-btn" class="px-3 py-1.5 rounded-lg bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50 text-red-600 dark:text-red-300 border border-red-200/70 dark:border-red-900/50 text-[10px] font-bold transition cursor-pointer">
+                                        <i class="fas fa-trash-alt mr-1"></i> ล้าง
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="query-history-list" class="grid grid-cols-1 lg:grid-cols-2 gap-2"></div>
                         </div>
 
                         <!-- SQL Code Editor -->
@@ -498,12 +817,18 @@
             <!-- Admin Panel View Container -->
             <div id="admin-view-container" class="hidden space-y-6">
                 <!-- Admin Sub-Navigation Tabs -->
-                <div class="flex space-x-1.5 p-1 bg-slate-100/80 dark:bg-slate-900/60 backdrop-blur-md rounded-xl max-w-sm">
+                <div class="flex space-x-1.5 p-1 bg-slate-100/80 dark:bg-slate-900/60 backdrop-blur-md rounded-xl max-w-2xl">
                     <button id="admin-subtab-users" class="flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center bg-white dark:bg-slate-800 shadow-sm text-blue-600 dark:text-blue-400">
                         <i class="fas fa-users mr-1"></i> จัดการผู้ใช้
                     </button>
                     <button id="admin-subtab-schedules" class="flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
                         <i class="fas fa-clock mr-1"></i> ตั้งเวลาทำงาน
+                    </button>
+                    <button id="admin-subtab-sync-runs" class="flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                        <i class="fas fa-history mr-1"></i> ประวัติ Sync
+                    </button>
+                    <button id="admin-subtab-audit-logs" class="flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                        <i class="fas fa-clipboard-list mr-1"></i> Audit Log
                     </button>
                 </div>
 
@@ -589,10 +914,138 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Admin Sync Runs Sub-View -->
+                <div id="admin-subview-sync-runs" class="hidden space-y-6">
+                    <div class="glass-panel p-6 rounded-2xl">
+                        <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                            <div>
+                                <h2 class="font-bold text-lg flex items-center space-x-2">
+                                    <i class="fas fa-history text-emerald-500"></i>
+                                    <span>ประวัติการ Sync ข้อมูล</span>
+                                </h2>
+                                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">ตรวจสอบแหล่งที่มา วันที่ ผู้สั่งงาน จำนวนรายการ และ error ล่าสุดของการนำเข้าข้อมูล</p>
+                            </div>
+                            <button id="refresh-sync-runs-btn" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-200 font-bold px-4 py-2.5 rounded-xl flex items-center justify-center space-x-2 transition cursor-pointer text-xs">
+                                <i class="fas fa-sync-alt"></i>
+                                <span>รีเฟรช</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="sync-runs-summary" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div class="glass-panel p-4 rounded-2xl border-l-4 border-l-slate-500">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">รอบทั้งหมด 30 วัน</p>
+                            <h3 id="sync-summary-total" class="text-2xl font-extrabold mt-1">0</h3>
+                        </div>
+                        <div class="glass-panel p-4 rounded-2xl border-l-4 border-l-emerald-500">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">สำเร็จ</p>
+                            <h3 id="sync-summary-success" class="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">0</h3>
+                        </div>
+                        <div class="glass-panel p-4 rounded-2xl border-l-4 border-l-red-500">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ล้มเหลว</p>
+                            <h3 id="sync-summary-failed" class="text-2xl font-extrabold text-red-600 dark:text-red-400 mt-1">0</h3>
+                        </div>
+                        <div class="glass-panel p-4 rounded-2xl border-l-4 border-l-amber-500">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">กำลังทำงาน</p>
+                            <h3 id="sync-summary-running" class="text-2xl font-extrabold text-amber-600 dark:text-amber-400 mt-1">0</h3>
+                        </div>
+                        <div class="glass-panel p-4 rounded-2xl border-l-4 border-l-blue-500">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">รายการที่ประมวลผล</p>
+                            <h3 id="sync-summary-records" class="text-2xl font-extrabold text-blue-600 dark:text-blue-400 mt-1">0</h3>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel rounded-2xl overflow-hidden flex flex-col">
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse min-w-[1000px]">
+                                <thead class="bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+                                    <tr>
+                                        <th class="py-3 px-4 w-20">ID</th>
+                                        <th class="py-3 px-4 w-36">แหล่งข้อมูล</th>
+                                        <th class="py-3 px-4 w-32">วันที่บริการ</th>
+                                        <th class="py-3 px-4 w-28">สถานะ</th>
+                                        <th class="py-3 px-4 w-32">ผู้สั่งงาน</th>
+                                        <th class="py-3 px-4 w-28 text-right">จำนวน</th>
+                                        <th class="py-3 px-4">ข้อความ</th>
+                                        <th class="py-3 px-4 w-44">เริ่ม</th>
+                                        <th class="py-3 px-4 w-44">จบ</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-sync-runs-table-body" class="text-xs divide-y divide-slate-100 dark:divide-slate-800/80 bg-transparent">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Audit Logs Sub-View -->
+                <div id="admin-subview-audit-logs" class="hidden space-y-6">
+                    <div class="glass-panel p-6 rounded-2xl">
+                        <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                            <div>
+                                <h2 class="font-bold text-lg flex items-center space-x-2">
+                                    <i class="fas fa-clipboard-list text-indigo-500"></i>
+                                    <span>Audit Log</span>
+                                </h2>
+                                <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">บันทึกกิจกรรมสำคัญ เช่น login, sync, SQL query, การจัดการผู้ใช้ และ template</p>
+                            </div>
+                            <button id="refresh-audit-logs-btn" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-200 font-bold px-4 py-2.5 rounded-xl flex items-center justify-center space-x-2 transition cursor-pointer text-xs">
+                                <i class="fas fa-sync-alt"></i>
+                                <span>รีเฟรช</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel rounded-2xl overflow-hidden flex flex-col">
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse min-w-[1100px]">
+                                <thead class="bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+                                    <tr>
+                                        <th class="py-3 px-4 w-44">เวลา</th>
+                                        <th class="py-3 px-4 w-32">ผู้ใช้</th>
+                                        <th class="py-3 px-4 w-40">Action</th>
+                                        <th class="py-3 px-4 w-36">Entity</th>
+                                        <th class="py-3 px-4">รายละเอียด</th>
+                                        <th class="py-3 px-4 w-36">IP</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-audit-log-table-body" class="text-xs divide-y divide-slate-100 dark:divide-slate-800/80 bg-transparent">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </div>
         </main>
     </div>
  
+    <!-- Excel Mapping Modal -->
+    <div id="excel-mapping-modal" class="fixed inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 hidden transition-opacity duration-300">
+        <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-2xl flex flex-col max-w-2xl w-full border border-slate-100 dark:border-slate-800/50 text-slate-800 dark:text-slate-100">
+            <div class="flex justify-between items-start gap-4 mb-4 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <div>
+                    <h3 class="font-bold text-base flex items-center space-x-2">
+                        <i class="fas fa-table-columns text-blue-500"></i>
+                        <span>จับคู่คอลัมน์ Excel สปสช.</span>
+                    </h3>
+                    <p id="excel-mapping-message" class="text-xs text-slate-500 dark:text-slate-400 mt-1">เลือกคอลัมน์ให้ตรงกับข้อมูลที่ระบบต้องใช้ก่อนประมวลผล</p>
+                </div>
+                <button id="close-excel-mapping-modal" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition focus:outline-none cursor-pointer">
+                    <i class="fas fa-times text-lg"></i>
+                </button>
+            </div>
+            <div id="excel-mapping-fields" class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-semibold"></div>
+            <div id="excel-mapping-preview" class="mt-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400"></div>
+            <div class="mt-5 flex justify-end space-x-2">
+                <button id="cancel-excel-mapping-btn" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer">ยกเลิก</button>
+                <button id="save-excel-mapping-btn" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition cursor-pointer">
+                    <i class="fas fa-check mr-1"></i> ใช้ Mapping นี้
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Loading Overlay -->
     <div id="loading-overlay" class="fixed inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 hidden transition-opacity duration-300">
         <div class="bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-2xl flex flex-col items-center max-w-xs w-full border border-slate-100 dark:border-slate-800/50">
@@ -777,6 +1230,81 @@
                         ส่งรายงานทันที
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+    <!-- Sync Progress Modal -->
+    <div id="sync-progress-modal" class="fixed inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 hidden transition-opacity duration-300">
+        <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-2xl flex flex-col max-w-md w-full border border-slate-100 dark:border-slate-800/50 text-slate-800 dark:text-slate-100">
+            <div class="flex justify-between items-center mb-4 border-b border-slate-200 dark:border-slate-800 pb-2">
+                <h3 class="font-bold text-base flex items-center space-x-2 text-slate-900 dark:text-white">
+                    <i class="fas fa-sync-alt animate-spin text-emerald-500" id="sync-progress-icon"></i>
+                    <span>One-Stop Auto Sync (ThaiD)</span>
+                </h3>
+            </div>
+            
+            <div class="space-y-4 my-4 font-semibold text-xs text-slate-500 dark:text-slate-400">
+                <!-- Step 1 -->
+                <div id="step-browser" class="flex items-center space-x-3 transition-all duration-300 p-2 rounded-xl">
+                    <span class="w-6 h-6 rounded-full border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] bg-slate-50 dark:bg-slate-800" id="icon-browser">
+                        <i class="fas fa-chrome"></i>
+                    </span>
+                    <div>
+                        <div class="text-slate-800 dark:text-slate-200 font-bold" id="title-browser">สตาร์ทเบราว์เซอร์สเกรปข้อมูล</div>
+                        <div class="text-[10px] text-slate-400 dark:text-slate-500" id="desc-browser">เริ่มต้นบราวเซอร์ตรวจสอบเซสชันสิทธิ์...</div>
+                    </div>
+                </div>
+                <!-- Step 2 -->
+                <div id="step-auth" class="flex items-center space-x-3 transition-all duration-300 p-2 rounded-xl">
+                    <span class="w-6 h-6 rounded-full border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] bg-slate-50 dark:bg-slate-800" id="icon-auth">
+                        <i class="fas fa-key"></i>
+                    </span>
+                    <div>
+                        <div class="text-slate-800 dark:text-slate-200 font-bold" id="title-auth">เข้าสู่ระบบ สปสช. (ThaiD)</div>
+                        <div class="text-[10px] text-slate-400 dark:text-slate-500" id="desc-auth">ใช้เซสชันเดิม หรือรอสแกนยืนยันด้วยแอป...</div>
+                    </div>
+                </div>
+                <!-- Step 3 -->
+                <div id="step-download" class="flex items-center space-x-3 transition-all duration-300 p-2 rounded-xl">
+                    <span class="w-6 h-6 rounded-full border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] bg-slate-50 dark:bg-slate-800" id="icon-download">
+                        <i class="fas fa-cloud-download-alt"></i>
+                    </span>
+                    <div>
+                        <div class="text-slate-800 dark:text-slate-200 font-bold" id="title-download">ดึงข้อมูลและดาวน์โหลดรายงาน</div>
+                        <div class="text-[10px] text-slate-400 dark:text-slate-500" id="desc-download">ดึงรายงาน Excel อัตโนมัติ...</div>
+                    </div>
+                </div>
+                <!-- Step 4 -->
+                <div id="step-sync" class="flex items-center space-x-3 transition-all duration-300 p-2 rounded-xl">
+                    <span class="w-6 h-6 rounded-full border border-slate-300 dark:border-slate-700 flex items-center justify-center text-[10px] bg-slate-50 dark:bg-slate-800" id="icon-sync">
+                        <i class="fas fa-database"></i>
+                    </span>
+                    <div>
+                        <div class="text-slate-800 dark:text-slate-200 font-bold" id="title-sync">นำเข้าและประมวลผลฐานข้อมูล</div>
+                        <div class="text-[10px] text-slate-400 dark:text-slate-500" id="desc-sync">อัปเดต HOSxP และจัดประเภทเปรียบเทียบสิทธิ์...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ThaiD QR Display Box -->
+            <div id="sync-qr-container" class="hidden flex flex-col items-center justify-center border border-slate-200 dark:border-slate-800 rounded-xl p-4 bg-slate-50 dark:bg-slate-900/60 my-3 text-center">
+                <div class="text-[10px] font-bold text-blue-600 dark:text-blue-400 mb-2 uppercase tracking-wide animate-pulse">📲 กรุณาสแกนด้วยแอป ThaiD บนมือถือ</div>
+                <div class="relative w-48 h-48 bg-white p-2 rounded-lg shadow border border-slate-200">
+                    <img id="sync-qr-image" src="" alt="ThaiD QR Code" class="w-full h-full object-contain">
+                </div>
+                <div class="text-[9px] text-slate-400 dark:text-slate-500 mt-2 max-w-xs">คุณยังสามารถสแกนจาก QR Code ที่ถูกส่งไปยัง LINE / Telegram ได้เช่นกัน</div>
+            </div>
+
+            <!-- Status Logs Info -->
+            <div class="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200/50 dark:border-slate-800/80 my-3 text-[11px] font-medium font-mono text-slate-600 dark:text-slate-400 flex items-start space-x-2">
+                <i class="fas fa-terminal mt-0.5 text-[10px] text-emerald-500"></i>
+                <span id="sync-status-message">กำลังเชื่อมต่อข้อมูลสเตตัสหลังบ้าน...</span>
+            </div>
+
+            <div class="flex justify-end pt-3 border-t border-slate-200 dark:border-slate-800 mt-4">
+                <button id="close-sync-progress-btn" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition text-xs cursor-pointer shadow-md shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    ปิดหน้าต่างนี้
+                </button>
             </div>
         </div>
     </div>

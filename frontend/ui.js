@@ -1247,6 +1247,20 @@ export const ui = {
         if (typeof document === 'undefined') return;
         const stateEl = document.getElementById('live-auto-refresh-state');
         const nextEl = document.getElementById('live-next-refresh');
+        const toggleBtn = document.getElementById('live-auto-toggle-btn');
+        const toggleText = document.getElementById('live-auto-toggle-text');
+        
+        if (toggleText) {
+            toggleText.textContent = isActive ? 'ปิดรีเฟรชอัตโนมัติ' : 'เปิดรีเฟรชอัตโนมัติ';
+        }
+        if (toggleBtn) {
+            if (isActive) {
+                toggleBtn.className = 'px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition cursor-pointer shadow-md shadow-emerald-500/20';
+            } else {
+                toggleBtn.className = 'px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs flex items-center gap-2 transition cursor-pointer';
+            }
+        }
+
         if (!stateEl || !nextEl) return;
 
         if (!isActive) {

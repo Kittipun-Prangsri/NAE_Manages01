@@ -132,6 +132,8 @@ function setupEventListeners() {
     document.getElementById('toggle-list-btn')?.addEventListener('click', ui.togglePatientList);
     document.getElementById('live-tv-toggle')?.addEventListener('click', handleLiveTvToggle);
     document.getElementById('live-fullscreen-btn')?.addEventListener('click', handleLiveFullscreen);
+    document.getElementById('live-refresh-btn')?.addEventListener('click', loadLiveDashboardData);
+    document.getElementById('live-auto-toggle-btn')?.addEventListener('click', handleLiveAutoToggle);
     document.querySelectorAll('.group-insights-toggle').forEach(btn => {
         btn.addEventListener('click', () => handleGroupInsightsToggle(btn.dataset.groupBy));
     });
@@ -1216,6 +1218,14 @@ function startLiveDashboardAutoRefresh() {
     }, LIVE_DASHBOARD_REFRESH_MS);
 }
 
+function handleLiveAutoToggle() {
+    if (appState.liveDashboardInterval) {
+        stopLiveDashboardAutoRefresh();
+    } else {
+        startLiveDashboardAutoRefresh();
+    }
+}
+
 function getFilteredAndSortedTrackerData() {
     let data = [...appState.rawTableData];
 
@@ -1538,7 +1548,7 @@ function handleTabSwitch(tabId) {
 
         if (tabId === 'tab-live-dashboard') {
             loadLiveDashboardData();
-            startLiveDashboardAutoRefresh();
+            stopLiveDashboardAutoRefresh();
         } else if (tabId === 'tab-grafana') {
             const dateInput = document.getElementById('query-visit-date');
             if (!dateInput.value) {

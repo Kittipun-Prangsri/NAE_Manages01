@@ -589,6 +589,7 @@ export async function getHosxpSummaryStats(visitDate) {
         WHERE v.vstdate = ?
           AND py.hipdata_code = 'UCS'
           AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+          AND COALESCE(v.uc_money, 0) > 0
     `;
 
     const ucsDepartmentsQuery = `
@@ -604,6 +605,7 @@ export async function getHosxpSummaryStats(visitDate) {
         WHERE v.vstdate = ?
           AND py.hipdata_code = 'UCS'
           AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+          AND COALESCE(v.uc_money, 0) > 0
         GROUP BY dept_name
         ORDER BY cnt DESC
         LIMIT 3

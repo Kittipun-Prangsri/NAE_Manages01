@@ -1253,6 +1253,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
                    AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                   AND COALESCE(v.uc_money, 0) > 0
                  GROUP BY group_key
                  ORDER BY count DESC, total_money DESC
                  LIMIT 10`,
@@ -1272,6 +1273,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                  WHERE visit_date = ?
                    AND UPPER(COALESCE(pcode, '')) = 'UC'
                    AND color_status IN ('RED', 'YELLOW')
+                   AND COALESCE(uc_money, 0) > 0
                  GROUP BY group_key
                  ORDER BY count DESC, total_money DESC
                  LIMIT 10`,
@@ -1295,15 +1297,16 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
              GROUP BY group_key
              ORDER BY total_money DESC, count DESC
              LIMIT 10`,
-            [date]
-        );
+                [date]
+            );
 
         const [[pendingTotal]] = await trackerPool.query(
             `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
              FROM visit_tracking
              WHERE visit_date = ?
                AND UPPER(COALESCE(pcode, '')) = 'UC'
-               AND color_status IN ('RED', 'YELLOW')`,
+               AND color_status IN ('RED', 'YELLOW')
+               AND COALESCE(uc_money, 0) > 0`,
             [date]
         );
 
@@ -1435,6 +1438,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
              WHERE visit_date = ?
                AND UPPER(COALESCE(pcode, '')) = 'UC'
                AND color_status IN ('RED', 'YELLOW')
+               AND COALESCE(uc_money, 0) > 0
              GROUP BY right_name
              ORDER BY count DESC, total_money DESC
              LIMIT 9`,
@@ -1472,7 +1476,8 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                  WHERE v.vstdate = ?
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
-                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))`,
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                   AND COALESCE(v.uc_money, 0) > 0`,
                 [date]
             );
             const sppSummary = sppRows[0] || {};

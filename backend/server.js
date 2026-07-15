@@ -2404,5 +2404,15 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
     
     // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
     console.log('📸 [Telegram Trigger] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
-    await captureAndNotify(visit_date);
+    try {
+        const telegramChatIdEnv = process.env.TELEGRAM_CHAT_ID || '';
+        const chatIds = new Set([
+            targetChatId,
+            ...telegramChatIdEnv.split(',').map(id => id.trim()).filter(id => id)
+        ]);
+        const finalChatIdList = Array.from(chatIds).join(',');
+        await captureAndNotify(visit_date, ['line', 'telegram'], ['summary', 'screenshot'], { telegram_chat_id: finalChatIdList });
+    } catch (err) {
+        console.error('❌ [Telegram Trigger] ข้อผิดพลาดในการบันทึกแดชบอร์ด/ส่งแจ้งเตือน:', err);
+    }
 }

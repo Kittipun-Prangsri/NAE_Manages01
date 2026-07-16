@@ -245,6 +245,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
         let rights = [];
         let ucs_total = 0;
         let ucs_departments = [];
+        let service_total_count = 0;
         let dbErrorOccurred = false;
 
         try {
@@ -267,6 +268,17 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                 [queryDate]
             );
             total_visits = vRows?.total_visits || 0;
+
+            // จำนวนผู้มารับบริการ(ครั้ง) สำหรับสิทธิที่กำหนด (OFC, UCS, etc.)
+            const [[sRows]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) as service_total 
+                 FROM vn_stat v
+                 LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})`,
+                [queryDate]
+            );
+            service_total_count = sRows?.service_total || 0;
 
             // Outstanding UC debtor money (sum of uc_money for UCS visits that are RED or YELLOW)
             const [[mRows]] = await hosxpPool.query(
@@ -419,6 +431,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                 { right_name: 'สิทธิประกันสังคม', cnt: 15 }
             ];
             ucs_total = 40;
+            service_total_count = 343;
             ucs_departments = [
                 { dept_name: 'OPD ทั่วไป', cnt: 20 },
                 { dept_name: 'ห้องฉุกเฉิน (ER)', cnt: 12 },
@@ -609,14 +622,14 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                                         "contents": [
                                             {
                                                 "type": "text",
-                                                "text": "ENDPOINT",
+                                                "text": "จำนวนผู้มารับบริการ(ครั้ง)",
                                                 "color": "#ffffff",
                                                 "size": "xs",
                                                 "align": "center"
                                             },
                                             {
                                                 "type": "text",
-                                                "text": String(endpoint_count),
+                                                "text": String(service_total_count),
                                                 "color": "#ff4d4d",
                                                 "size": "md",
                                                 "align": "center",

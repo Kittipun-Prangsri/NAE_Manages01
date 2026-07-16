@@ -140,7 +140,11 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
 
     // Check if screenshot is requested
     if (reportTypes.includes('screenshot')) {
-        const localAppUrl = process.env.LOCAL_DASHBOARD_URL || 'http://localhost:5173';
+        const port = process.env.PORT || 3000;
+        const isRunningUnderPm2 = typeof process.env.pm_id !== 'undefined';
+        const localAppUrl = (isRunningUnderPm2 || process.env.NODE_ENV === 'production')
+            ? `http://127.0.0.1:${port}`
+            : (process.env.LOCAL_DASHBOARD_URL || 'http://localhost:5173');
 
         console.log(`🚀 Starting screenshot capture process for local dashboard: ${localAppUrl}`);
 

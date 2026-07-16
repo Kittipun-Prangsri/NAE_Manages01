@@ -43,6 +43,16 @@ app.get('/ui.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/u
 app.get('/utils.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/utils.js')));
 app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, '../frontend/style.css')));
 
+// Serve the main index.html for the root route in both development and production
+app.get('/', (req, res) => {
+    const distIndex = path.join(__dirname, '../dist/index.html');
+    if (fs.existsSync(distIndex)) {
+        res.sendFile(distIndex);
+    } else {
+        res.sendFile(path.join(__dirname, '../frontend/index.html'));
+    }
+});
+
 // Serve static files from 'dist' if they exist (only in production)
 if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, '../dist')));

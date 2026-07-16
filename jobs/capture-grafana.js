@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
 import { trackerPool } from '../backend/db.js';
 
 dotenv.config();
@@ -139,32 +140,9 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
 
     // Check if screenshot is requested
     if (reportTypes.includes('screenshot')) {
-        const grafanaUrl = process.env.GRAFANA_URL || 'https://khh.srakw.net/d/cdv2h2zc1d91ca/check-authen?orgId=1&kiosk=tv';
-        const grafanaUser = process.env.GRAFANA_USER;
-        const grafanaPass = process.env.GRAFANA_PASS;
+        const localAppUrl = process.env.LOCAL_DASHBOARD_URL || 'http://localhost:5173';
 
-        if (!grafanaUser || !grafanaPass) {
-            console.error('❌ Error: GRAFANA_USER or GRAFANA_PASS is not defined in .env file.');
-            return { success: false, error: 'GRAFANA_USER or GRAFANA_PASS is missing in .env' };
-        }
-
-        let finalGrafanaUrl = grafanaUrl;
-        try {
-            const urlObj = new URL(grafanaUrl);
-            const startMs = new Date(`${queryDate}T00:00:00+07:00`).getTime();
-            const endMs = new Date(`${queryDate}T23:59:59+07:00`).getTime();
-            if (!isNaN(startMs) && !isNaN(endMs)) {
-                urlObj.searchParams.set('from', startMs.toString());
-                urlObj.searchParams.set('to', endMs.toString());
-                urlObj.searchParams.set('var-visit_date', queryDate);
-                finalGrafanaUrl = urlObj.toString();
-                console.log(`🎯 Custom Grafana URL for date ${queryDate}: ${finalGrafanaUrl}`);
-            }
-        } catch (err) {
-            console.error('⚠️ Failed to append targetDate to Grafana URL:', err.message);
-        }
-
-        console.log(`🚀 Starting screenshot capture process for: ${finalGrafanaUrl}`);
+        console.log(`🚀 Starting screenshot capture process for local dashboard: ${localAppUrl}`);
 
         let browser;
         try {
@@ -176,57 +154,59 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
 
             const page = await browser.newPage();
             await page.setViewport({ width: 1920, height: 1080 });
+            await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
 
-            console.log('🔗 Navigating to URL...');
-            await page.goto(finalGrafanaUrl, { waitUntil: 'load', timeout: 30000 });
+            console.log(`🔗 Navigating to local application URL: ${localAppUrl}`);
+            await page.goto(localAppUrl, { waitUntil: 'load', timeout: 30000 });
 
-            const currentUrl = page.url();
-            console.log(`📍 Current page URL: ${currentUrl}`);
+            // Generate JWT token for system capture user
+            console.log('🔑 Generating system authentication token...');
+            const tokenPayload = {
+                username: 'system_capture',
+                full_name: 'System Capture Bot',
+                role: 'admin',
+                department: 'IT'
+            };
+            const jwtSecret = process.env.JWT_SECRET || 'your_super_secret_key_change_me';
+            const token = jwt.sign(tokenPayload, jwtSecret, { expiresIn: '15m' });
 
-            if (currentUrl.includes('/login')) {
-                console.log('🔑 Login page detected. Filling credentials...');
-                let userField = null;
-                for (const selector of ['input[name="user"]', 'input[id="user"]', 'input[type="text"]']) {
-                    try {
-                        userField = await page.waitForSelector(selector, { timeout: 3000 });
-                        if (userField) {
-                            await page.type(selector, grafanaUser);
-                            break;
-                        }
-                    } catch (e) {}
-                }
+            // Inject credentials and force light theme
+            console.log('🧪 Injecting auth credentials and setting theme to light...');
+            await page.evaluate((tok, usr) => {
+                localStorage.setItem('nhso_token', tok);
+                localStorage.setItem('nhso_user', JSON.stringify(usr));
+                localStorage.setItem('theme', 'light');
+                document.documentElement.classList.remove('dark');
+            }, token, tokenPayload);
 
-                if (!userField) throw new Error('Could not find Grafana username input field.');
+            // Reload page to apply login
+            console.log('🔄 Reloading page to apply login...');
+            await page.goto(localAppUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-                let passField = null;
-                for (const selector of ['input[name="password"]', 'input[id="current-password"]', 'input[type="password"]']) {
-                    try {
-                        passField = await page.waitForSelector(selector, { timeout: 3000 });
-                        if (passField) {
-                            await page.type(selector, grafanaPass);
-                            break;
-                        }
-                    } catch (e) {}
-                }
-
-                if (!passField) throw new Error('Could not find Grafana password input field.');
-
-                console.log('Submitting login form...');
-                await Promise.all([
-                    page.click('button[type="submit"]'),
-                    page.waitForNavigation({ waitUntil: 'load', timeout: 15000 }).catch(() => {
-                        console.log('⚠️ Navigation timeout after clicking submit, continuing...');
-                    })
-                ]);
-                console.log('✅ Logged in successfully.');
+            // Set the target date if provided
+            if (queryDate) {
+                console.log(`📅 Setting target date: ${queryDate}`);
+                await page.evaluate((date) => {
+                    const dateInput = document.getElementById('visit-date');
+                    if (dateInput) {
+                        dateInput.value = date;
+                        dateInput.dispatchEvent(new Event('change'));
+                    }
+                }, queryDate);
             }
 
-            console.log('⏳ Waiting for dashboard panels grid to render...');
-            await page.waitForSelector('.react-grid-layout', { timeout: 10000 }).catch(() => {
-                console.log('⚠️ Could not find react-grid-layout selector, continuing...');
-            });
+            // Switch to the Live Dashboard tab
+            console.log('📊 Switching to Live Dashboard tab...');
+            await page.waitForSelector('#tab-live-dashboard', { timeout: 10000 });
+            await page.click('#tab-live-dashboard');
+
+            // Wait for the Live Dashboard container to render and load data
+            console.log('⏳ Waiting for Live Dashboard content to render...');
+            await page.waitForSelector('#live-dashboard-view-container', { timeout: 10000 });
             
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            // Wait for charts/animations to load completely
+            console.log('⏱️ Waiting for charts animations...');
+            await new Promise(resolve => setTimeout(resolve, 5000));
 
             const screenshotsDir = path.join(__dirname, '../screenshots');
             if (!fs.existsSync(screenshotsDir)) {
@@ -244,9 +224,16 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
             filename = `grafana_${yyyy}-${mm}-${dd}_${hh}-${min}-${sec}.png`;
             filepath = path.join(screenshotsDir, filename);
 
-            console.log('📸 Capturing screenshot...');
-            await page.screenshot({ path: filepath });
-            console.log(`💾 Screenshot successfully saved to: ${filepath}`);
+            console.log('📸 Capturing element screenshot (.uc-insight-board)...');
+            const element = await page.$('.uc-insight-board');
+            if (element) {
+                await element.screenshot({ path: filepath });
+                console.log(`💾 Element screenshot successfully saved to: ${filepath}`);
+            } else {
+                console.warn('⚠️ Element .uc-insight-board not found. Capturing full page instead.');
+                await page.screenshot({ path: filepath });
+                console.log(`💾 Full page screenshot successfully saved to: ${filepath}`);
+            }
 
             cleanOldScreenshots(screenshotsDir);
 

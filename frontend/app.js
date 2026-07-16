@@ -5,7 +5,7 @@ import { exportToCsv, isTokenExpired } from './utils.js';
 
 // App State
 let isLoggingOut = false;
-const LIVE_DASHBOARD_REFRESH_MS = 30000;
+// const LIVE_DASHBOARD_REFRESH_MS = 30000;
 
 const getInitialState = () => {
     if (typeof localStorage === 'undefined') {
@@ -25,9 +25,9 @@ const getInitialState = () => {
             trackerSearchFilter: '',
             trackerColumnFilters: {},
             trackerDashboardFilter: null,
-            liveDashboardInterval: null,
-            liveDashboardCountdownInterval: null,
-            liveDashboardNextRefreshAt: null,
+            // liveDashboardInterval: null,
+            // liveDashboardCountdownInterval: null,
+            // liveDashboardNextRefreshAt: null,
             isTvMode: false,
             groupInsightsBy: 'department',
             excelMapping: null,
@@ -94,7 +94,7 @@ let excelFileInput;
 // Initialize Application
 function init() {
     if (typeof document === 'undefined') return;
-    
+
     ui.initTheme();
     applyLiveTvMode(appState.isTvMode);
 
@@ -152,7 +152,7 @@ function setupEventListeners() {
     document.getElementById('manual-capture-btn')?.addEventListener('click', handleManualCapture);
     document.getElementById('refresh-btn')?.addEventListener('click', loadDashboardData);
     visitDateInput?.addEventListener('change', loadDashboardData);
-    
+
     // Homepage table sorting
     document.querySelectorAll('#tracking-table-thead th[data-sort]').forEach(th => {
         th.addEventListener('click', () => {
@@ -175,7 +175,7 @@ function setupEventListeners() {
         renderTrackerTable();
     });
     document.getElementById('clear-tracker-dashboard-filter')?.addEventListener('click', clearTrackerDashboardFilter);
-    
+
     // Export Data
     document.getElementById('export-error-btn')?.addEventListener('click', handleExportErrors);
 
@@ -188,13 +188,13 @@ function setupEventListeners() {
     document.getElementById('tab-grafana')?.addEventListener('click', () => handleTabSwitch('tab-grafana'));
     document.getElementById('tab-embed-grafana')?.addEventListener('click', () => handleTabSwitch('tab-embed-grafana'));
     document.getElementById('tab-admin')?.addEventListener('click', () => handleTabSwitch('tab-admin'));
-    
+
     // Admin user management listeners
     document.getElementById('add-user-btn')?.addEventListener('click', () => openUserModal());
     document.getElementById('close-user-modal')?.addEventListener('click', closeUserModal);
     document.getElementById('cancel-user-modal')?.addEventListener('click', closeUserModal);
     document.getElementById('user-form')?.addEventListener('submit', handleUserFormSubmit);
-    
+
     // Admin subtab navigation events
     document.getElementById('admin-subtab-users')?.addEventListener('click', () => handleAdminSubtabSwitch('users'));
     document.getElementById('admin-subtab-schedules')?.addEventListener('click', () => handleAdminSubtabSwitch('schedules'));
@@ -222,7 +222,7 @@ function setupEventListeners() {
     document.getElementById('clear-query-history-btn')?.addEventListener('click', handleClearQueryHistory);
     document.getElementById('query-export-btn')?.addEventListener('click', handleQueryExport);
     document.getElementById('query-search-input')?.addEventListener('input', handleQuerySearch);
-    
+
     // Editor shortcut: Ctrl + Enter to run query
     document.getElementById('sql-editor')?.addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.key === 'Enter') {
@@ -440,17 +440,17 @@ async function handleLogin(e) {
     if (ok) {
         appState.token = data.token;
         appState.user = data.user;
-        
+
         // บันทึกข้อมูลลง LocalStorage
         localStorage.setItem('nhso_token', data.token);
         localStorage.setItem('nhso_user', JSON.stringify(data.user));
-        
+
         // บันทึกข้อมูลแยกส่วน (ตามที่ผู้ใช้ต้องการให้ยกเลิกการคอมเมนต์หรือเพิ่มเติม)
         localStorage.setItem('username', data.user.username);
         localStorage.setItem('fullname', data.user.full_name);
         localStorage.setItem('department', data.user.department || '');
         localStorage.setItem('role', data.user.role);
-        
+
         if (data.user.role === 'admin') {
             document.getElementById('tab-admin')?.classList.remove('hidden');
         }
@@ -485,7 +485,7 @@ function handleLogout() {
 function setupFileUpload() {
     const dropzone = document.getElementById('dropzone');
     if (!dropzone || !excelFileInput) return;
-    
+
     dropzone.addEventListener('click', () => excelFileInput.click());
 
     excelFileInput.addEventListener('change', (e) => {
@@ -509,7 +509,7 @@ function setupFileUpload() {
     dropzone.addEventListener('drop', (e) => {
         const file = e.dataTransfer.files[0];
         handleFileSelection(file);
-        
+
         // Sync to input file
         const dataTransfer = new DataTransfer();
         dataTransfer.items.add(file);
@@ -523,7 +523,7 @@ async function handleFileSelection(file) {
     appState.excelMapping = null;
     appState.excelHeaders = [];
     appState.excelMappingFields = [];
-    
+
     // Auto-detect Date from Excel
     ui.setLoading(true);
     try {
@@ -791,7 +791,7 @@ async function handleAutoPortalSync() {
     const syncProgressIcon = document.getElementById('sync-progress-icon');
     const syncQrContainer = document.getElementById('sync-qr-container');
     const syncQrImage = document.getElementById('sync-qr-image');
-    
+
     const stepBrowser = document.getElementById('step-browser');
     const stepAuth = document.getElementById('step-auth');
     const stepDownload = document.getElementById('step-download');
@@ -868,7 +868,7 @@ async function handleAutoPortalSync() {
             syncProgressModal.classList.add('hidden');
             return;
         }
-        
+
         if (!response.ok) {
             syncStatusMessage.textContent = response.data.message || 'เกิดข้อผิดพลาดในการเริ่มต้นดาวน์โหลดรายงาน';
             syncProgressIcon.className = 'fas fa-exclamation-triangle text-red-500';
@@ -1086,7 +1086,7 @@ async function loadDashboardData() {
         if (handleApiResponse(response)) {
             const data = response.data;
             appState.disableNotifications = data.disableNotifications;
-            
+
             // Hide manual capture button if notifications are globally disabled
             const captureBtn = document.getElementById('manual-capture-btn');
             if (captureBtn) {
@@ -1096,7 +1096,7 @@ async function loadDashboardData() {
                     captureBtn.classList.remove('hidden');
                 }
             }
-            
+
             // data now contains { trackingData: [], hosxpStats: { totalPersons: X, totalVisits: Y } }
             appState.rawTableData = data.trackingData || [];
             appState.hosxpStats = data.hosxpStats || null;
@@ -1192,31 +1192,31 @@ function updateLiveAutoRefreshUi(isActive = true) {
     });
 }
 
-function stopLiveDashboardAutoRefresh() {
-    if (appState.liveDashboardInterval) {
-        clearInterval(appState.liveDashboardInterval);
-        appState.liveDashboardInterval = null;
-    }
-    if (appState.liveDashboardCountdownInterval) {
-        clearInterval(appState.liveDashboardCountdownInterval);
-        appState.liveDashboardCountdownInterval = null;
-    }
-    appState.liveDashboardNextRefreshAt = null;
-    updateLiveAutoRefreshUi(false);
-}
+// function stopLiveDashboardAutoRefresh() {
+//     if (appState.liveDashboardInterval) {
+//         clearInterval(appState.liveDashboardInterval);
+//         appState.liveDashboardInterval = null;
+//     }
+//     if (appState.liveDashboardCountdownInterval) {
+//         clearInterval(appState.liveDashboardCountdownInterval);
+//         appState.liveDashboardCountdownInterval = null;
+//     }
+//     appState.liveDashboardNextRefreshAt = null;
+//     updateLiveAutoRefreshUi(false);
+// }
 
-function startLiveDashboardAutoRefresh() {
-    stopLiveDashboardAutoRefresh();
-    appState.liveDashboardNextRefreshAt = Date.now() + LIVE_DASHBOARD_REFRESH_MS;
-    updateLiveAutoRefreshUi(true);
+// function startLiveDashboardAutoRefresh() {
+//     stopLiveDashboardAutoRefresh();
+//     appState.liveDashboardNextRefreshAt = Date.now() + LIVE_DASHBOARD_REFRESH_MS;
+//     updateLiveAutoRefreshUi(true);
 
-    appState.liveDashboardCountdownInterval = setInterval(() => updateLiveAutoRefreshUi(true), 1000);
-    appState.liveDashboardInterval = setInterval(() => {
-        appState.liveDashboardNextRefreshAt = Date.now() + LIVE_DASHBOARD_REFRESH_MS;
-        updateLiveAutoRefreshUi(true);
-        loadLiveDashboardData();
-    }, LIVE_DASHBOARD_REFRESH_MS);
-}
+//     appState.liveDashboardCountdownInterval = setInterval(() => updateLiveAutoRefreshUi(true), 1000);
+//     appState.liveDashboardInterval = setInterval(() => {
+//         appState.liveDashboardNextRefreshAt = Date.now() + LIVE_DASHBOARD_REFRESH_MS;
+//         updateLiveAutoRefreshUi(true);
+//         loadLiveDashboardData();
+//     }, LIVE_DASHBOARD_REFRESH_MS);
+// }
 
 function handleLiveAutoToggle() {
     if (appState.liveDashboardInterval) {
@@ -1262,7 +1262,7 @@ function getFilteredAndSortedTrackerData() {
     if (searchFilter) {
         const query = searchFilter.toLowerCase();
         data = data.filter(item => {
-            return Object.values(item).some(val => 
+            return Object.values(item).some(val =>
                 String(val || '').toLowerCase().includes(query)
             );
         });
@@ -1449,7 +1449,7 @@ function handleExportErrors() {
     if (!appState.rawTableData || appState.rawTableData.length === 0) return;
 
     // กรองเอาเฉพาะสีแดง (รอ Authen) และ สีเหลือง (รอปิด Endpoint)
-    const errorData = appState.rawTableData.filter(item => 
+    const errorData = appState.rawTableData.filter(item =>
         item.color_status === 'RED' || item.color_status === 'YELLOW'
     );
 
@@ -1594,7 +1594,7 @@ function openUserModal(user = null) {
     const modal = document.getElementById('user-modal');
     const title = document.getElementById('user-modal-title');
     const form = document.getElementById('user-form');
-    
+
     if (!modal) return;
 
     form.reset();
@@ -1994,12 +1994,12 @@ async function handleRunQuery() {
     const dbType = document.getElementById('query-db-type').value;
     const date = document.getElementById('query-visit-date').value;
     const hipdataCode = document.getElementById('query-hipdata').value;
-    
+
     if (!query) {
         alert('กรุณากรอกคำสั่ง SQL');
         return;
     }
-    
+
     ui.setLoading(true);
     try {
         const response = await api.runCustomQuery(query, dbType, date, hipdataCode, appState.token);
@@ -2007,11 +2007,11 @@ async function handleRunQuery() {
             appState.currentQueryResults = response.data.rows;
             appState.querySortBy = '';
             appState.querySortDesc = false;
-            
+
             const searchVal = document.getElementById('query-search-input').value;
             ui.renderGrafanaTable(response.data.rows, '', false, searchVal, handleQueryHeaderClick);
-            
-            document.getElementById('query-info-msg').textContent = 
+
+            document.getElementById('query-info-msg').textContent =
                 `พบผลลัพธ์ ${response.data.rows.length.toLocaleString()} แถว | ใช้เวลาประมวลผล ${response.data.executionTimeMs} ms`;
             loadQueryHistory();
         } else if (response.status !== 401 && response.status !== 403) {
@@ -2035,13 +2035,13 @@ function handleQueryHeaderClick(column) {
         appState.querySortBy = column;
         appState.querySortDesc = false;
     }
-    
+
     const searchVal = document.getElementById('query-search-input').value;
     ui.renderGrafanaTable(
-        appState.currentQueryResults, 
-        appState.querySortBy, 
-        appState.querySortDesc, 
-        searchVal, 
+        appState.currentQueryResults,
+        appState.querySortBy,
+        appState.querySortDesc,
+        searchVal,
         handleQueryHeaderClick
     );
 }
@@ -2052,10 +2052,10 @@ function handleQueryExport() {
         alert('ไม่มีข้อมูลให้ส่งออก');
         return;
     }
-    
+
     const dbType = document.getElementById('query-db-type').value;
     const date = document.getElementById('query-visit-date').value;
-    
+
     const exportData = appState.currentQueryResults.map(row => {
         const formatted = {};
         for (const [key, value] of Object.entries(row)) {
@@ -2074,7 +2074,7 @@ function handleQueryExport() {
         }
         return formatted;
     });
-    
+
     exportToCsv(`SQL_Report_${dbType}_${date}.csv`, exportData);
 }
 
@@ -2083,12 +2083,12 @@ async function handleSaveQuery() {
     const name = document.getElementById('new-query-name').value.trim();
     const queryText = document.getElementById('sql-editor').value;
     const dbType = document.getElementById('query-db-type').value;
-    
+
     if (!name || !queryText) {
         alert('กรุณากรอกชื่อและคำสั่ง SQL ก่อนกดบันทึก');
         return;
     }
-    
+
     ui.setLoading(true);
     try {
         const response = await api.saveQuery(name, queryText, dbType, appState.token);
@@ -2113,17 +2113,17 @@ async function handleSaveQuery() {
 async function handleDeleteQuery() {
     const select = document.getElementById('query-template-select');
     const queryId = select.value;
-    
+
     if (!queryId) {
         alert('กรุณาเลือกคำสั่งที่ต้องการลบใน Dropdown ก่อน');
         return;
     }
-    
+
     const selected = appState.savedQueries.find(q => String(q.id) === String(queryId));
     if (!selected) return;
-    
+
     if (!confirm(`คุณต้องการลบคำสั่ง "${selected.name}" หรือไม่?`)) return;
-    
+
     ui.setLoading(true);
     try {
         const response = await api.deleteSavedQuery(queryId, appState.token);
@@ -2146,7 +2146,7 @@ async function handleDeleteQuery() {
 function handleQuerySearch(e) {
     const query = e.target.value;
     if (!appState.currentQueryResults) return;
-    
+
     ui.renderGrafanaTable(
         appState.currentQueryResults,
         appState.querySortBy,
@@ -2163,8 +2163,8 @@ function updateAdminLoginBtnVisibility() {
     const roleEl = document.getElementById('user-role');
     if (appState.user) {
         if (roleEl) {
-            roleEl.textContent = appState.user.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 
-                                 appState.user.role === 'viewer' ? 'ผู้เข้าชม (Viewer)' : 'ผู้ใช้งาน (User)';
+            roleEl.textContent = appState.user.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' :
+                appState.user.role === 'viewer' ? 'ผู้เข้าชม (Viewer)' : 'ผู้ใช้งาน (User)';
         }
         if (btn) {
             if (appState.user.role === 'admin') {
@@ -2200,7 +2200,7 @@ async function handleAdminQuickLogin(e) {
         if (ok) {
             appState.token = data.token;
             appState.user = data.user;
-            
+
             // Save to LocalStorage
             localStorage.setItem('nhso_token', data.token);
             localStorage.setItem('nhso_user', JSON.stringify(data.user));
@@ -2208,18 +2208,18 @@ async function handleAdminQuickLogin(e) {
             localStorage.setItem('fullname', data.user.full_name);
             localStorage.setItem('department', data.user.department || '');
             localStorage.setItem('role', data.user.role);
-            
+
             // Show Admin Panel tab
             document.getElementById('tab-admin')?.classList.remove('hidden');
-            
+
             closeAdminLoginModal();
             updateAdminLoginBtnVisibility();
-            
+
             alert('เข้าสู่ระบบสิทธิ์ Admin สำเร็จ!');
-            
+
             // Render the dashboard header name and refresh data
             ui.showDashboard(data.user.full_name);
-            
+
             // Load admin tab automatically or refresh dashboard data
             handleTabSwitch('tab-admin');
         } else {
@@ -2234,7 +2234,7 @@ async function handleAdminQuickLogin(e) {
 }
 
 // Filter tracker table from live dashboard clicks
-window.filterDashboardByTambon = function(codeOrName) {
+window.filterDashboardByTambon = function (codeOrName) {
     const tambonNames = {
         'T01': 'ไทรเดี่ยว',
         'T02': 'ไทรทอง',
@@ -2256,7 +2256,7 @@ window.filterDashboardByTambon = function(codeOrName) {
     applyTrackerDashboardFilter('tambon', name, `ตำบล ${name}`);
 };
 
-window.filterTrackerByDepartment = function(departmentName) {
+window.filterTrackerByDepartment = function (departmentName) {
     if (!departmentName) return;
     applyTrackerDashboardFilter('department', departmentName, `แผนก ${departmentName}`);
 };

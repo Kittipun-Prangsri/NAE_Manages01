@@ -415,13 +415,17 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
         // Build right items contents dynamically
         const rightsContents = [];
         rights.forEach(r => {
+            let displayName = r.right_name || 'ไม่ระบุสิทธิ';
+            if (displayName === '89') {
+                displayName = 'บัตรทอง';
+            }
             rightsContents.push({
                 "type": "box",
                 "layout": "horizontal",
                 "contents": [
                     {
                         "type": "text",
-                        "text": r.right_name || 'ไม่ระบุสิทธิ',
+                        "text": displayName,
                         "color": "#ffffff",
                         "size": "sm"
                     },

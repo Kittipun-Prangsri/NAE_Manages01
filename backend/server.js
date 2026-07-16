@@ -261,7 +261,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
 
             // Outstanding UC debtor money (sum of uc_money for UCS visits that are RED or YELLOW)
             const [[mRows]] = await hosxpPool.query(
-                `SELECT COALESCE(SUM(CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.uc_money ELSE 0 END), 0) AS total_money
+                `SELECT COALESCE(SUM(v.uc_money), 0) AS total_money
                  FROM vn_stat v
                  LEFT JOIN ovst ov ON ov.vn = v.vn
                  LEFT JOIN temp_authen_code td ON td.cid = v.cid
@@ -270,6 +270,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                     AND td.flag = 'D'
                  LEFT JOIN pttype py ON py.pttype = v.pttype
                  WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) = 'UCS'
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
                    AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))

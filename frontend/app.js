@@ -5,7 +5,7 @@ import { exportToCsv, isTokenExpired } from './utils.js';
 
 // App State
 let isLoggingOut = false;
-// const LIVE_DASHBOARD_REFRESH_MS = 30000;
+const LIVE_DASHBOARD_REFRESH_MS = 30000;
 
 const getInitialState = () => {
     if (typeof localStorage === 'undefined') {
@@ -1192,31 +1192,31 @@ function updateLiveAutoRefreshUi(isActive = true) {
     });
 }
 
-// function stopLiveDashboardAutoRefresh() {
-//     if (appState.liveDashboardInterval) {
-//         clearInterval(appState.liveDashboardInterval);
-//         appState.liveDashboardInterval = null;
-//     }
-//     if (appState.liveDashboardCountdownInterval) {
-//         clearInterval(appState.liveDashboardCountdownInterval);
-//         appState.liveDashboardCountdownInterval = null;
-//     }
-//     appState.liveDashboardNextRefreshAt = null;
-//     updateLiveAutoRefreshUi(false);
-// }
+function stopLiveDashboardAutoRefresh() {
+    if (appState.liveDashboardInterval) {
+        clearInterval(appState.liveDashboardInterval);
+        appState.liveDashboardInterval = null;
+    }
+    if (appState.liveDashboardCountdownInterval) {
+        clearInterval(appState.liveDashboardCountdownInterval);
+        appState.liveDashboardCountdownInterval = null;
+    }
+    appState.liveDashboardNextRefreshAt = null;
+    updateLiveAutoRefreshUi(false);
+}
 
-// function startLiveDashboardAutoRefresh() {
-//     stopLiveDashboardAutoRefresh();
-//     appState.liveDashboardNextRefreshAt = Date.now() + LIVE_DASHBOARD_REFRESH_MS;
-//     updateLiveAutoRefreshUi(true);
+function startLiveDashboardAutoRefresh() {
+    stopLiveDashboardAutoRefresh();
+    appState.liveDashboardNextRefreshAt = Date.now() + LIVE_DASHBOARD_REFRESH_MS;
+    updateLiveAutoRefreshUi(true);
 
-//     appState.liveDashboardCountdownInterval = setInterval(() => updateLiveAutoRefreshUi(true), 1000);
-//     appState.liveDashboardInterval = setInterval(() => {
-//         appState.liveDashboardNextRefreshAt = Date.now() + LIVE_DASHBOARD_REFRESH_MS;
-//         updateLiveAutoRefreshUi(true);
-//         loadLiveDashboardData();
-//     }, LIVE_DASHBOARD_REFRESH_MS);
-// }
+    appState.liveDashboardCountdownInterval = setInterval(() => updateLiveAutoRefreshUi(true), 1000);
+    appState.liveDashboardInterval = setInterval(() => {
+        appState.liveDashboardNextRefreshAt = Date.now() + LIVE_DASHBOARD_REFRESH_MS;
+        updateLiveAutoRefreshUi(true);
+        loadLiveDashboardData();
+    }, LIVE_DASHBOARD_REFRESH_MS);
+}
 
 function handleLiveAutoToggle() {
     if (appState.liveDashboardInterval) {

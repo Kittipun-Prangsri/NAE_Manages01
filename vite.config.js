@@ -1,25 +1,18 @@
-import { defineConfig } from 'vite';
-
+// แก้ไขไฟล์ vite.config.js
 export default defineConfig({
-  root: './frontend',
-  build: {
-    outDir: '../dist',
-    emptyOutDir: true,
-  },
+  // ...
   server: {
     host: true,
     port: 5174,
     proxy: {
       '/api/': {
-        target: 'http://localhost:3005',
+        target: 'http://127.0.0.1:3005', // เปลี่ยนจาก localhost เป็น 127.0.0.1
         changeOrigin: true,
       },
       '/screenshots/': {
-        target: 'http://localhost:3005',
+        target: 'http://127.0.0.1:3005', // เปลี่ยนจาก localhost เป็น 127.0.0.1
         changeOrigin: true,
       },
-      // style.css is served directly by Vite (no proxy needed)
     },
   },
 });
-

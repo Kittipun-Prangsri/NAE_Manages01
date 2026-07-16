@@ -308,7 +308,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
             );
             endpoint_count = eRows?.endpoint_count || 0;
 
-            // Red status (ยังไม่ได้นำเข้า - td.claimcode IS NULL)
+            // Red status (ยังไม่ได้นำเข้า - ไม่มี ทั้ง PP และ EP)
             const [[nRows]] = await hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) AS not_imported_count
                  FROM vn_stat v
@@ -322,12 +322,12 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                    AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
-                   AND td.claimcode IS NULL`,
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR (UPPER(td.authen_code_type) <> 'PP' AND UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT')))`,
                 [queryDate]
             );
             not_imported_count = nRows?.not_imported_count || 0;
 
-            // Green status (สมบูรณ์แล้ว - td.claimcode IS NOT NULL and status has no PP)
+            // Green status (สมบูรณ์แล้ว - มี claimcode และเป็น EP หรือ ENDPOINT)
             const [[aRows]] = await hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) AS authen_count
                  FROM vn_stat v
@@ -342,7 +342,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
                    AND td.claimcode IS NOT NULL
-                   AND (td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'PP')`,
+                   AND UPPER(td.authen_code_type) IN ('EP', 'ENDPOINT')`,
                 [queryDate]
             );
             authen_count = aRows?.authen_count || 0;

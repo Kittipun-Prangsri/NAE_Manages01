@@ -46,16 +46,20 @@ app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, '../fronte
 // Serve the main index.html for the root route in both development and production
 app.get('/', (req, res) => {
     const distIndex = path.join(__dirname, '../dist/index.html');
-    if (fs.existsSync(distIndex)) {
+    const isProductionOrPm2 = process.env.NODE_ENV === 'production' || typeof process.env.pm_id !== 'undefined';
+    if (isProductionOrPm2 && fs.existsSync(distIndex)) {
         res.sendFile(distIndex);
     } else {
         res.sendFile(path.join(__dirname, '../frontend/index.html'));
     }
 });
 
-// Serve static files from 'dist' if they exist (only in production)
-if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, '../dist')));
+// Serve static files from 'dist' if they exist (in production or running under PM2)
+const distPath = path.join(__dirname, '../dist');
+if (process.env.NODE_ENV === 'production' || typeof process.env.pm_id !== 'undefined') {
+    if (fs.existsSync(distPath)) {
+        app.use(express.static(distPath));
+    }
 }
 
 // Serve screenshots statically (so LINE Messaging API can access them if public domain/IP is configured)

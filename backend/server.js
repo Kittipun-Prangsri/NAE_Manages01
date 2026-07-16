@@ -288,27 +288,20 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
             );
             total_money = mRows?.total_money || 0;
 
-            // Yellow status (ENDPOINT - still has PP status in authencode)
+            // Yellow status (ENDPOINT count from HOSxP pttype_note)
             const [[eRows]] = await hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) AS endpoint_count
                  FROM vn_stat v
-                 LEFT JOIN ovst ov ON ov.vn = v.vn
-                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
-                    AND td.status_use <> 'C'
-                    AND td.dateser = v.vstdate
-                    AND td.flag = 'D'
+                 LEFT JOIN visit_pttype vp ON vp.vn = v.vn
                  LEFT JOIN pttype py ON py.pttype = v.pttype
                  WHERE v.vstdate = ?
                    AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
-                   AND COALESCE(ov.pt_subtype, '') <> '1'
-                   AND ov.an IS NULL
-                   AND td.claimcode IS NOT NULL
-                   AND UPPER(td.authen_code_type) = 'PP'`,
+                   AND UPPER(vp.pttype_note) = 'ENDPOINT'`,
                 [queryDate]
             );
             endpoint_count = eRows?.endpoint_count || 0;
 
-            // Red status (ยังไม่ได้นำเข้า - ไม่มี ทั้ง PP และ EP)
+            // Red status (ยังไม่ได้นำเข้า - td.claimcode IS NULL)
             const [[nRows]] = await hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) AS not_imported_count
                  FROM vn_stat v
@@ -322,27 +315,20 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                    AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
-                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR (UPPER(td.authen_code_type) <> 'PP' AND UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT')))`,
+                   AND td.claimcode IS NULL`,
                 [queryDate]
             );
             not_imported_count = nRows?.not_imported_count || 0;
 
-            // Green status (สมบูรณ์แล้ว - มี claimcode และเป็น EP หรือ ENDPOINT)
+            // Green status (AUTHENCODE count from HOSxP pttype_note)
             const [[aRows]] = await hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) AS authen_count
                  FROM vn_stat v
-                 LEFT JOIN ovst ov ON ov.vn = v.vn
-                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
-                    AND td.status_use <> 'C'
-                    AND td.dateser = v.vstdate
-                    AND td.flag = 'D'
+                 LEFT JOIN visit_pttype vp ON vp.vn = v.vn
                  LEFT JOIN pttype py ON py.pttype = v.pttype
                  WHERE v.vstdate = ?
                    AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
-                   AND COALESCE(ov.pt_subtype, '') <> '1'
-                   AND ov.an IS NULL
-                   AND td.claimcode IS NOT NULL
-                   AND UPPER(td.authen_code_type) IN ('EP', 'ENDPOINT')`,
+                   AND UPPER(vp.pttype_note) = 'AUTHENCODE'`,
                 [queryDate]
             );
             authen_count = aRows?.authen_count || 0;

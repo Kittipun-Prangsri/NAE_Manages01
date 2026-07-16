@@ -334,12 +334,26 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
             authen_count = aRows?.authen_count || 0;
 
             const [rRows] = await hosxpPool.query(
-                `SELECT COALESCE(vp.pttype_note, vp.pttype) as right_name, COUNT(DISTINCT v.vn) as cnt
+                `SELECT 
+                    CASE 
+                        WHEN py.pttype_spp_id = 1 THEN 'เบิกจ่ายตรงกรมบัญชีกลาง'
+                        WHEN py.pttype_spp_id = 11 THEN 'เบิกต้นสังกัด'
+                        WHEN py.pttype_spp_id = 7 THEN 'เบิกจ่ายตรง อปท.'
+                        WHEN py.pttype_spp_id IN (3, 4) THEN 'บัตรทอง'
+                        WHEN py.pttype_spp_id IN (5, 8) THEN 'คนต่างด้าว'
+                        WHEN py.pttype_spp_id = 10 THEN 'ผู้มีปัญหาสถานะและสิทธิ'
+                        WHEN py.pttype_spp_id = 2 THEN 'บัตรประกันสังคม'
+                        WHEN py.pttype_spp_id = 9 THEN 'พรบ.ผู้ประสบภัยจากรถ'
+                        WHEN py.pttype_spp_id = 6 THEN 'อื่นๆ (ชำระเงินเอง)'
+                        ELSE 'ไม่ระบุสิทธิ'
+                    END as right_name,
+                    COUNT(DISTINCT v.vn) as cnt
                  FROM vn_stat v
-                 LEFT OUTER JOIN visit_pttype vp ON vp.vn = v.vn
                  LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+                 LEFT OUTER JOIN ovst ov ON ov.vn = v.vn
                  WHERE v.vstdate = ?
-                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
                  GROUP BY right_name
                  ORDER BY cnt DESC
                  LIMIT 3`,

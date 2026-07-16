@@ -248,13 +248,22 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
         let dbErrorOccurred = false;
 
         try {
-            // Query data stats directly from live HOSxP (matching the dashboard's right-side calculations)
+            // UCS ไม่ได้ปิดสิทธิ (count)
             const [[vRows]] = await hosxpPool.query(
-                `SELECT COUNT(DISTINCT v.vn) as total_visits 
+                `SELECT COUNT(DISTINCT v.vn) as total_visits
                  FROM vn_stat v
-                 LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
                  WHERE v.vstdate = ?
-                   AND py.hipdata_code = 'UCS'`,
+                   AND UPPER(py.hipdata_code) = 'UCS'
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                   AND COALESCE(v.uc_money, 0) > 0`,
                 [queryDate]
             );
             total_visits = vRows?.total_visits || 0;
@@ -530,7 +539,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                                 "contents": [
                                     {
                                         "type": "text",
-                                        "text": "จำนวนครั้งของ UC",
+                                        "text": "จำนวนครั้ง (count)",
                                         "color": "#ffffff",
                                         "size": "sm",
                                         "gravity": "center"

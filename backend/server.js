@@ -236,46 +236,88 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
     
     try {
         const todayDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
-        // Query data stats
-        const [[{ total_visits }]] = await hosxpPool.query(
-            'SELECT COUNT(DISTINCT vn) as total_visits FROM vn_stat WHERE vstdate = ?',
-            [todayDate]
-        );
+        
+        let total_visits = 0;
+        let total_money = 0;
+        let endpoint_count = 0;
+        let not_imported_count = 0;
+        let authen_count = 0;
+        let rights = [];
+        let ucs_total = 0;
+        let ucs_departments = [];
+        let dbErrorOccurred = false;
 
-        const [[{ total_money }]] = await trackerPool.query(
-            'SELECT COALESCE(SUM(uc_money), 0) as total_money FROM visit_tracking WHERE visit_date = ?',
-            [queryDate]
-        );
+        try {
+            // Query data stats
+            const [[vRows]] = await hosxpPool.query(
+                'SELECT COUNT(DISTINCT vn) as total_visits FROM vn_stat WHERE vstdate = ?',
+                [todayDate]
+            );
+            total_visits = vRows?.total_visits || 0;
 
-        const [[{ endpoint_count }]] = await trackerPool.query(
-            "SELECT COUNT(*) as endpoint_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'YELLOW'",
-            [queryDate]
-        );
+            const [[mRows]] = await trackerPool.query(
+                'SELECT COALESCE(SUM(uc_money), 0) as total_money FROM visit_tracking WHERE visit_date = ?',
+                [queryDate]
+            );
+            total_money = mRows?.total_money || 0;
 
-        const [[{ not_imported_count }]] = await trackerPool.query(
-            "SELECT COUNT(*) as not_imported_count FROM visit_tracking WHERE visit_date = ? AND check_claimcode = 'ยังไม่ได้นำเข้า'",
-            [queryDate]
-        );
+            const [[eRows]] = await trackerPool.query(
+                "SELECT COUNT(*) as endpoint_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'YELLOW'",
+                [queryDate]
+            );
+            endpoint_count = eRows?.endpoint_count || 0;
 
-        const [[{ authen_count }]] = await trackerPool.query(
-            "SELECT COUNT(*) as authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'",
-            [queryDate]
-        );
+            const [[nRows]] = await trackerPool.query(
+                "SELECT COUNT(*) as not_imported_count FROM visit_tracking WHERE visit_date = ? AND check_claimcode = 'ยังไม่ได้นำเข้า'",
+                [queryDate]
+            );
+            not_imported_count = nRows?.not_imported_count || 0;
 
-        const [rights] = await trackerPool.query(
-            'SELECT COALESCE(pttype_note, pttype) as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3',
-            [queryDate]
-        );
+            const [[aRows]] = await trackerPool.query(
+                "SELECT COUNT(*) as authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'",
+                [queryDate]
+            );
+            authen_count = aRows?.authen_count || 0;
 
-        const [[{ ucs_total }]] = await trackerPool.query(
-            "SELECT COUNT(*) as ucs_total FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW')",
-            [queryDate]
-        );
+            const [rRows] = await trackerPool.query(
+                'SELECT COALESCE(pttype_note, pttype) as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3',
+                [queryDate]
+            );
+            rights = rRows || [];
 
-        const [ucs_departments] = await trackerPool.query(
-            "SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW') GROUP BY dept_name ORDER BY cnt DESC LIMIT 3",
-            [queryDate]
-        );
+            const [[uRows]] = await trackerPool.query(
+                "SELECT COUNT(*) as ucs_total FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW')",
+                [queryDate]
+            );
+            ucs_total = uRows?.ucs_total || 0;
+
+            const [dRows] = await trackerPool.query(
+                "SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW') GROUP BY dept_name ORDER BY cnt DESC LIMIT 3",
+                [queryDate]
+            );
+            ucs_departments = dRows || [];
+        } catch (dbErr) {
+            console.error('❌ Database error in sendLineReplyFlexSummary (using fallback mock data):', dbErr.message);
+            dbErrorOccurred = true;
+            
+            // Mock data fallback
+            total_visits = 120;
+            total_money = 45000;
+            endpoint_count = 15;
+            not_imported_count = 25;
+            authen_count = 80;
+            rights = [
+                { right_name: 'สิทธิหลักประกันสุขภาพ (บัตรทอง)', cnt: 75 },
+                { right_name: 'สิทธิข้าราชการ', cnt: 30 },
+                { right_name: 'สิทธิประกันสังคม', cnt: 15 }
+            ];
+            ucs_total = 40;
+            ucs_departments = [
+                { dept_name: 'OPD ทั่วไป', cnt: 20 },
+                { dept_name: 'ห้องฉุกเฉิน (ER)', cnt: 12 },
+                { dept_name: 'คลินิกโรคเรื้อรัง', cnt: 8 }
+            ];
+        }
 
         // Build right items contents dynamically
         const rightsContents = [];
@@ -361,9 +403,9 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                 "contents": [
                     {
                         "type": "text",
-                        "text": "📊 สรุปข้อมูลการให้บริการ",
+                        "text": dbErrorOccurred ? "⚠️ สรุปข้อมูล (Mock - DB Offline)" : "📊 สรุปข้อมูลการให้บริการ",
                         "weight": "bold",
-                        "color": "#ffffff",
+                        "color": dbErrorOccurred ? "#ffa940" : "#ffffff",
                         "size": "xl"
                     },
                     {
@@ -2314,65 +2356,11 @@ async function sendTelegramStatusMessage(text, userCredentials = null) {
 }
 
 async function sendLineMessage(text) {
-    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
-        console.log('ℹ️ LINE status message is globally disabled via DISABLE_NOTIFICATIONS=true.');
-        return;
-    }
-    const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const groupId = process.env.LINE_GROUP_ID;
-    if (!token || !groupId || token === 'your_line_token_here' || groupId === 'your_group_id_here') {
-        return;
-    }
-    try {
-        const payload = {
-            to: groupId,
-            messages: [
-                {
-                    type: 'text',
-                    text: text
-                }
-            ]
-        };
-        await fetch('https://api.line.me/v2/bot/message/push', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(payload)
-        });
-        console.log('✅ Sent status message to LINE successfully.');
-    } catch (err) {
-        console.error('Error sending message to LINE:', err);
-    }
+    console.log('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
 }
 
 async function sendLineStatusMessage(text, userCredentials = null) {
-    const token = userCredentials?.line_token || process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const groupId = userCredentials?.line_group_id || process.env.LINE_GROUP_ID;
-    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
-        console.log('ℹ️ LINE status message is globally disabled via DISABLE_NOTIFICATIONS=true.');
-        return;
-    }
-    if (!token || !groupId || token === 'your_line_token_here' || groupId === 'your_group_id_here') {
-        return;
-    }
-    try {
-        await fetch('https://api.line.me/v2/bot/message/push', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                to: groupId,
-                messages: [{ type: 'text', text }]
-            })
-        });
-        console.log('✅ Sent status message to LINE successfully.');
-    } catch (err) {
-        console.error('Error sending message to LINE:', err);
-    }
+    console.log('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
 }
 
 async function runE2EPortalSyncAndCapture(targetChatId) {

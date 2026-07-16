@@ -216,6 +216,26 @@ body::before {
   }
 }
 
+@media (min-width: 1024px) {
+  .tracker-table-card {
+    width: calc(100vw - 2rem);
+    max-width: none;
+    margin-left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .tracker-table-scroll {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+@media (min-width: 1536px) {
+  .tracker-table-card {
+    width: calc(100vw - 2.5rem);
+  }
+}
+
 .stats-summary-grid {
   display: grid;
   grid-template-columns: 1fr;

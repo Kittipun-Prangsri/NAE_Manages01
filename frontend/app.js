@@ -1562,13 +1562,10 @@ function handleTabSwitch(tabId) {
         }
     };
 
-    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-
-    if (document.startViewTransition && !prefersReducedMotion) {
-        document.startViewTransition(doSwitch);
-    } else {
-        doSwitch();
-    }
+    // Use a direct DOM update here. The experimental View Transition API can
+    // abort when a previous transition is still active, leaving tab changes
+    // unreliable on deployed browsers.
+    doSwitch();
 }
 
 // --- Admin User Management Handlers ---

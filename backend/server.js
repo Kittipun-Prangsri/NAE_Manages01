@@ -248,51 +248,148 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
         let dbErrorOccurred = false;
 
         try {
-            // Query data stats
+            // Query data stats directly from live HOSxP (matching the dashboard's right-side calculations)
             const [[vRows]] = await hosxpPool.query(
-                'SELECT COUNT(DISTINCT vn) as total_visits FROM vn_stat WHERE vstdate = ?',
-                [todayDate]
+                `SELECT COUNT(DISTINCT v.vn) as total_visits 
+                 FROM vn_stat v
+                 LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})`,
+                [queryDate]
             );
             total_visits = vRows?.total_visits || 0;
 
-            const [[mRows]] = await trackerPool.query(
-                'SELECT COALESCE(SUM(uc_money), 0) as total_money FROM visit_tracking WHERE visit_date = ?',
+            // Outstanding UC debtor money (sum of uc_money for UCS visits that are RED or YELLOW)
+            const [[mRows]] = await hosxpPool.query(
+                `SELECT COALESCE(SUM(CASE WHEN UPPER(py.hipdata_code) = 'UCS' THEN v.uc_money ELSE 0 END), 0) AS total_money
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                   AND COALESCE(v.uc_money, 0) > 0`,
                 [queryDate]
             );
             total_money = mRows?.total_money || 0;
 
-            const [[eRows]] = await trackerPool.query(
-                "SELECT COUNT(*) as endpoint_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'YELLOW'",
+            // Yellow status (ENDPOINT closed but waiting other tasks / waiting closing, i.e. has claimcode but authen type not EP/ENDPOINT)
+            const [[eRows]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) AS endpoint_count
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND td.claimcode IS NOT NULL
+                   AND (td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))`,
                 [queryDate]
             );
             endpoint_count = eRows?.endpoint_count || 0;
 
-            const [[nRows]] = await trackerPool.query(
-                "SELECT COUNT(*) as not_imported_count FROM visit_tracking WHERE visit_date = ? AND check_claimcode = 'ยังไม่ได้นำเข้า'",
+            // Red status (ยังไม่ได้นำเข้า - td.claimcode IS NULL)
+            const [[nRows]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) AS not_imported_count
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND td.claimcode IS NULL`,
                 [queryDate]
             );
             not_imported_count = nRows?.not_imported_count || 0;
 
-            const [[aRows]] = await trackerPool.query(
-                "SELECT COUNT(*) as authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'",
+            // Green status (สมบูรณ์แล้ว - td.claimcode IS NOT NULL and authen type IN EP/ENDPOINT)
+            const [[aRows]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) AS authen_count
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND td.claimcode IS NOT NULL
+                   AND UPPER(td.authen_code_type) IN ('EP', 'ENDPOINT')`,
                 [queryDate]
             );
             authen_count = aRows?.authen_count || 0;
 
-            const [rRows] = await trackerPool.query(
-                'SELECT COALESCE(pttype_note, pttype) as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3',
+            const [rRows] = await hosxpPool.query(
+                `SELECT COALESCE(vp.pttype_note, vp.pttype) as right_name, COUNT(DISTINCT v.vn) as cnt
+                 FROM vn_stat v
+                 LEFT OUTER JOIN visit_pttype vp ON vp.vn = v.vn
+                 LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                 GROUP BY right_name
+                 ORDER BY cnt DESC
+                 LIMIT 3`,
                 [queryDate]
             );
             rights = rRows || [];
 
-            const [[uRows]] = await trackerPool.query(
-                "SELECT COUNT(*) as ucs_total FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW')",
+            // UCS ไม่ได้ปิดสิทธิ (count)
+            const [[uRows]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) as ucs_total
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) = 'UCS'
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                   AND COALESCE(v.uc_money, 0) > 0`,
                 [queryDate]
             );
             ucs_total = uRows?.ucs_total || 0;
 
-            const [dRows] = await trackerPool.query(
-                "SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW') GROUP BY dept_name ORDER BY cnt DESC LIMIT 3",
+            const [dRows] = await hosxpPool.query(
+                `SELECT COALESCE(CONVERT(k.department USING utf8), 'ไม่ระบุจุดบริการ') as dept_name, COUNT(DISTINCT v.vn) as cnt
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) = 'UCS'
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                   AND COALESCE(v.uc_money, 0) > 0
+                 GROUP BY dept_name
+                 ORDER BY cnt DESC
+                 LIMIT 3`,
                 [queryDate]
             );
             ucs_departments = dRows || [];

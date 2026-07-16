@@ -288,7 +288,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
             );
             total_money = mRows?.total_money || 0;
 
-            // Yellow status (ENDPOINT closed but waiting other tasks / waiting closing, i.e. has claimcode but authen type not EP/ENDPOINT)
+            // Yellow status (ENDPOINT - still has PP status in authencode)
             const [[eRows]] = await hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) AS endpoint_count
                  FROM vn_stat v
@@ -303,7 +303,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
                    AND td.claimcode IS NOT NULL
-                   AND (td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))`,
+                   AND UPPER(td.authen_code_type) = 'PP'`,
                 [queryDate]
             );
             endpoint_count = eRows?.endpoint_count || 0;
@@ -327,7 +327,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
             );
             not_imported_count = nRows?.not_imported_count || 0;
 
-            // Green status (สมบูรณ์แล้ว - td.claimcode IS NOT NULL and authen type IN EP/ENDPOINT)
+            // Green status (สมบูรณ์แล้ว - td.claimcode IS NOT NULL and status has no PP)
             const [[aRows]] = await hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) AS authen_count
                  FROM vn_stat v
@@ -342,7 +342,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
                    AND td.claimcode IS NOT NULL
-                   AND UPPER(td.authen_code_type) IN ('EP', 'ENDPOINT')`,
+                   AND (td.authen_code_type IS NULL OR UPPER(td.authen_code_type) <> 'PP')`,
                 [queryDate]
             );
             authen_count = aRows?.authen_count || 0;

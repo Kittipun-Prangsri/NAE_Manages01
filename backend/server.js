@@ -254,7 +254,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                  FROM vn_stat v
                  LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
                  WHERE v.vstdate = ?
-                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})`,
+                   AND py.hipdata_code = 'UCS'`,
                 [queryDate]
             );
             total_visits = vRows?.total_visits || 0;
@@ -530,7 +530,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                                 "contents": [
                                     {
                                         "type": "text",
-                                        "text": "จำนวนผู้มารับบริการวันนี้(ครั้ง)",
+                                        "text": "จำนวนครั้งของ UC",
                                         "color": "#ffffff",
                                         "size": "sm",
                                         "gravity": "center"

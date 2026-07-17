@@ -236,57 +236,223 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
     
     try {
         const todayDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
-        // Query data stats
-        const [[{ total_visits }]] = await hosxpPool.query(
-            'SELECT COUNT(DISTINCT vn) as total_visits FROM vn_stat WHERE vstdate = ?',
-            [todayDate]
-        );
+        
+        let total_visits = 0;
+        let total_money = 0;
+        let endpoint_count = 0;
+        let not_imported_count = 0;
+        let authen_count = 0;
+        let rights = [];
+        let ucs_total = 0;
+        let ucs_departments = [];
+        let service_total_count = 0;
+        let dbErrorOccurred = false;
 
-        const [[{ total_money }]] = await trackerPool.query(
-            'SELECT COALESCE(SUM(uc_money), 0) as total_money FROM visit_tracking WHERE visit_date = ?',
-            [queryDate]
-        );
+        try {
+            // UCS ไม่ได้ปิดสิทธิ (count)
+            const [[vRows]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) as total_visits
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) = 'UCS'
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                   AND COALESCE(v.uc_money, 0) > 0`,
+                [queryDate]
+            );
+            total_visits = vRows?.total_visits || 0;
 
-        const [[{ endpoint_count }]] = await trackerPool.query(
-            "SELECT COUNT(*) as endpoint_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'YELLOW'",
-            [queryDate]
-        );
+            // จำนวนผู้มารับบริการ(ครั้ง) สำหรับสิทธิที่กำหนด (OFC, UCS, etc.)
+            const [[sRows]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) as service_total 
+                 FROM vn_stat v
+                 LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})`,
+                [queryDate]
+            );
+            service_total_count = sRows?.service_total || 0;
 
-        const [[{ not_imported_count }]] = await trackerPool.query(
-            "SELECT COUNT(*) as not_imported_count FROM visit_tracking WHERE visit_date = ? AND check_claimcode = 'ยังไม่ได้นำเข้า'",
-            [queryDate]
-        );
+            // Outstanding UC debtor money (sum of uc_money for UCS visits that are RED or YELLOW)
+            const [[mRows]] = await hosxpPool.query(
+                `SELECT COALESCE(SUM(v.uc_money), 0) AS total_money
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) = 'UCS'
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                   AND COALESCE(v.uc_money, 0) > 0`,
+                [queryDate]
+            );
+            total_money = mRows?.total_money || 0;
 
-        const [[{ authen_count }]] = await trackerPool.query(
-            "SELECT COUNT(*) as authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'",
-            [queryDate]
-        );
+            // Yellow status (ENDPOINT count from HOSxP pttype_note)
+            const [[eRows]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) AS endpoint_count
+                 FROM vn_stat v
+                 LEFT JOIN visit_pttype vp ON vp.vn = v.vn
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                   AND UPPER(vp.pttype_note) = 'ENDPOINT'`,
+                [queryDate]
+            );
+            endpoint_count = eRows?.endpoint_count || 0;
 
-        const [rights] = await trackerPool.query(
-            'SELECT COALESCE(pttype_note, pttype) as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3',
-            [queryDate]
-        );
+            // Red status (ยังไม่ได้นำเข้า - td.claimcode IS NULL)
+            const [[nRows]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) AS not_imported_count
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND td.claimcode IS NULL`,
+                [queryDate]
+            );
+            not_imported_count = nRows?.not_imported_count || 0;
 
-        const [[{ ucs_total }]] = await trackerPool.query(
-            "SELECT COUNT(*) as ucs_total FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW')",
-            [queryDate]
-        );
+            // Green status (AUTHENCODE count from HOSxP pttype_note)
+            const [[aRows]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) AS authen_count
+                 FROM vn_stat v
+                 LEFT JOIN visit_pttype vp ON vp.vn = v.vn
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                   AND UPPER(vp.pttype_note) = 'AUTHENCODE'`,
+                [queryDate]
+            );
+            authen_count = aRows?.authen_count || 0;
 
-        const [ucs_departments] = await trackerPool.query(
-            "SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW') GROUP BY dept_name ORDER BY cnt DESC LIMIT 3",
-            [queryDate]
-        );
+            const [rRows] = await hosxpPool.query(
+                `SELECT 
+                    CASE 
+                        WHEN py.pttype_spp_id = 1 THEN 'เบิกจ่ายตรงกรมบัญชีกลาง'
+                        WHEN py.pttype_spp_id = 11 THEN 'เบิกต้นสังกัด'
+                        WHEN py.pttype_spp_id = 7 THEN 'เบิกจ่ายตรง อปท.'
+                        WHEN py.pttype_spp_id IN (3, 4) THEN 'บัตรทอง'
+                        WHEN py.pttype_spp_id IN (5, 8) THEN 'คนต่างด้าว'
+                        WHEN py.pttype_spp_id = 10 THEN 'ผู้มีปัญหาสถานะและสิทธิ'
+                        WHEN py.pttype_spp_id = 2 THEN 'บัตรประกันสังคม'
+                        WHEN py.pttype_spp_id = 9 THEN 'พรบ.ผู้ประสบภัยจากรถ'
+                        WHEN py.pttype_spp_id = 6 THEN 'อื่นๆ (ชำระเงินเอง)'
+                        ELSE 'ไม่ระบุสิทธิ'
+                    END as right_name,
+                    COUNT(DISTINCT v.vn) as cnt
+                 FROM vn_stat v
+                 LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+                 LEFT OUTER JOIN ovst ov ON ov.vn = v.vn
+                 WHERE v.vstdate = ?
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                 GROUP BY right_name
+                 ORDER BY cnt DESC
+                 LIMIT 3`,
+                [queryDate]
+            );
+            rights = rRows || [];
+
+            // UCS ไม่ได้ปิดสิทธิ (count)
+            const [[uRows]] = await hosxpPool.query(
+                `SELECT COUNT(DISTINCT v.vn) as ucs_total
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) = 'UCS'
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                   AND COALESCE(v.uc_money, 0) > 0`,
+                [queryDate]
+            );
+            ucs_total = uRows?.ucs_total || 0;
+
+            const [dRows] = await hosxpPool.query(
+                `SELECT COALESCE(CONVERT(k.department USING utf8), 'ไม่ระบุจุดบริการ') as dept_name, COUNT(DISTINCT v.vn) as cnt
+                 FROM vn_stat v
+                 LEFT JOIN ovst ov ON ov.vn = v.vn
+                 LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
+                 LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
+                 WHERE v.vstdate = ?
+                   AND UPPER(py.hipdata_code) = 'UCS'
+                   AND COALESCE(ov.pt_subtype, '') <> '1'
+                   AND ov.an IS NULL
+                   AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                   AND COALESCE(v.uc_money, 0) > 0
+                 GROUP BY dept_name
+                 ORDER BY cnt DESC
+                 LIMIT 3`,
+                [queryDate]
+            );
+            ucs_departments = dRows || [];
+        } catch (dbErr) {
+            console.error('❌ Database error in sendLineReplyFlexSummary (using fallback mock data):', dbErr.message);
+            dbErrorOccurred = true;
+            
+            // Mock data fallback
+            total_visits = 120;
+            total_money = 45000;
+            endpoint_count = 15;
+            not_imported_count = 25;
+            authen_count = 80;
+            rights = [
+                { right_name: 'สิทธิหลักประกันสุขภาพ (บัตรทอง)', cnt: 75 },
+                { right_name: 'สิทธิข้าราชการ', cnt: 30 },
+                { right_name: 'สิทธิประกันสังคม', cnt: 15 }
+            ];
+            ucs_total = 40;
+            service_total_count = 343;
+            ucs_departments = [
+                { dept_name: 'OPD ทั่วไป', cnt: 20 },
+                { dept_name: 'ห้องฉุกเฉิน (ER)', cnt: 12 },
+                { dept_name: 'คลินิกโรคเรื้อรัง', cnt: 8 }
+            ];
+        }
 
         // Build right items contents dynamically
         const rightsContents = [];
         rights.forEach(r => {
+            let displayName = r.right_name || 'ไม่ระบุสิทธิ';
+            if (displayName === '89') {
+                displayName = 'บัตรทอง';
+            }
             rightsContents.push({
                 "type": "box",
                 "layout": "horizontal",
                 "contents": [
                     {
                         "type": "text",
-                        "text": r.right_name || 'ไม่ระบุสิทธิ',
+                        "text": displayName,
                         "color": "#ffffff",
                         "size": "sm"
                     },
@@ -361,9 +527,9 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                 "contents": [
                     {
                         "type": "text",
-                        "text": "📊 สรุปข้อมูลการให้บริการ",
+                        "text": dbErrorOccurred ? "⚠️ สรุปข้อมูล (Mock - DB Offline)" : "📊 สรุปข้อมูลการให้บริการ",
                         "weight": "bold",
-                        "color": "#ffffff",
+                        "color": dbErrorOccurred ? "#ffa940" : "#ffffff",
                         "size": "xl"
                     },
                     {
@@ -390,7 +556,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                                 "contents": [
                                     {
                                         "type": "text",
-                                        "text": "จำนวนผู้มารับบริการวันนี้(ครั้ง)",
+                                        "text": "จำนวนครั้ง (count)",
                                         "color": "#ffffff",
                                         "size": "sm",
                                         "gravity": "center"
@@ -456,14 +622,14 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                                         "contents": [
                                             {
                                                 "type": "text",
-                                                "text": "ENDPOINT",
+                                                "text": "จำนวนผู้มารับบริการ(ครั้ง)",
                                                 "color": "#ffffff",
                                                 "size": "xs",
                                                 "align": "center"
                                             },
                                             {
                                                 "type": "text",
-                                                "text": String(endpoint_count),
+                                                "text": String(service_total_count),
                                                 "color": "#ff4d4d",
                                                 "size": "md",
                                                 "align": "center",
@@ -2314,65 +2480,11 @@ async function sendTelegramStatusMessage(text, userCredentials = null) {
 }
 
 async function sendLineMessage(text) {
-    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
-        console.log('ℹ️ LINE status message is globally disabled via DISABLE_NOTIFICATIONS=true.');
-        return;
-    }
-    const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const groupId = process.env.LINE_GROUP_ID;
-    if (!token || !groupId || token === 'your_line_token_here' || groupId === 'your_group_id_here') {
-        return;
-    }
-    try {
-        const payload = {
-            to: groupId,
-            messages: [
-                {
-                    type: 'text',
-                    text: text
-                }
-            ]
-        };
-        await fetch('https://api.line.me/v2/bot/message/push', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(payload)
-        });
-        console.log('✅ Sent status message to LINE successfully.');
-    } catch (err) {
-        console.error('Error sending message to LINE:', err);
-    }
+    console.log('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
 }
 
 async function sendLineStatusMessage(text, userCredentials = null) {
-    const token = userCredentials?.line_token || process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const groupId = userCredentials?.line_group_id || process.env.LINE_GROUP_ID;
-    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
-        console.log('ℹ️ LINE status message is globally disabled via DISABLE_NOTIFICATIONS=true.');
-        return;
-    }
-    if (!token || !groupId || token === 'your_line_token_here' || groupId === 'your_group_id_here') {
-        return;
-    }
-    try {
-        await fetch('https://api.line.me/v2/bot/message/push', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                to: groupId,
-                messages: [{ type: 'text', text }]
-            })
-        });
-        console.log('✅ Sent status message to LINE successfully.');
-    } catch (err) {
-        console.error('Error sending message to LINE:', err);
-    }
+    console.log('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
 }
 
 async function runE2EPortalSyncAndCapture(targetChatId) {

@@ -146,37 +146,7 @@ async function sendTelegramMessage(token, chatId, text) {
 }
 
 async function sendLineMessage(text) {
-    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
-        console.log('ℹ️ LINE message is globally disabled via DISABLE_NOTIFICATIONS=true.');
-        return;
-    }
-    const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const groupId = process.env.LINE_GROUP_ID;
-    if (!token || !groupId || token === 'your_line_token_here' || groupId === 'your_group_id_here') {
-        return;
-    }
-    try {
-        const payload = {
-            to: groupId,
-            messages: [
-                {
-                    type: 'text',
-                    text: text
-                }
-            ]
-        };
-        await fetch('https://api.line.me/v2/bot/message/push', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(payload)
-        });
-        console.log('✅ Sent status message to LINE successfully.');
-    } catch (err) {
-        console.error('Error sending message to LINE:', err);
-    }
+    console.log('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
 }
 
 async function runE2EPortalSyncAndCapture(targetChatId) {

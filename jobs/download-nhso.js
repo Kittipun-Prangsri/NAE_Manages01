@@ -12,7 +12,14 @@ puppeteer.use(StealthPlugin());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export async function downloadNhsoReport(statusCallback = null) {
+export async function downloadNhsoReport(targetDateOrCallback = null, statusCallback = null) {
+    let targetDate = null;
+    if (typeof targetDateOrCallback === 'function') {
+        statusCallback = targetDateOrCallback;
+    } else {
+        targetDate = targetDateOrCallback;
+    }
+
     const url = process.env.NHSO_PORTAL_URL || 'https://authenservice.nhso.go.th/authencode/';
     const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
     const telegramChatId = process.env.TELEGRAM_CHAT_ID;
@@ -23,6 +30,7 @@ export async function downloadNhsoReport(statusCallback = null) {
 
     const hasTelegram = telegramToken && telegramChatId && telegramChatId !== 'your_telegram_chat_id_here';
     const hasLine = lineAccessToken && lineGroupId && lineGroupId !== 'your_group_id_here';
+
     
     const downloadsDir = path.join(__dirname, '../downloads');
     if (!fs.existsSync(downloadsDir)) {
@@ -216,10 +224,16 @@ export async function downloadNhsoReport(statusCallback = null) {
         await new Promise(resolve => setTimeout(resolve, 5000));
 
         // Format dates
-        const now = new Date();
-        const dd = String(now.getDate()).padStart(2, '0');
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const yyyy_ad = now.getFullYear();
+        let dateToQuery = new Date();
+        if (targetDate) {
+            const parts = String(targetDate).split('-');
+            if (parts.length === 3) {
+                dateToQuery = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+            }
+        }
+        const dd = String(dateToQuery.getDate()).padStart(2, '0');
+        const mm = String(dateToQuery.getMonth() + 1).padStart(2, '0');
+        const yyyy_ad = dateToQuery.getFullYear();
         const yyyy_be = yyyy_ad + 543;
         
         const date_be = `${dd}/${mm}/${yyyy_be}`;

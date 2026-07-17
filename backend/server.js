@@ -1202,7 +1202,7 @@ async function runManualPortalSyncInBackground(visit_date, username = null, user
     await sendLineStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
     
     try {
-        const dlResult = await downloadNhsoReport((step, message, extra = null) => {
+        const dlResult = await downloadNhsoReport(visit_date, (step, message, extra = null) => {
             currentSyncStatus.step = step;
             currentSyncStatus.message = message;
             if (step === 'waiting_thaid_scan' && extra) {

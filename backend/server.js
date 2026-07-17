@@ -42,6 +42,7 @@ app.get('/api.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/
 app.get('/ui.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/ui.js')));
 app.get('/utils.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/utils.js')));
 app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, '../frontend/style.css')));
+app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, '../frontend/favicon.ico')));
 
 // Serve the main index.html for the root route in both development and production
 app.get('/', (req, res) => {

@@ -104,28 +104,29 @@
 
         <main class="p-6 max-w-7xl w-full mx-auto flex-1 space-y-6 animate-fade-in-up">
             <!-- View Mode Switcher -->
-            <div class="flex space-x-2 border-b border-slate-200/60 dark:border-slate-800/80 pb-1">
-                <button id="tab-tracker" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase">
+            <div class="flex overflow-x-auto whitespace-nowrap no-scrollbar border-b border-slate-200/60 dark:border-slate-800/80 pb-1 space-x-2 scroll-smooth select-none">
+                <button id="tab-tracker" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0">
                     <i class="fas fa-tasks"></i>
                     <span>ระบบตรวจสอบ (NHSO Tracker)</span>
                 </button>
-                <button id="tab-live-dashboard" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase">
+                <button id="tab-live-dashboard" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0">
                     <i class="fas fa-chart-pie"></i>
                     <span>แดชบอร์ดเรียลไทม์ (Live Dashboard)</span>
                 </button>
-                <button id="tab-grafana" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase">
+                <button id="tab-grafana" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0">
                     <i class="fas fa-chart-line"></i>
                     <span>ตารางวิเคราะห์คำสั่ง SQL (Grafana Panel)</span>
                 </button>
-                <button id="tab-embed-grafana" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase">
+                <button id="tab-embed-grafana" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0">
                     <i class="fas fa-desktop"></i>
                     <span>แดชบอร์ด Grafana (Embed)</span>
                 </button>
-                <button id="tab-admin" class="hidden px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase">
+                <button id="tab-admin" class="hidden px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0">
                     <i class="fas fa-user-shield"></i>
                     <span>จัดการผู้ใช้ (Admin Panel)</span>
                 </button>
             </div>
+
 
             <!-- Tracker View Container (Original View) -->
             <div id="tracker-view-container" class="space-y-6">

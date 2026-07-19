@@ -2,13 +2,11 @@ import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import { hosxpPool, trackerPool } from './db.js';
 import crypto from 'crypto';
+import { getJwtSecret } from './runtimeConfig.js';
 
 dotenv.config();
 
-if (!process.env.JWT_SECRET) {
-    console.warn('⚠️ Warning: JWT_SECRET is not defined in .env. Using fallback.');
-}
-const JWT_SECRET = process.env.JWT_SECRET || 'default_secret';
+const JWT_SECRET = getJwtSecret();
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '12h';
 const DEV_LOGIN_PASSWORD = process.env.HOSXP_DEV_LOGIN_PASSWORD || '';
 

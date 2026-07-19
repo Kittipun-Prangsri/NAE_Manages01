@@ -4,6 +4,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
+import { getJwtSecret } from '../backend/runtimeConfig.js';
+import { getLocalDashboardUrl } from './captureConfig.js';
 import { trackerPool } from '../backend/db.js';
 
 dotenv.config();
@@ -131,20 +133,15 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
     const telegramBotToken = (userCredentials && userCredentials.telegram_token) || process.env.TELEGRAM_BOT_TOKEN;
     const telegramChatId = (userCredentials && userCredentials.telegram_chat_id) || process.env.TELEGRAM_CHAT_ID;
     const imgbbApiKey = process.env.IMGBB_API_KEY;
-    const serverPublicUrl = process.env.SERVER_PUBLIC_URL || 'http://localhost:3000';
-
     const queryDate = targetDate || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
 
     let filepath = null;
     let filename = null;
+    let captureError = null;
 
     // Check if screenshot is requested
     if (reportTypes.includes('screenshot')) {
-        const port = process.env.PORT || 3000;
-        const isRunningUnderPm2 = typeof process.env.pm_id !== 'undefined';
-        const localAppUrl = (isRunningUnderPm2 || process.env.NODE_ENV === 'production')
-            ? `http://127.0.0.1:${port}`
-            : (process.env.LOCAL_DASHBOARD_URL || 'http://localhost:5173');
+        const localAppUrl = getLocalDashboardUrl();
 
         console.log(`🚀 Starting screenshot capture process for local dashboard: ${localAppUrl}`);
 
@@ -171,7 +168,7 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
                 role: 'admin',
                 department: 'IT'
             };
-            const jwtSecret = process.env.JWT_SECRET || 'your_super_secret_key_change_me';
+            const jwtSecret = getJwtSecret();
             const token = jwt.sign(tokenPayload, jwtSecret, { expiresIn: '15m' });
 
             // Inject credentials and force light theme
@@ -243,6 +240,7 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
 
         } catch (error) {
             console.error('❌ Error in screenshot capture:', error);
+            captureError = error;
         } finally {
             if (browser) {
                 await browser.close();
@@ -256,7 +254,7 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
     // Now send notifications
     if (process.env.DISABLE_NOTIFICATIONS === 'true') {
         console.log('ℹ️ Notifications are globally disabled via DISABLE_NOTIFICATIONS=true. Skipping send.');
-        return { success: true, filepath, filename };
+        return { success: !captureError, filepath, filename, error: captureError?.message || null };
     }
 
     const notificationPromises = [];
@@ -312,7 +310,7 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
         await Promise.allSettled(notificationPromises);
     }
 
-    return { success: true, filepath, filename };
+    return { success: !captureError, filepath, filename, error: captureError?.message || null };
 }
 
 async function sendToLineBot(token, groupId, targetDate, stats) {

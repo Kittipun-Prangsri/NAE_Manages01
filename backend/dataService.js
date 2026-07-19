@@ -1,5 +1,5 @@
-import { hosxpPool, trackerPool } from './db.js';
-// NOTE: authencode table lives in HOSxP DB (TIS-620), so saveAuthenLog uses hosxpPool
+import { getHosxpWritePool, hosxpPool, trackerPool } from './db.js';
+// NOTE: authencode is in HOSxP. All writes use the explicitly configured write pool.
 
 export const DEFAULT_HIPDATA_CODES = ['OFC', 'UCS', 'OTH', 'BMT', 'XXX', 'LGO', 'STP', 'SSS', 'SSI', 'A2', 'BKK', 'PTY', 'A9'];
 export const DEFAULT_HIPDATA_SQL_LIST = DEFAULT_HIPDATA_CODES.map(code => `'${code}'`).join(',');
@@ -187,7 +187,7 @@ export async function saveTrackingResults(results) {
 /**
  * ประมวลผลข้อมูลและอัปเดตระบบ HOSxP ด้วยคำสั่ง SQL ขั้นสูงตามที่กำหนด
  */
-export async function executeAdvancedRunLogic(visitDate) {
+export async function executeAdvancedRunLogic(visitDate, executor = getHosxpWritePool()) {
     const query = `
         -- 1. ตั้งค่าวันที่ต้องการประมวลผล (ใส่เป็น ค.ศ.)
         SET @target_date = ?; 
@@ -240,7 +240,7 @@ export async function executeAdvancedRunLogic(visitDate) {
     `;
 
     try {
-        await hosxpPool.query(query, [visitDate]);
+        await executor.query(query, [visitDate]);
         console.log(`✅ Executed advanced HOSxP update logic for date: ${visitDate}`);
     } catch (error) {
         console.error('❌ Advanced Run Logic Error:', error.message);
@@ -309,7 +309,7 @@ function parseExcelDate(val) {
 /**
  * บันทึกข้อมูลดิบจาก Excel ลงในตาราง authencode เพื่อเก็บ Log
  */
-export async function saveAuthenLog(excelData, visitDate) {
+export async function saveAuthenLog(excelData, visitDate, executor = getHosxpWritePool()) {
     if (!excelData || excelData.length === 0) return;
 
     const query = `
@@ -377,11 +377,35 @@ export async function saveAuthenLog(excelData, visitDate) {
     ]);
 
     try {
-        // Use hosxpPool because `authencode` is in the HOSxP database (TIS-620 charset)
-        await hosxpPool.query(query, [values]);
+        await executor.query(query, [values]);
         console.log(`✅ Logged ${excelData.length} records to "authencode" table.`);
     } catch (error) {
-        console.warn('⚠️ Could not save to authencode table (it might not exist or columns mismatch):', error.message);
+        console.error('❌ Could not save to authencode table:', error.message);
+        throw error;
+    }
+}
+
+/**
+ * Import a report and refresh its HOSxP-derived state as one atomic operation.
+ * A rollback keeps temp_authen_code and visit_pttype from being left half-updated.
+ */
+export async function runHosxpSync(excelData, visitDate, writePool = getHosxpWritePool()) {
+    const connection = await writePool.getConnection();
+    try {
+        await connection.beginTransaction();
+        await saveAuthenLog(excelData, visitDate, connection);
+        await executeAdvancedRunLogic(visitDate, connection);
+        await connection.commit();
+        console.log(`✅ HOSxP sync transaction committed for date: ${visitDate}`);
+    } catch (error) {
+        try {
+            await connection.rollback();
+        } catch (rollbackError) {
+            console.error('❌ HOSxP sync rollback failed:', rollbackError.message);
+        }
+        throw error;
+    } finally {
+        connection.release();
     }
 }
 

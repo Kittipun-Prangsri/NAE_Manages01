@@ -10,6 +10,12 @@
     "preview": "vite preview",
     "start": "node backend/server.js",
     "worker": "node jobs/worker.js",
+    "check:config": "node scripts/check-config.js",
+    "check:config:db": "node scripts/check-config.js --check-db",
+    "pm2:start": "pm2 start ecosystem.config.cjs --env production",
+    "pm2:restart": "pm2 restart ecosystem.config.cjs --env production --update-env",
+    "pm2:stop": "pm2 stop ecosystem.config.cjs",
+    "pm2:logs": "pm2 logs nae-server --lines 100",
     "test": "node --test test/*.test.js"
   },
   "keywords": [],

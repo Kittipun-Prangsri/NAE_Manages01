@@ -11,8 +11,12 @@ test('replaceGrafanaMacros expands date and hipdata macros', () => {
 
 test('isReadOnlySql allows read statements only', () => {
     assert.equal(isReadOnlySql('select * from visit_tracking'), true);
-    assert.equal(isReadOnlySql('WITH cte AS (SELECT 1) SELECT * FROM cte'), true);
+    assert.equal(isReadOnlySql('SHOW TABLES'), true);
+    assert.equal(isReadOnlySql('EXPLAIN SELECT * FROM visit_tracking'), true);
+    assert.equal(isReadOnlySql('WITH cte AS (SELECT 1) SELECT * FROM cte'), false);
     assert.equal(isReadOnlySql('UPDATE visit_tracking SET color_status = "GREEN"'), false);
+    assert.equal(isReadOnlySql('SELECT * INTO OUTFILE "/tmp/export" FROM visit_tracking'), false);
+    assert.equal(isReadOnlySql('/* SELECT */ DELETE FROM visit_tracking'), false);
 });
 
 test('hasMultipleStatements detects stacked SQL statements', () => {

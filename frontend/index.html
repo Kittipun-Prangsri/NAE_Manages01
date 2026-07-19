@@ -5,7 +5,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NHSO Tracking System - NAE Manages</title>
-    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4">
+    <script>
+        // Apply the saved/system theme before CSS paints to avoid a light-mode flash.
+        try {
+            const preference = localStorage.getItem('theme');
+            const theme = ['system', 'light', 'dark'].includes(preference) ? preference : 'system';
+            const resolved = theme === 'system'
+                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+                : theme;
+            document.documentElement.classList.toggle('dark', resolved === 'dark');
+            document.documentElement.dataset.themePreference = theme;
+        } catch (_) { /* Storage may be disabled; keep the default light palette. */ }
+    </script>
     <link rel="stylesheet" href="/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -73,12 +85,15 @@
                 <div>
                     <span class="text-lg font-bold tracking-tight flex items-baseline">
                         NHSO Tracker 
-                        <span class="ml-2 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-md">ver.2</span>
+                        <span class="ml-2 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded-md">ver.3</span>
                     </span>
                     <p class="text-[10px] text-slate-500 dark:text-slate-400 font-medium">National Health Security Office Monitoring</p>
                 </div>
             </div>
             <div class="flex items-center space-x-3.5">
+                <button id="sidebar-toggle" type="button" class="sidebar-toggle w-9 h-9 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer" aria-label="ย่อเมนูด้านข้าง" aria-controls="app-sidebar" aria-expanded="true">
+                    <i id="sidebar-toggle-icon" class="fas fa-angles-left text-sm" aria-hidden="true"></i>
+                </button>
                 <button id="admin-login-btn" class="hidden px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center space-x-1.5 shadow-md shadow-blue-500/10">
                     <i class="fas fa-user-shield text-[10px]"></i>
                     <span>Login Admin</span>
@@ -94,46 +109,68 @@
                     <span id="clock-date" class="text-[9px] font-medium opacity-80 uppercase tracking-tighter">01 JAN 2024</span>
                 </div>
                 <!-- Theme Toggle Button -->
-                <button id="theme-toggle" class="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer">
-                    <i class="fas fa-moon text-sm" id="theme-icon"></i>
+                <button id="theme-toggle" type="button" aria-label="ธีม" aria-pressed="false" class="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer">
+                    <i class="fas fa-desktop text-sm" id="theme-icon" aria-hidden="true"></i>
                 </button>
+                <span id="theme-status" class="sr-only" aria-live="polite"></span>
                 <button id="logout-btn" class="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer">
                     <i class="fas fa-sign-out-alt text-sm"></i>
                 </button>
             </div>
         </nav>
 
-        <main class="p-6 max-w-7xl w-full mx-auto flex-1 space-y-6 animate-fade-in-up">
-            <!-- View Mode Switcher -->
-            <div class="flex overflow-x-auto whitespace-nowrap no-scrollbar border-b border-slate-200/60 dark:border-slate-800/80 pb-1 space-x-2 scroll-smooth select-none">
-                <button id="tab-tracker" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0">
-                    <i class="fas fa-tasks"></i>
-                    <span>ระบบตรวจสอบ (NHSO Tracker)</span>
-                </button>
-                <button id="tab-live-dashboard" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0">
-                    <i class="fas fa-chart-pie"></i>
-                    <span>แดชบอร์ดเรียลไทม์ (Live Dashboard)</span>
-                </button>
-                <button id="tab-grafana" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0">
-                    <i class="fas fa-chart-line"></i>
-                    <span>ตารางวิเคราะห์คำสั่ง SQL (Grafana Panel)</span>
-                </button>
-                <button id="tab-embed-grafana" class="px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0">
-                    <i class="fas fa-desktop"></i>
-                    <span>แดชบอร์ด Grafana (Embed)</span>
-                </button>
-                <button id="tab-admin" class="hidden px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0">
-                    <i class="fas fa-user-shield"></i>
-                    <span>จัดการผู้ใช้ (Admin Panel)</span>
-                </button>
-            </div>
+        <div class="dashboard-layout">
+            <aside id="app-sidebar" class="app-sidebar" aria-label="เมนูหลัก">
+                <div class="sidebar-section-label">เมนูหลัก</div>
+                <nav class="sidebar-nav">
+                    <button id="tab-tracker" type="button" class="sidebar-nav-item is-active" aria-current="page">
+                        <i class="fas fa-tasks" aria-hidden="true"></i><span>ระบบตรวจสอบ</span>
+                    </button>
+                    <button id="tab-live-dashboard" type="button" class="sidebar-nav-item">
+                        <i class="fas fa-chart-pie" aria-hidden="true"></i><span>Live Dashboard</span>
+                    </button>
+                    <button id="tab-grafana" type="button" class="sidebar-nav-item">
+                        <i class="fas fa-chart-line" aria-hidden="true"></i><span>วิเคราะห์ SQL</span>
+                    </button>
+                    <button id="tab-embed-grafana" type="button" class="sidebar-nav-item">
+                        <i class="fas fa-desktop" aria-hidden="true"></i><span>Grafana Embed</span>
+                    </button>
+                </nav>
+                <div class="sidebar-section-label sidebar-admin-label">การดูแลระบบ</div>
+                <nav class="sidebar-nav">
+                    <button id="tab-admin" type="button" class="hidden sidebar-nav-item">
+                        <i class="fas fa-user-shield" aria-hidden="true"></i><span>จัดการระบบ</span>
+                    </button>
+                </nav>
+            </aside>
+
+            <main class="dashboard-content p-6 flex-1 space-y-6 animate-fade-in-up">
 
 
             <!-- Tracker View Container (Original View) -->
             <div id="tracker-view-container" class="space-y-6">
+                <header class="tracker-workspace-header">
+                    <div>
+                        <p class="tracker-workspace-eyebrow">Operations Workspace</p>
+                        <h1>ระบบตรวจสอบสิทธิ์ สปสช.</h1>
+                        <p class="tracker-workspace-description">นำเข้าข้อมูล ตรวจสอบสถานะ Authen และติดตามรายการที่ต้องดำเนินการในที่เดียว</p>
+                    </div>
+                    <div class="tracker-workspace-context">
+                        <i class="fas fa-shield-heart" aria-hidden="true"></i>
+                        <span>ตรวจสอบข้อมูลรายวัน</span>
+                    </div>
+                </header>
+
                 <!-- Controls Card -->
-                <div class="tracker-wide-section glass-panel p-6 rounded-2xl">
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+                <section class="tracker-wide-section tracker-controls-card glass-panel p-6 rounded-2xl" aria-labelledby="tracker-controls-title">
+                    <div class="tracker-controls-heading">
+                        <div>
+                            <p>Data & Sync</p>
+                            <h2 id="tracker-controls-title">เตรียมข้อมูลและประมวลผล</h2>
+                        </div>
+                        <span>1 เลือกวัน · 2 นำเข้าข้อมูล · 3 เริ่ม Sync</span>
+                    </div>
+                    <div class="tracker-controls-grid grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
                         <!-- Column 1: Date picker -->
                         <div class="space-y-2">
                             <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">วันที่ต้องการตรวจสอบ (HOSxP)</label>
@@ -161,7 +198,7 @@
                         </div>
 
                         <!-- Column 3: Action Buttons (Sync) -->
-                        <div class="space-y-2">
+                        <div class="space-y-2 md:col-span-2 xl:col-span-1">
                             <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">การประมวลผลข้อมูล</label>
                             <div class="flex flex-col space-y-2 w-full">
                                 <button id="sync-btn"
@@ -198,7 +235,7 @@
                             </div>
                         </div>
                     </div>
-                </div>
+                </section>
 
                 <!-- Status Overview Groups -->
                 <div class="tracker-wide-section summary-command-board">
@@ -211,22 +248,22 @@
                             <i class="fas fa-chart-pie"></i>
                         </div>
                         <div class="summary-metric-grid">
-                            <div class="summary-metric-card tilt-card is-blue">
+                            <button type="button" class="summary-metric-card summary-filter-card tilt-card is-blue" data-tracker-status-filter="all" aria-pressed="true" title="แสดงรายการทั้งหมด">
                                 <div>
                                     <p>ผู้รับบริการ</p>
                                     <strong id="stat-total">0 <span>/ 0</span></strong>
-                                    <small>คน / Visit</small>
+                                    <small>คน / Visit · คลิกเพื่อแสดงทั้งหมด</small>
                                 </div>
                                 <i class="fas fa-users"></i>
-                            </div>
-                            <div class="summary-metric-card tilt-card is-emerald">
+                            </button>
+                            <button type="button" class="summary-metric-card summary-filter-card tilt-card is-emerald" data-tracker-status-filter="GREEN" aria-pressed="false" title="กรองเฉพาะรายการสมบูรณ์แล้ว">
                                 <div>
                                     <p>สมบูรณ์แล้ว</p>
                                     <strong id="stat-green">0</strong>
-                                    <small>สิ้นสุดรักษาและปิด Endpoint</small>
+                                    <small>สิ้นสุดรักษาและปิด Endpoint · คลิกเพื่อกรอง</small>
                                 </div>
                                 <i class="fas fa-check-circle"></i>
-                            </div>
+                            </button>
                         </div>
                     </div>
 
@@ -239,22 +276,22 @@
                             <i class="fas fa-triangle-exclamation"></i>
                         </div>
                         <div class="summary-metric-grid">
-                            <div class="summary-metric-card tilt-card is-red">
+                            <button type="button" class="summary-metric-card summary-filter-card tilt-card is-red" data-tracker-status-filter="RED" aria-pressed="false" title="กรองรายการที่ยังไม่เปิด Authen">
                                 <div>
                                     <p>ยังไม่เปิด Authen</p>
                                     <strong id="stat-red">0</strong>
-                                    <small>ต้องตรวจสอบสิทธิ/Visit Authen</small>
+                                    <small>ต้องตรวจสอบสิทธิ/Visit Authen · คลิกเพื่อกรอง</small>
                                 </div>
                                 <i class="fas fa-exclamation-circle"></i>
-                            </div>
-                            <div class="summary-metric-card tilt-card is-amber">
+                            </button>
+                            <button type="button" class="summary-metric-card summary-filter-card tilt-card is-amber" data-tracker-status-filter="YELLOW" aria-pressed="false" title="กรองรายการที่รอปิด Endpoint">
                                 <div>
                                     <p>รอปิด Endpoint</p>
                                     <strong id="stat-yellow">0</strong>
-                                    <small>รอปิดงานหลังให้บริการ</small>
+                                    <small>รอปิดงานหลังให้บริการ · คลิกเพื่อกรอง</small>
                                 </div>
                                 <i class="fas fa-clock"></i>
-                            </div>
+                            </button>
                         </div>
                     </div>
                     <div class="hidden" aria-hidden="true">
@@ -340,7 +377,7 @@
                 </div>
 
                 <!-- Table Card -->
-                <div class="tracker-wide-section tracker-table-card glass-panel rounded-2xl overflow-hidden flex flex-col">
+                <div id="tracker-results" class="tracker-wide-section tracker-table-card glass-panel rounded-2xl overflow-hidden flex flex-col">
                     <div class="p-5 border-b border-slate-200/60 dark:border-slate-800/80 flex flex-col md:flex-row md:justify-between md:items-center gap-4 bg-slate-50/50 dark:bg-slate-900/40">
                         <div class="flex items-center gap-3">
                             <div>
@@ -353,6 +390,7 @@
                             </button>
                         </div>
                         <div class="flex flex-wrap items-center gap-2.5">
+                            <span id="tracker-table-result-count" class="text-[11px] font-semibold text-slate-500 dark:text-slate-400" aria-live="polite">กำลังโหลดรายการ…</span>
                             <div class="hidden relative w-full sm:w-60">
                                 <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400 pointer-events-none">
                                     <i class="fas fa-search text-xs"></i>
@@ -365,6 +403,8 @@
                             <button id="refresh-btn" class="btn-secondary-soft text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-3.5 py-2 rounded-lg transition flex items-center shadow-sm border border-blue-500/10 dark:border-blue-900/30 cursor-pointer shrink-0">
                                 <i class="fas fa-redo-alt mr-1.5"></i> รีเฟรช
                             </button>
+                            <button id="load-more-tracker-rows" type="button" class="hidden text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-3.5 py-2 rounded-lg transition border border-slate-200 dark:border-slate-700 cursor-pointer shrink-0"></button>
+                            <button id="show-less-tracker-rows" type="button" class="hidden text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 px-2 py-2 transition cursor-pointer shrink-0">แสดงน้อยลง</button>
                         </div>
                     </div>
 
@@ -377,29 +417,29 @@
                             <i class="fas fa-times mr-1"></i> ล้างตัวกรอง
                         </button>
                     </div>
+                    <p id="tracker-filter-result-announcement" class="sr-only" aria-live="polite"></p>
 
                     <div id="patient-list-content" class="transition-all duration-300 ease-in-out">
                         <!-- Data Table View -->
+                        <p class="table-mobile-hint"><i class="fas fa-arrows-left-right" aria-hidden="true"></i> เลื่อนตารางแนวนอนเพื่อดูรายละเอียดเพิ่มเติม</p>
                         <div class="tracker-table-scroll overflow-x-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse min-w-[1500px]">
+                            <table class="tracker-data-table w-full text-left border-collapse min-w-[1280px]">
                                 <thead id="tracking-table-thead">
                                     <tr class="bg-slate-100/60 dark:bg-slate-900/60 border-b border-slate-200/80 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-                                        <th class="py-3 px-4 w-32 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="vn">VN</th>
-                                        <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="cid_check">CID Check</th>
+                                        <th class="tracker-sticky-vn py-3 px-4 w-32 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="vn">VN</th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="cid">เลขบัตรประชาชน</th>
-                                        <th class="py-3 px-4 w-20 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pttype">PTType</th>
-                                        <th class="py-3 px-4 w-24 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pcode">HIPDATA</th>
-                                        <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="authCode">Auth Code (HOS)</th>
-                                        <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="claim_code">Claim Code (HOS)</th>
-                                        <th class="py-3 px-4 w-44 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="nhso_claim_code">Claim Code (Temp Authen)</th>
-                                        <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="authen_code_type">Authen Type</th>
+                                        <th class="py-3 px-4 w-20 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pttype"><abbr title="ประเภทสิทธิการรักษา">PTType</abbr></th>
+                                        <th class="py-3 px-4 w-24 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pcode"><abbr title="รหัสกลุ่มสิทธิที่ใช้ตรวจสอบข้อมูล">HIPDATA</abbr></th>
+                                        <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="authCode"><abbr title="รหัสยืนยันตัวตนจาก HOSxP">Auth Code</abbr> (HOS)</th>
+                                        <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="claim_code"><abbr title="รหัสเคลมที่บันทึกใน HOSxP">Claim Code</abbr> (HOS)</th>
+                                        <th class="py-3 px-4 w-44 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="nhso_claim_code"><abbr title="รหัสเคลมจากข้อมูล Temp Authen ของ สปสช.">Claim Code</abbr> (Temp Authen)</th>
+                                        <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="authen_code_type"><abbr title="ประเภทการยืนยันตัวตน">Authen Type</abbr></th>
                                         <th class="py-3 px-4 w-48 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="pttype_note">PTType Note</th>
                                         <th class="py-3 px-4 w-32 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="staff">เจ้าหน้าที่</th>
-                                        <th class="py-3 px-4 w-32 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="check_claimcode">ผลการเช็ค</th>
+                                        <th class="tracker-sticky-status py-3 px-4 w-32 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="check_claimcode">ผลการเช็ค</th>
                                         <th class="py-3 px-4 w-52 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="issue_reason">สาเหตุที่ต้องแก้</th>
-                                        <th class="py-3 px-4 w-32 text-right cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="uc_money">UC Money</th>
+                                        <th class="py-3 px-4 w-32 text-right cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="uc_money"><abbr title="ยอดค่าใช้จ่ายสิทธิ UC">UC Money</abbr></th>
                                         <th class="py-3 px-4 w-40 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="department">Department</th>
-                                        <th class="py-3 px-4 w-24 text-center cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none" data-sort="cc_cid">CC CID</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tracking-table-body" class="text-sm divide-y divide-slate-100 dark:divide-slate-800/80 bg-transparent">
@@ -427,24 +467,22 @@
                             </div>
                         </div>
                         <div class="overflow-x-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse min-w-[1280px]">
+                            <table class="lgo-data-table w-full text-left border-collapse min-w-[1080px]">
                                 <thead>
                                     <tr class="bg-slate-100/60 dark:bg-slate-900/60 border-b border-slate-200/80 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
-                                        <th class="py-3 px-4 w-32">VN</th>
-                                        <th class="py-3 px-4 w-40">CID Check</th>
+                                        <th class="tracker-sticky-vn py-3 px-4 w-32">VN</th>
                                         <th class="py-3 px-4 w-40">เลขบัตรประชาชน</th>
-                                        <th class="py-3 px-4 w-20">PTType</th>
-                                        <th class="py-3 px-4 w-20">PCode</th>
-                                        <th class="py-3 px-4 w-40">Auth Code (HOS)</th>
-                                        <th class="py-3 px-4 w-40">Claim Code (HOS)</th>
-                                        <th class="py-3 px-4 w-40">Claim Code (NHSO)</th>
-                                        <th class="py-3 px-4 w-40">Authen Type</th>
+                                        <th class="py-3 px-4 w-20"><abbr title="ประเภทสิทธิการรักษา">PTType</abbr></th>
+                                        <th class="py-3 px-4 w-20"><abbr title="รหัสกลุ่มสิทธิที่ใช้ตรวจสอบข้อมูล">PCode</abbr></th>
+                                        <th class="py-3 px-4 w-40"><abbr title="รหัสยืนยันตัวตนจาก HOSxP">Auth Code</abbr> (HOS)</th>
+                                        <th class="py-3 px-4 w-40"><abbr title="รหัสเคลมที่บันทึกใน HOSxP">Claim Code</abbr> (HOS)</th>
+                                        <th class="py-3 px-4 w-40"><abbr title="รหัสเคลมจากข้อมูล สปสช.">Claim Code</abbr> (NHSO)</th>
+                                        <th class="py-3 px-4 w-40"><abbr title="ประเภทการยืนยันตัวตน">Authen Type</abbr></th>
                                         <th class="py-3 px-4 w-48">PTType Note</th>
                                         <th class="py-3 px-4 w-32">เจ้าหน้าที่</th>
-                                        <th class="py-3 px-4 w-32 text-center">ผลการเช็ค</th>
-                                        <th class="py-3 px-4 w-32 text-right">UC Money</th>
+                                        <th class="tracker-sticky-status py-3 px-4 w-32 text-center">ผลการเช็ค</th>
+                                        <th class="py-3 px-4 w-32 text-right"><abbr title="ยอดค่าใช้จ่ายสิทธิ UC">UC Money</abbr></th>
                                         <th class="py-3 px-4 w-40">Department</th>
-                                        <th class="py-3 px-4 w-24 text-center">CC CID</th>
                                     </tr>
                                 </thead>
                                 <tbody id="lgo-tracking-table-body" class="text-sm divide-y divide-slate-100 dark:divide-slate-800/80 bg-transparent">
@@ -1027,7 +1065,9 @@
                     </div>
                 </div>
             </div>
-        </main>
+            </main>
+        </div>
+        <footer class="app-footer">© 2026 NHSO Tracker <span aria-hidden="true">·</span> Developed by Kittipun Prangsri</footer>
     </div>
  
     <!-- Excel Mapping Modal -->
@@ -1318,7 +1358,20 @@
             </div>
         </div>
     </div>
- 
+
+    <dialog id="tracking-details-dialog" class="tracking-details-dialog" aria-labelledby="tracking-details-title">
+        <div class="tracking-details-header">
+            <div>
+                <p class="tracking-details-eyebrow">Rights Authen Review</p>
+                <h2 id="tracking-details-title">รายละเอียดรายการ</h2>
+            </div>
+            <form method="dialog">
+                <button type="submit" class="tracking-details-close" aria-label="ปิดรายละเอียด"><i class="fas fa-xmark" aria-hidden="true"></i></button>
+            </form>
+        </div>
+        <div id="tracking-details-content" class="tracking-details-content"></div>
+    </dialog>
+
     <script type="module" src="app.js"></script>
 </body>
 

@@ -68,6 +68,16 @@ export async function initInternalDb() {
         );
     `;
 
+    const schedulerLocksSchema = `
+        CREATE TABLE IF NOT EXISTS scheduler_locks (
+            lock_key VARCHAR(100) PRIMARY KEY,
+            holder_id VARCHAR(255) NOT NULL,
+            expires_at TIMESTAMP(3) NOT NULL,
+            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+            INDEX idx_scheduler_locks_expires_at (expires_at)
+        );
+    `;
+
     const syncRunsSchema = `
         CREATE TABLE IF NOT EXISTS sync_runs (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -111,9 +121,9 @@ export async function initInternalDb() {
             full_name VARCHAR(200),
             role ENUM('admin', 'user', 'viewer') DEFAULT 'user',
             department VARCHAR(200),
-            line_token VARCHAR(255) DEFAULT NULL,
+            line_token VARCHAR(512) DEFAULT NULL,
             line_group_id VARCHAR(150) DEFAULT NULL,
-            telegram_token VARCHAR(255) DEFAULT NULL,
+            telegram_token VARCHAR(512) DEFAULT NULL,
             telegram_chat_id VARCHAR(150) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -143,6 +153,7 @@ export async function initInternalDb() {
             `);
             console.log('✅ Added Line and Telegram notification columns to "users" table.');
         }
+        await trackerPool.query('ALTER TABLE users MODIFY COLUMN line_token VARCHAR(512) DEFAULT NULL, MODIFY COLUMN telegram_token VARCHAR(512) DEFAULT NULL');
 
         await trackerPool.query(schema);
         console.log('✅ Internal database table "visit_tracking" is ready.');
@@ -165,6 +176,9 @@ export async function initInternalDb() {
 
         await trackerPool.query(cronSchedulesSchema);
         console.log('✅ Internal database table "cron_schedules" is ready.');
+
+        await trackerPool.query(schedulerLocksSchema);
+        console.log('✅ Internal database table "scheduler_locks" is ready.');
 
         await trackerPool.query(syncRunsSchema);
         console.log('✅ Internal database table "sync_runs" is ready.');

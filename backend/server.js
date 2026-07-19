@@ -9,12 +9,17 @@ import * as xlsx from 'xlsx';
 import { checkConnections, trackerPool, hosxpPool } from './db.js';
 import { initInternalDb } from './initDb.js';
 import { verifyUserLogin, authenticateToken } from './auth.js';
-import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic, checkNhsoStatusViaApi, getHosxpTotalVisits, getLiveDashboardGeo, getLiveDashboardDeps, getHosxpSummaryStats, DEFAULT_HIPDATA_CODES, DEFAULT_HIPDATA_SQL_LIST } from './dataService.js';
+import { getHosxpVisits, saveTrackingResults, runHosxpSync, checkNhsoStatusViaApi, getHosxpTotalVisits, getLiveDashboardGeo, getLiveDashboardDeps, getHosxpSummaryStats, DEFAULT_HIPDATA_CODES, DEFAULT_HIPDATA_SQL_LIST } from './dataService.js';
 import { processCrossCheck } from './crossCheckLogic.js';
 import { isReadOnlySql, hasMultipleStatements, replaceGrafanaMacros } from './queryUtils.js';
 import { isValidDateString, isValidTimeString, normalizeChannels, normalizeReportTypes } from './validation.js';
 import { writeAuditLog } from './auditLog.js';
 import { getMappingFields, inferExcelMapping, getMissingRequiredFields, normalizeExcelRows } from './excelMapping.js';
+import { decryptNotificationToken, encryptNotificationToken, isEncryptedNotificationToken } from './notificationCredentials.js';
+import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from './schedulerLock.js';
+import { createCorsOptions, getExcelUploadLimitBytes } from './securityConfig.js';
+import { getRuntimeConfigurationStatus } from './runtimeConfig.js';
+import { applySecurityHeaders, isPublicScreenshotAccessEnabled } from './securityPolicy.js';
 import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
@@ -27,11 +32,16 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { files: 1, fileSize: getExcelUploadLimitBytes() }
+});
 
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.disable('x-powered-by');
+app.use(applySecurityHeaders);
+app.use(cors(createCorsOptions()));
+app.use(express.json({ limit: '1mb' }));
 
 // Visit routes
 app.use('/api/visits', authenticateToken, visitRoutes);
@@ -42,8 +52,8 @@ app.get('/api.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/
 app.get('/ui.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/ui.js')));
 app.get('/utils.js', (req, res) => res.sendFile(path.join(__dirname, '../frontend/utils.js')));
 app.get('/style.css', (req, res) => res.sendFile(path.join(__dirname, '../frontend/style.css')));
-app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, '../frontend/favicon.ico')));
-app.get('/logo.png', (req, res) => res.sendFile(path.join(__dirname, '../frontend/logo.png')));
+app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/favicon.ico')));
+app.get('/favicon.svg', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/favicon.svg')));
 
 // Serve the main index.html for the root route in both development and production
 app.get('/', (req, res) => {
@@ -64,9 +74,11 @@ if (process.env.NODE_ENV === 'production' || typeof process.env.pm_id !== 'undef
     }
 }
 
-// Serve screenshots statically (so LINE Messaging API can access them if public domain/IP is configured)
-app.use('/screenshots', express.static(path.join(__dirname, '../screenshots')));
-app.use('/screenshots', express.static(path.join(__dirname, '../jobs/screenshots')));
+// Screenshots can contain patient data. Keep them behind JWT authentication by
+// default; explicitly opt in only when an external messaging provider needs a public URL.
+const screenshotAccess = isPublicScreenshotAccessEnabled() ? (req, res, next) => next() : authenticateToken;
+app.use('/screenshots', screenshotAccess, express.static(path.join(__dirname, '../screenshots')));
+app.use('/screenshots', screenshotAccess, express.static(path.join(__dirname, '../jobs/screenshots')));
 
 let currentSyncStatus = {
     status: 'idle',
@@ -177,6 +189,7 @@ app.get('/api/health', async (req, res) => {
         success: true,
         uptime: process.uptime(),
         backgroundJobs: process.env.ENABLE_SERVER_BACKGROUND_JOBS === 'true' ? 'server-enabled' : 'worker-only',
+        configuration: getRuntimeConfigurationStatus(),
         database: {
             tracker: false,
             hosxp: false
@@ -197,6 +210,10 @@ app.get('/api/health', async (req, res) => {
     } catch (error) {
         health.success = false;
         health.hosxpError = error.message;
+    }
+
+    if (process.env.NODE_ENV === 'production' && !health.configuration.valid) {
+        health.success = false;
     }
 
     res.status(health.success ? 200 : 503).json(health);
@@ -880,7 +897,7 @@ app.post('/api/sync/probe-date', authenticateToken, upload.single('excel'), (req
 /**
  * Endpoint สำหรับดึงข้อมูล HOSxP และ Cross-check กับไฟล์ Excel (รวม Import & Process)
  */
-app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (req, res) => {
+app.post('/api/sync/process', authenticateToken, requireAdmin, upload.single('excel'), async (req, res) => {
     let syncRunId = null;
     try {
         const { visit_date } = req.body;
@@ -918,8 +935,7 @@ app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (
         }
         const mappedExcelData = normalizeExcelRows(excelData, mapping);
 
-        await saveAuthenLog(mappedExcelData, visit_date);
-        await executeAdvancedRunLogic(visit_date);
+        await runHosxpSync(mappedExcelData, visit_date);
         const hosxpData = await getHosxpVisits(visit_date);
 
         if (hosxpData.length === 0) {
@@ -950,7 +966,7 @@ app.post('/api/sync/process', authenticateToken, upload.single('excel'), async (
 /**
  * Endpoint สำหรับดึงข้อมูล HOSxP และ Cross-check กับข้อมูล JSON (จาก Clipboard)
  */
-app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
+app.post('/api/sync/process-json', authenticateToken, requireAdmin, async (req, res) => {
     let syncRunId = null;
     try {
         const { visit_date, data } = req.body;
@@ -961,8 +977,7 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
 
         const excelData = data; // ใช้ข้อมูลจาก JSON ที่ส่งมาโดยตรง
 
-        await saveAuthenLog(excelData, visit_date);
-        await executeAdvancedRunLogic(visit_date);
+        await runHosxpSync(excelData, visit_date);
         const hosxpData = await getHosxpVisits(visit_date);
 
         if (hosxpData.length === 0) {
@@ -992,7 +1007,7 @@ app.post('/api/sync/process-json', authenticateToken, async (req, res) => {
 /**
  * Endpoint สำหรับดึงข้อมูลจาก NHSO API โดยตรง (Direct API Automation)
  */
-app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
+app.post('/api/sync/nhso-direct-api', authenticateToken, requireAdmin, async (req, res) => {
     let syncRunId = null;
     try {
         const { visit_date } = req.body;
@@ -1049,8 +1064,7 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, async (req, res) => {
         }
 
         if (apiResults.length > 0) {
-            await saveAuthenLog(apiResults, visit_date);
-            await executeAdvancedRunLogic(visit_date);
+            await runHosxpSync(apiResults, visit_date);
             const updatedHosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(updatedHosxpData, apiResults);
             await saveTrackingResults(processedData);
@@ -1089,8 +1103,10 @@ async function getUserNotificationCredentials(username) {
     }
 
     const user = userRows[0];
-    const hasLine = user.line_token && user.line_group_id;
-    const hasTelegram = user.telegram_token && user.telegram_chat_id;
+    const lineToken = decryptNotificationToken(user.line_token);
+    const telegramToken = decryptNotificationToken(user.telegram_token);
+    const hasLine = lineToken && user.line_group_id;
+    const hasTelegram = telegramToken && user.telegram_chat_id;
     if (!hasLine && !hasTelegram) {
         console.warn(`⚠️ User ${username} has no notification channels configured in their profile. Falling back to system credentials from .env.`);
         return null;
@@ -1098,9 +1114,9 @@ async function getUserNotificationCredentials(username) {
 
     console.log(`📲 Using personal notification credentials for user: ${username} (LINE: ${hasLine ? 'yes' : 'no'}, Telegram: ${hasTelegram ? 'yes' : 'no'})`);
     return {
-        line_token: user.line_token || null,
+        line_token: lineToken || null,
         line_group_id: user.line_group_id || null,
-        telegram_token: user.telegram_token || null,
+        telegram_token: telegramToken || null,
         telegram_chat_id: user.telegram_chat_id || null
     };
 }
@@ -1108,7 +1124,7 @@ async function getUserNotificationCredentials(username) {
 /**
  * Endpoint สำหรับสั่งบันทึกหน้าจอ Grafana ด้วยตนเอง (Manual Trigger)
  */
-app.post('/api/sync/capture-grafana', authenticateToken, async (req, res) => {
+app.post('/api/sync/capture-grafana', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const { visit_date, channels, report_types } = req.body;
         if (visit_date && !isValidDateString(visit_date)) return res.status(400).json({ success: false, message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
@@ -1141,7 +1157,7 @@ app.post('/api/sync/capture-grafana', authenticateToken, async (req, res) => {
 /**
  * Endpoint สำหรับสั่งดาวน์โหลดรายงาน สปสช และ Sync แบบแมนนวลผ่านเว็บ
  */
-app.post('/api/sync/nhso-portal-download', authenticateToken, async (req, res) => {
+app.post('/api/sync/nhso-portal-download', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const visit_date = req.body.visit_date || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
         if (!isValidDateString(visit_date)) return res.status(400).json({ success: false, message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
@@ -1200,10 +1216,14 @@ app.get('/api/sync/status', authenticateToken, (req, res) => {
 async function runManualPortalSyncInBackground(visit_date, username = null, userCredentials = null) {
     console.log(`📥 [Background Portal Sync] Starting for date: ${visit_date}`);
     const syncRunId = await createSyncRun('nhso-portal', visit_date, username);
-    await sendTelegramStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
-    await sendLineStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
-    
+
     try {
+        // Notifications use external networks. Keep them inside the protected
+        // workflow so a Telegram/LINE timeout cannot leave a sync run stuck in
+        // the "running" state before the portal work has even started.
+        await sendTelegramStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
+        await sendLineStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
+
         const dlResult = await downloadNhsoReport(visit_date, (step, message, extra = null) => {
             currentSyncStatus.step = step;
             currentSyncStatus.message = message;
@@ -1239,8 +1259,7 @@ async function runManualPortalSyncInBackground(visit_date, username = null, user
         });
 
         // นำเข้าข้อมูลและประมวลผล Sync
-        await saveAuthenLog(excelData, visit_date);
-        await executeAdvancedRunLogic(visit_date);
+        await runHosxpSync(excelData, visit_date);
         
         currentSyncStatus.step = 'cross_checking';
         currentSyncStatus.message = 'นำเข้าข้อมูลดิบสำเร็จ กำลังประมวลผลจับคู่เปรียบเทียบสิทธิ์...';
@@ -1248,7 +1267,6 @@ async function runManualPortalSyncInBackground(visit_date, username = null, user
         const hosxpData = await getHosxpVisits(visit_date);
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);
-        await finishSyncRun(syncRunId, 'success', processedData.length, 'NHSO portal sync completed');
         
         console.log('✅ [Background Portal Sync] Database sync completed.');
         currentSyncStatus.status = 'success';
@@ -1262,8 +1280,20 @@ async function runManualPortalSyncInBackground(visit_date, username = null, user
         await sendTelegramStatusMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`, userCredentials);
         await sendLineStatusMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`, userCredentials);
 
-        // Capture Grafana and send Telegram/LINE in the background
-        captureAndNotify(visit_date, ['line', 'telegram'], ['summary', 'screenshot'], userCredentials).catch(err => console.error('❌ Error capturing Grafana after portal sync:', err));
+        // Keep the progress modal open until capture finishes so a missing image
+        // is visible to the user instead of being reported as a successful sync.
+        currentSyncStatus.step = 'capturing';
+        currentSyncStatus.message = 'ซิงก์ข้อมูลสำเร็จ กำลังบันทึกภาพ Dashboard และส่งรายงาน...';
+        const captureResult = await captureAndNotify(visit_date, ['line', 'telegram'], ['summary', 'screenshot'], userCredentials);
+        currentSyncStatus.step = 'completed';
+        if (!captureResult.success) {
+            currentSyncStatus.message = `ซิงก์ข้อมูลสำเร็จ แต่บันทึกภาพ Dashboard ไม่สำเร็จ: ${captureResult.error || 'ไม่ทราบสาเหตุ'}`;
+            console.error('❌ Dashboard capture after portal sync failed:', captureResult.error);
+            await finishSyncRun(syncRunId, 'success', processedData.length, 'NHSO portal sync completed; dashboard capture failed', captureResult.error || 'Dashboard capture failed');
+        } else {
+            currentSyncStatus.message = `การซิงก์และบันทึกภาพ Dashboard ประจำวันที่ ${visit_date} สำเร็จแล้ว`;
+            await finishSyncRun(syncRunId, 'success', processedData.length, 'NHSO portal sync and dashboard capture completed');
+        }
 
     } catch (err) {
         console.error('❌ [Background Portal Sync] Crash error:', err);
@@ -1829,7 +1859,7 @@ app.get('/api/tracking/summary', authenticateToken, async (req, res) => {
 // --- Grafana-like Custom Query Routes ---
 
 // 1. Endpoint รันคำสั่ง SQL Query
-app.post('/api/custom-query', authenticateToken, async (req, res) => {
+app.post('/api/custom-query', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const { query, db_type, visit_date, hipdata_code } = req.body;
         if (!query) return res.status(400).json({ message: 'กรุณาระบุคำสั่ง SQL Query' });
@@ -1963,7 +1993,12 @@ function requireAdmin(req, res, next) {
 app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const [rows] = await trackerPool.query('SELECT id, username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, created_at, updated_at FROM users ORDER BY id ASC');
-        res.json(rows);
+        res.json(rows.map(({ line_token, telegram_token, ...user }) => ({
+            ...user,
+            has_line_token: Boolean(line_token),
+            has_telegram_token: Boolean(telegram_token),
+            notification_tokens_encrypted: [line_token, telegram_token].filter(Boolean).every(isEncryptedNotificationToken)
+        })));
     } catch (error) {
         console.error('Fetch users error:', error);
         res.status(500).json({ success: false, message: error.message });
@@ -1980,7 +2015,7 @@ app.post('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =
         const [result] = await trackerPool.query(
             `INSERT INTO users (username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [username, full_name || '', role || 'user', department || '', line_token || null, line_group_id || null, telegram_token || null, telegram_chat_id || null]
+            [username, full_name || '', role || 'user', department || '', encryptNotificationToken(line_token), line_group_id || null, encryptNotificationToken(telegram_token), telegram_chat_id || null]
         );
         await writeAuditLog(req, 'user_create', 'user', result.insertId, { username, role: role || 'user', department: department || '' });
         res.json({ success: true, message: 'เพิ่มผู้ใช้งานสำเร็จ' });
@@ -1998,11 +2033,13 @@ app.put('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res
         if (!username) {
             return res.status(400).json({ success: false, message: 'กรุณากรอก Username' });
         }
+        const [[existingUser]] = await trackerPool.query('SELECT line_token, telegram_token FROM users WHERE id = ?', [id]);
+        if (!existingUser) return res.status(404).json({ success: false, message: 'ไม่พบผู้ใช้งาน' });
         await trackerPool.query(
             `UPDATE users 
              SET username = ?, full_name = ?, role = ?, department = ?, line_token = ?, line_group_id = ?, telegram_token = ?, telegram_chat_id = ? 
              WHERE id = ?`,
-            [username, full_name || '', role || 'user', department || '', line_token || null, line_group_id || null, telegram_token || null, telegram_chat_id || null, id]
+            [username, full_name || '', role || 'user', department || '', line_token ? encryptNotificationToken(line_token) : existingUser.line_token, line_group_id || null, telegram_token ? encryptNotificationToken(telegram_token) : existingUser.telegram_token, telegram_chat_id || null, id]
         );
         await writeAuditLog(req, 'user_update', 'user', id, { username, role: role || 'user', department: department || '' });
         res.json({ success: true, message: 'แก้ไขข้อมูลผู้ใช้งานสำเร็จ' });
@@ -2063,7 +2100,7 @@ app.get('/api/admin/audit-logs', authenticateToken, requireAdmin, async (req, re
 });
 
 // 5. Test Notification
-app.post('/api/admin/users/test-notification', authenticateToken, requireAdmin, async (req, res) => {
+async function handleTestNotification(req, res) {
     try {
         const { type, token, target } = req.body;
         if (!token || !target) {
@@ -2119,6 +2156,25 @@ app.post('/api/admin/users/test-notification', authenticateToken, requireAdmin, 
     } catch (error) {
         console.error('Test notification error:', error);
         res.status(500).json({ success: false, message: `เกิดข้อผิดพลาดในการเชื่อมต่อ: ${error.message}` });
+    }
+}
+
+app.post('/api/admin/users/test-notification', authenticateToken, requireAdmin, handleTestNotification);
+
+app.post('/api/admin/users/:id/test-notification', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { type } = req.body;
+        if (!['line', 'telegram'].includes(type)) return res.status(400).json({ success: false, message: 'ไม่รองรับช่องทางนี้' });
+        const [[user]] = await trackerPool.query('SELECT line_token, line_group_id, telegram_token, telegram_chat_id FROM users WHERE id = ?', [req.params.id]);
+        if (!user) return res.status(404).json({ success: false, message: 'ไม่พบผู้ใช้งาน' });
+        const token = type === 'line' ? decryptNotificationToken(user.line_token) : decryptNotificationToken(user.telegram_token);
+        const target = type === 'line' ? user.line_group_id : user.telegram_chat_id;
+        if (!token || !target) return res.status(400).json({ success: false, message: 'ผู้ใช้นี้ยังตั้งค่า Token หรือปลายทางไม่ครบ' });
+        req.body = { type, token, target };
+        return handleTestNotification(req, res);
+    } catch (error) {
+        console.error('Stored notification test error:', error);
+        res.status(500).json({ success: false, message: 'ไม่สามารถอ่านข้อมูลแจ้งเตือนได้' });
     }
 });
 
@@ -2205,6 +2261,21 @@ app.delete('/api/admin/schedules/:id', authenticateToken, requireAdmin, async (r
     }
 });
 
+app.use((error, req, res, next) => {
+    if (res.headersSent) return next(error);
+    if (error?.code === 'LIMIT_FILE_SIZE') {
+        const limitMb = Math.round(getExcelUploadLimitBytes() / (1024 * 1024));
+        return res.status(413).json({ success: false, message: `ไฟล์ Excel มีขนาดเกิน ${limitMb} MB` });
+    }
+    if (error?.type === 'entity.too.large') {
+        return res.status(413).json({ success: false, message: 'ข้อมูล JSON มีขนาดเกิน 1 MB' });
+    }
+    if (error?.code === 'CORS_ORIGIN_DENIED') {
+        return res.status(403).json({ success: false, message: 'CORS origin ไม่ได้รับอนุญาต' });
+    }
+    console.error('Unhandled request error:', error);
+    return res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
+});
 
 app.use('/api', (req, res) => {
     res.status(404).json({
@@ -2228,46 +2299,65 @@ app.use((req, res) => {
 async function handleScheduledSyncAndCapture() {
     console.log('⏰ [Scheduler] เริ่มต้นกระบวนการดาวน์โหลดข้อมูลและบันทึกหน้าจออัตโนมัติ...');
     const visit_date = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+    const syncRunId = await createSyncRun('server-scheduler', visit_date, null);
     
     try {
         const dlResult = await downloadNhsoReport();
-        if (dlResult.success && dlResult.filePath) {
-            console.log(`📥 [Scheduler] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
-            
-            // อ่านไฟล์ Excel ที่เพิ่งโหลดมา
-            const fileBuffer = fs.readFileSync(dlResult.filePath);
-            const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
-            const sheetName = workbook.SheetNames[0];
-            const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { 
-                raw: false, 
-                dateNF: 'yyyy-mm-dd hh:mm:ss' 
-            });
-            
-            // นำข้อมูลเข้าสู่ฐานข้อมูลและประมวลผลเปรียบเทียบ
-            await saveAuthenLog(excelData, visit_date);
-            await executeAdvancedRunLogic(visit_date);
-            const hosxpData = await getHosxpVisits(visit_date);
-            const processedData = processCrossCheck(hosxpData, excelData);
-            await saveTrackingResults(processedData);
-            
-            // Keep only the latest Excel download as backup
-            cleanOldDownloads(path.join(__dirname, '../downloads'));
-
-            console.log('✅ [Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
-        } else {
+        if (!dlResult.success || !dlResult.filePath) {
             console.warn(`⚠️ [Scheduler] การดาวน์โหลดข้อมูลอัตโนมัติไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
+            await finishSyncRun(syncRunId, 'failed', 0, 'Scheduled NHSO portal download failed', dlResult.error || 'Download failed');
+            return;
+        }
+
+        console.log(`📥 [Scheduler] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
+        const fileBuffer = fs.readFileSync(dlResult.filePath);
+        const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
+        const sheetName = workbook.SheetNames[0];
+        const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { raw: false, dateNF: 'yyyy-mm-dd hh:mm:ss' });
+        await runHosxpSync(excelData, visit_date);
+        const hosxpData = await getHosxpVisits(visit_date);
+        const processedData = processCrossCheck(hosxpData, excelData);
+        await saveTrackingResults(processedData);
+        cleanOldDownloads(path.join(__dirname, '../downloads'));
+        console.log('✅ [Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+
+        // Do not publish a dashboard image unless this run actually updated the data.
+        console.log('📸 [Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
+        const captureResult = await captureAndNotify(visit_date);
+        if (captureResult?.success === false) {
+            await finishSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync completed; dashboard capture failed', captureResult.error || 'Dashboard capture failed');
+        } else {
+            await finishSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync and dashboard capture completed');
         }
     } catch (err) {
         console.error('❌ [Scheduler] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
+        await finishSyncRun(syncRunId, 'failed', 0, 'Scheduled sync crashed', err.message);
     }
-    
-    // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
-    console.log('📸 [Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
-    await captureAndNotify(visit_date);
 }
 
 // --- Dynamic Cron Scheduler Configurator ---
 let activeCronTasks = [];
+const schedulerHolderId = createSchedulerHolderId();
+
+async function runScheduledSyncAndCaptureWithLock() {
+    const lockKey = 'nhso_sync_and_capture';
+    try {
+        const acquired = await acquireSchedulerLock(trackerPool, lockKey, schedulerHolderId);
+        if (!acquired) {
+            console.warn('ℹ️ [Scheduler] Another process is already running the scheduled sync; skipping this trigger.');
+            return;
+        }
+        await handleScheduledSyncAndCapture();
+    } catch (error) {
+        console.error('❌ [Scheduler] Could not acquire scheduled-job lock:', error.message);
+    } finally {
+        try {
+            await releaseSchedulerLock(trackerPool, lockKey, schedulerHolderId);
+        } catch (error) {
+            console.error('❌ [Scheduler] Could not release scheduled-job lock:', error.message);
+        }
+    }
+}
 
 async function reloadSchedules() {
     if (process.env.ENABLE_SERVER_BACKGROUND_JOBS !== 'true') {
@@ -2300,7 +2390,7 @@ async function reloadSchedules() {
             
             const task = cron.schedule(cronPattern, () => {
                 console.log(`⏰ [Cron Scheduler] Automatically triggering sync and capture task for time: ${timeStr}...`);
-                handleScheduledSyncAndCapture();
+                runScheduledSyncAndCaptureWithLock();
             }, {
                 scheduled: true,
                 timezone: "Asia/Bangkok"
@@ -2506,8 +2596,7 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             });
             
             // นำเข้าข้อมูลและประมวลผล Sync
-            await saveAuthenLog(excelData, visit_date);
-            await executeAdvancedRunLogic(visit_date);
+            await runHosxpSync(excelData, visit_date);
             const hosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(hosxpData, excelData);
             await saveTrackingResults(processedData);
@@ -2523,11 +2612,13 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             console.warn(`⚠️ [Telegram Trigger] การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
             await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `❌ ดึงข้อมูลรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
             await sendLineMessage(`❌ ดึงข้อมูลรายงานของวันที่ ${visit_date} ไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
+            return;
         }
     } catch (err) {
         console.error('❌ [Telegram Trigger] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
         await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `❌ ข้อผิดพลาดภายในเซิร์ฟเวอร์: ${err.message}`);
         await sendLineMessage(`❌ เกิดข้อผิดพลาดในเซิร์ฟเวอร์: ${err.message}`);
+        return;
     }
     
     // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
@@ -2539,7 +2630,10 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             ...telegramChatIdEnv.split(',').map(id => id.trim()).filter(id => id)
         ]);
         const finalChatIdList = Array.from(chatIds).join(',');
-        await captureAndNotify(visit_date, ['line', 'telegram'], ['summary', 'screenshot'], { telegram_chat_id: finalChatIdList });
+        const captureResult = await captureAndNotify(visit_date, ['line', 'telegram'], ['summary', 'screenshot'], { telegram_chat_id: finalChatIdList });
+        if (!captureResult.success) {
+            await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `⚠️ ซิงก์ข้อมูลสำเร็จ แต่บันทึกภาพ Dashboard ไม่สำเร็จ: ${captureResult.error || 'ไม่ทราบสาเหตุ'}`);
+        }
     } catch (err) {
         console.error('❌ [Telegram Trigger] ข้อผิดพลาดในการบันทึกแดชบอร์ด/ส่งแจ้งเตือน:', err);
     }

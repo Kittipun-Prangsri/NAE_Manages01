@@ -6,6 +6,7 @@ import { exportToCsv, isTokenExpired } from './utils.js';
 // App State
 let isLoggingOut = false;
 const LIVE_DASHBOARD_REFRESH_MS = 30000;
+const TRACKER_PAGE_SIZE = 50;
 
 const getInitialState = () => {
     if (typeof localStorage === 'undefined') {
@@ -25,6 +26,7 @@ const getInitialState = () => {
             trackerSearchFilter: '',
             trackerColumnFilters: {},
             trackerDashboardFilter: null,
+            trackerVisibleRows: TRACKER_PAGE_SIZE,
             // liveDashboardInterval: null,
             // liveDashboardCountdownInterval: null,
             // liveDashboardNextRefreshAt: null,
@@ -53,6 +55,7 @@ const getInitialState = () => {
         trackerSearchFilter: '',
         trackerColumnFilters: {},
         trackerDashboardFilter: null,
+        trackerVisibleRows: TRACKER_PAGE_SIZE,
         liveDashboardInterval: null,
         liveDashboardCountdownInterval: null,
         liveDashboardNextRefreshAt: null,
@@ -71,20 +74,18 @@ let activeColumnFilterField = null;
 
 const TRACKER_COLUMN_FILTERS = [
     { field: 'vn', label: 'VN' },
-    { field: 'cid_check', label: 'CID Check' },
     { field: 'cid', label: 'เลขบัตรประชาชน' },
-    { field: 'pttype', label: 'PTType' },
-    { field: 'pcode', label: 'HIPDATA' },
-    { field: 'authCode', label: 'Auth Code (HOS)' },
-    { field: 'claim_code', label: 'Claim Code (HOS)' },
-    { field: 'nhso_claim_code', label: 'Claim Code (Temp Authen)' },
-    { field: 'authen_code_type', label: 'Authen Type' },
+    { field: 'pttype', label: 'PTType', help: 'ประเภทสิทธิการรักษา' },
+    { field: 'pcode', label: 'HIPDATA', help: 'รหัสกลุ่มสิทธิที่ใช้ตรวจสอบข้อมูล' },
+    { field: 'authCode', label: 'Auth Code (HOS)', help: 'รหัสยืนยันตัวตนจาก HOSxP' },
+    { field: 'claim_code', label: 'Claim Code (HOS)', help: 'รหัสเคลมที่บันทึกใน HOSxP' },
+    { field: 'nhso_claim_code', label: 'Claim Code (Temp Authen)', help: 'รหัสเคลมจากข้อมูล Temp Authen ของ สปสช.' },
+    { field: 'authen_code_type', label: 'Authen Type', help: 'ประเภทการยืนยันตัวตน' },
     { field: 'pttype_note', label: 'PTType Note' },
     { field: 'staff', label: 'เจ้าหน้าที่' },
     { field: 'check_claimcode', label: 'ผลการเช็ค' },
     { field: 'issue_reason', label: 'สาเหตุที่ต้องแก้' },
-    { field: 'department', label: 'Department' },
-    { field: 'cc_cid', label: 'CC CID' }
+    { field: 'department', label: 'Department' }
 ];
 
 // Form Elements
@@ -96,6 +97,7 @@ function init() {
     if (typeof document === 'undefined') return;
 
     ui.initTheme();
+    ui.initSidebar();
     applyLiveTvMode(appState.isTvMode);
 
     // Fetch elements safely
@@ -129,6 +131,7 @@ function init() {
 function setupEventListeners() {
     // Theme & UX
     document.getElementById('theme-toggle')?.addEventListener('click', ui.toggleTheme);
+    document.getElementById('sidebar-toggle')?.addEventListener('click', ui.toggleSidebar.bind(ui));
     document.getElementById('toggle-list-btn')?.addEventListener('click', ui.togglePatientList);
     document.getElementById('live-tv-toggle')?.addEventListener('click', handleLiveTvToggle);
     document.getElementById('live-fullscreen-btn')?.addEventListener('click', handleLiveFullscreen);
@@ -155,7 +158,7 @@ function setupEventListeners() {
 
     // Homepage table sorting
     document.querySelectorAll('#tracking-table-thead th[data-sort]').forEach(th => {
-        th.addEventListener('click', () => {
+        const sortTableByHeader = () => {
             const field = th.getAttribute('data-sort');
             if (appState.trackerSortBy === field) {
                 appState.trackerSortDesc = !appState.trackerSortDesc;
@@ -164,6 +167,14 @@ function setupEventListeners() {
                 appState.trackerSortDesc = false;
             }
             renderTrackerTable();
+        };
+        th.tabIndex = 0;
+        th.setAttribute('aria-label', `เรียงข้อมูลตาม ${th.textContent.trim()}`);
+        th.addEventListener('click', sortTableByHeader);
+        th.addEventListener('keydown', event => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            sortTableByHeader();
         });
     });
 
@@ -172,9 +183,34 @@ function setupEventListeners() {
     // Homepage table search input
     document.getElementById('tracker-search-input')?.addEventListener('input', (e) => {
         appState.trackerSearchFilter = e.target.value;
+        appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
         renderTrackerTable();
     });
     document.getElementById('clear-tracker-dashboard-filter')?.addEventListener('click', clearTrackerDashboardFilter);
+    document.getElementById('load-more-tracker-rows')?.addEventListener('click', () => {
+        appState.trackerVisibleRows += TRACKER_PAGE_SIZE;
+        renderTrackerTable();
+    });
+    document.getElementById('show-less-tracker-rows')?.addEventListener('click', () => {
+        appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
+        renderTrackerTable();
+        document.getElementById('tracker-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    document.querySelectorAll('[data-tracker-status-filter]').forEach(button => {
+        button.addEventListener('click', () => {
+            const status = button.dataset.trackerStatusFilter;
+            if (status === 'all') {
+                clearTrackerDashboardFilter();
+                return;
+            }
+            const labels = {
+                GREEN: 'สมบูรณ์แล้ว',
+                RED: 'ยังไม่เปิด Authen',
+                YELLOW: 'รอปิด Endpoint'
+            };
+            applyTrackerDashboardFilter('status', status, labels[status] || status);
+        });
+    });
 
     // Export Data
     document.getElementById('export-error-btn')?.addEventListener('click', handleExportErrors);
@@ -251,9 +287,10 @@ function setupTrackerColumnFilters() {
         const labelWrapper = document.createElement('span');
         labelWrapper.className = 'inline-flex items-center gap-1 min-w-0';
 
-        const label = document.createElement('span');
+        const label = document.createElement(meta.help ? 'abbr' : 'span');
         label.className = 'truncate';
         label.textContent = meta.label;
+        if (meta.help) label.title = meta.help;
 
         const sortIndicator = document.createElement('span');
         sortIndicator.dataset.sortIndicator = field;
@@ -365,6 +402,7 @@ function openTrackerColumnFilterMenu(field, anchor) {
     clearFilterBtn.textContent = 'Clear filter';
     clearFilterBtn.addEventListener('click', () => {
         delete appState.trackerColumnFilters[field];
+        appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
         closeTrackerColumnFilterMenu();
         renderTrackerTable();
     });
@@ -386,6 +424,7 @@ function openTrackerColumnFilterMenu(field, anchor) {
         } else {
             appState.trackerColumnFilters[field] = checkedValues;
         }
+        appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
         closeTrackerColumnFilterMenu();
         renderTrackerTable();
     });
@@ -1101,6 +1140,7 @@ async function loadDashboardData() {
             appState.rawTableData = data.trackingData || [];
             appState.hosxpStats = data.hosxpStats || null;
             appState.lgoTableData = [];
+            appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
             renderTrackerTable();
             await loadRightsTrackingTable(date);
             await loadGroupInsights(date);
@@ -1232,17 +1272,21 @@ function getFilteredAndSortedTrackerData() {
     const dashboardFilter = appState.trackerDashboardFilter;
     if (dashboardFilter?.value) {
         const query = dashboardFilter.value.toLowerCase();
-        const fields = dashboardFilter.type === 'department'
-            ? ['department']
-            : dashboardFilter.type === 'right'
-                ? ['pttype_note', 'pttype', 'pcode']
-                : ['subdistrict_name', 'tambon_name', 'subdistrict_code', 'tambon_code'];
+        if (dashboardFilter.type === 'status') {
+            data = data.filter(item => String(item.color_status || '').toLowerCase() === query);
+        } else {
+            const fields = dashboardFilter.type === 'department'
+                ? ['department']
+                : dashboardFilter.type === 'right'
+                    ? ['pttype_note', 'pttype', 'pcode']
+                    : ['subdistrict_name', 'tambon_name', 'subdistrict_code', 'tambon_code'];
 
-        data = data.filter(item => fields.some(field => {
-            const value = String(item[field] || '').toLowerCase();
-            if (!value) return false;
-            return value === query || value.includes(query) || query.includes(value);
-        }));
+            data = data.filter(item => fields.some(field => {
+                const value = String(item[field] || '').toLowerCase();
+                if (!value) return false;
+                return value === query || value.includes(query) || query.includes(value);
+            }));
+        }
 
         if (dashboardFilter.mode === 'uc-pending') {
             data = data.filter(item =>
@@ -1406,17 +1450,37 @@ function renderTrackerTable() {
     const tableData = columnFilteredData;
     const hasColumnFilters = Object.values(appState.trackerColumnFilters || {}).some(values => Array.isArray(values));
     const hasFilters = Boolean(appState.trackerDashboardFilter?.value || appState.trackerSearchFilter || hasColumnFilters);
-    ui.renderTable(tableData, appState.trackerSortBy, appState.trackerSortDesc);
+    ui.renderTable(tableData, appState.trackerSortBy, appState.trackerSortDesc, appState.trackerVisibleRows);
     ui.renderTrackerDashboardFilter(appState.trackerDashboardFilter, data.length);
     updateTrackerColumnFilterHeaders();
     ui.updateStats(data, hasFilters ? null : appState.hosxpStats);
     ui.initTiltEffect();
 }
 
+function revealTrackerResults() {
+    if (typeof document === 'undefined') return;
+    const table = document.getElementById('tracker-results');
+    if (!table) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    table.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+}
+
+function announceTrackerFilterResult() {
+    if (typeof document === 'undefined') return;
+    const announcement = document.getElementById('tracker-filter-result-announcement');
+    if (!announcement) return;
+    const count = getFilteredAndSortedTrackerData().length;
+    const filter = appState.trackerDashboardFilter;
+    announcement.textContent = filter?.value
+        ? `กรอง ${filter.label || filter.value} พบ ${count.toLocaleString()} รายการ`
+        : `แสดงข้อมูลทั้งหมด ${count.toLocaleString()} รายการ`;
+}
+
 async function applyTrackerDashboardFilter(type, value, label = value, options = {}) {
     if (!value) return;
     appState.trackerDashboardFilter = { type, value, label, ...options };
     appState.trackerSearchFilter = '';
+    appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
 
     const searchInput = document.getElementById('tracker-search-input');
     if (searchInput) searchInput.value = '';
@@ -1427,6 +1491,8 @@ async function applyTrackerDashboardFilter(type, value, label = value, options =
     } else {
         renderTrackerTable();
     }
+    announceTrackerFilterResult();
+    requestAnimationFrame(revealTrackerResults);
 }
 
 function handleGroupInsightDepartmentClick(item) {
@@ -1442,7 +1508,10 @@ function handleGroupInsightDepartmentClick(item) {
 
 function clearTrackerDashboardFilter() {
     appState.trackerDashboardFilter = null;
+    appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
     renderTrackerTable();
+    announceTrackerFilterResult();
+    requestAnimationFrame(revealTrackerResults);
 }
 
 function handleExportErrors() {
@@ -1604,9 +1673,11 @@ function openUserModal(user = null) {
         document.getElementById('modal-fullname').value = user.full_name || '';
         document.getElementById('modal-role').value = user.role || 'user';
         document.getElementById('modal-department').value = user.department || '';
-        document.getElementById('modal-line-token').value = user.line_token || '';
+        document.getElementById('modal-line-token').value = '';
+        document.getElementById('modal-line-token').placeholder = user.has_line_token ? 'เก็บค่าเดิมไว้ (กรอกเมื่อต้องการเปลี่ยน)' : '';
         document.getElementById('modal-line-group-id').value = user.line_group_id || '';
-        document.getElementById('modal-telegram-token').value = user.telegram_token || '';
+        document.getElementById('modal-telegram-token').value = '';
+        document.getElementById('modal-telegram-token').placeholder = user.has_telegram_token ? 'เก็บค่าเดิมไว้ (กรอกเมื่อต้องการเปลี่ยน)' : '';
         document.getElementById('modal-telegram-chat-id').value = user.telegram_chat_id || '';
     } else {
         title.textContent = 'เพิ่มผู้ใช้งานใหม่';
@@ -1681,17 +1752,16 @@ async function handleDeleteUser(id) {
 }
 
 async function handleTestNotification(type, user) {
-    const tokenVal = type === 'line' ? user.line_token : user.telegram_token;
+    const hasToken = type === 'line' ? user.has_line_token : user.has_telegram_token;
     const targetVal = type === 'line' ? user.line_group_id : user.telegram_chat_id;
-
-    if (!tokenVal || !targetVal) {
+    if (!hasToken || !targetVal) {
         alert('กรุณากรอกข้อมูล Token และ ID ปลายทางให้ครบถ้วนก่อนทดสอบ');
         return;
     }
 
     ui.setLoading(true);
     try {
-        const { ok, data } = await api.testNotification(type, tokenVal, targetVal, appState.token);
+        const { ok, data } = await api.testStoredNotification(user.id, type, appState.token);
         if (ok) {
             alert(data.message || 'ส่งข้อความทดสอบสำเร็จ!');
         } else {

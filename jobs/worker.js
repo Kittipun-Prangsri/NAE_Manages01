@@ -10,13 +10,13 @@ import { checkConnections, trackerPool } from '../backend/db.js';
 import { 
     getHosxpVisits, 
     saveTrackingResults, 
-    saveAuthenLog, 
-    executeAdvancedRunLogic 
+    runHosxpSync
 } from '../backend/dataService.js';
 import { processCrossCheck } from '../backend/crossCheckLogic.js';
 import { captureAndNotify } from './capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
 import { keepAliveNhsoSession } from './keep-alive-nhso.js';
+import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 
 dotenv.config();
 
@@ -29,50 +29,80 @@ const downloadsDir = path.join(__dirname, '../downloads');
 // We will keep track of registered cron jobs
 let activeCronTasks = [];
 let lastKnownSchedulesStr = '';
+const schedulerHolderId = createSchedulerHolderId();
+
+async function createScheduledSyncRun(visitDate) {
+    const [result] = await trackerPool.query(
+        'INSERT INTO sync_runs (source, visit_date, status) VALUES (?, ?, "running")',
+        ['worker-scheduler', visitDate]
+    );
+    return result.insertId;
+}
+
+async function finishScheduledSyncRun(id, status, totalRecords, message, error = null) {
+    await trackerPool.query(
+        'UPDATE sync_runs SET status = ?, total_records = ?, message = ?, error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [status, totalRecords || 0, message || null, error || null, id]
+    );
+}
+
+async function runScheduledSyncAndCaptureWithLock() {
+    const lockKey = 'nhso_sync_and_capture';
+    try {
+        const acquired = await acquireSchedulerLock(trackerPool, lockKey, schedulerHolderId);
+        if (!acquired) {
+            console.warn('ℹ️ [Worker-Scheduler] Another process is already running the scheduled sync; skipping this trigger.');
+            return;
+        }
+        await handleScheduledSyncAndCapture();
+    } catch (error) {
+        console.error('❌ [Worker-Scheduler] Could not acquire scheduled-job lock:', error.message);
+    } finally {
+        try {
+            await releaseSchedulerLock(trackerPool, lockKey, schedulerHolderId);
+        } catch (error) {
+            console.error('❌ [Worker-Scheduler] Could not release scheduled-job lock:', error.message);
+        }
+    }
+}
 
 async function handleScheduledSyncAndCapture() {
     console.log('⏰ [Worker-Scheduler] เริ่มต้นกระบวนการดาวน์โหลดข้อมูลและบันทึกหน้าจออัตโนมัติ...');
     const visit_date = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+    let syncRunId = null;
     await sendLineMessage(`⏰ [Scheduler] เริ่มต้นการทำรายงานและประมวลผลข้อมูลอัตโนมัติ ประจำวันที่ ${visit_date}...`);
     
     try {
+        syncRunId = await createScheduledSyncRun(visit_date);
         const dlResult = await downloadNhsoReport();
-        if (dlResult.success && dlResult.filePath) {
-            console.log(`📥 [Worker-Scheduler] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
-            
-            // อ่านไฟล์ Excel ที่เพิ่งโหลดมา
-            const fileBuffer = fs.readFileSync(dlResult.filePath);
-            const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
-            const sheetName = workbook.SheetNames[0];
-            const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { 
-                raw: false, 
-                dateNF: 'yyyy-mm-dd hh:mm:ss' 
-            });
-            
-            // นำข้อมูลเข้าสู่ฐานข้อมูลและประมวลผลเปรียบเทียบ
-            await saveAuthenLog(excelData, visit_date);
-            await executeAdvancedRunLogic(visit_date);
-            const hosxpData = await getHosxpVisits(visit_date);
-            const processedData = processCrossCheck(hosxpData, excelData);
-            await saveTrackingResults(processedData);
-            
-            // Keep only the latest Excel download as backup
-            cleanOldDownloads(downloadsDir);
-
-            console.log('✅ [Worker-Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
-        } else {
+        if (!dlResult.success || !dlResult.filePath) {
             console.warn(`⚠️ [Worker-Scheduler] การดาวน์โหลดข้อมูลอัตโนมัติไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
+            await finishScheduledSyncRun(syncRunId, 'failed', 0, 'Scheduled NHSO portal download failed', dlResult.error || 'Download failed');
+            return;
+        }
+
+        console.log(`📥 [Worker-Scheduler] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
+        const fileBuffer = fs.readFileSync(dlResult.filePath);
+        const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
+        const sheetName = workbook.SheetNames[0];
+        const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { raw: false, dateNF: 'yyyy-mm-dd hh:mm:ss' });
+        await runHosxpSync(excelData, visit_date);
+        const hosxpData = await getHosxpVisits(visit_date);
+        const processedData = processCrossCheck(hosxpData, excelData);
+        await saveTrackingResults(processedData);
+        cleanOldDownloads(downloadsDir);
+        console.log('✅ [Worker-Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+
+        console.log('📸 [Worker-Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
+        const captureResult = await captureAndNotify(visit_date);
+        if (captureResult?.success === false) {
+            await finishScheduledSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync completed; dashboard capture failed', captureResult.error || 'Dashboard capture failed');
+        } else {
+            await finishScheduledSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync and dashboard capture completed');
         }
     } catch (err) {
         console.error('❌ [Worker-Scheduler] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
-    }
-    
-    // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
-    console.log('📸 [Worker-Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
-    try {
-        await captureAndNotify();
-    } catch (err) {
-        console.error('❌ [Worker-Scheduler] ข้อผิดพลาดในการบันทึกแดชบอร์ด/ส่งแจ้งเตือน:', err);
+        if (syncRunId) await finishScheduledSyncRun(syncRunId, 'failed', 0, 'Scheduled sync crashed', err.message);
     }
 }
 
@@ -99,7 +129,7 @@ async function reloadSchedules(rows) {
             
             const task = cron.schedule(cronPattern, () => {
                 console.log(`⏰ [Worker-Cron] Automatically triggering sync and capture task for time: ${timeStr}...`);
-                handleScheduledSyncAndCapture();
+                runScheduledSyncAndCaptureWithLock();
             }, {
                 scheduled: true,
                 timezone: "Asia/Bangkok"
@@ -167,8 +197,7 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             });
             
             // นำเข้าข้อมูลและประมวลผล Sync
-            await saveAuthenLog(excelData, visit_date);
-            await executeAdvancedRunLogic(visit_date);
+            await runHosxpSync(excelData, visit_date);
             const hosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(hosxpData, excelData);
             await saveTrackingResults(processedData);
@@ -184,11 +213,13 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             console.warn(`⚠️ [Telegram Trigger] การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
             await sendTelegramMessage(token, targetChatId, `❌ ดึงข้อมูลรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
             await sendLineMessage(`❌ ดึงข้อมูลรายงานของวันที่ ${visit_date} ไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
+            return;
         }
     } catch (err) {
         console.error('❌ [Telegram Trigger] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
         await sendTelegramMessage(token, targetChatId, `❌ ข้อผิดพลาดภายในเซิร์ฟเวอร์: ${err.message}`);
         await sendLineMessage(`❌ เกิดข้อผิดพลาดในเซิร์ฟเวอร์: ${err.message}`);
+        return;
     }
     
     // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
@@ -200,7 +231,10 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             ...telegramChatIdEnv.split(',').map(id => id.trim()).filter(id => id)
         ]);
         const finalChatIdList = Array.from(chatIds).join(',');
-        await captureAndNotify(visit_date, ['line', 'telegram'], ['summary', 'screenshot'], { telegram_chat_id: finalChatIdList });
+        const captureResult = await captureAndNotify(visit_date, ['line', 'telegram'], ['summary', 'screenshot'], { telegram_chat_id: finalChatIdList });
+        if (!captureResult.success) {
+            await sendTelegramMessage(token, targetChatId, `⚠️ ซิงก์ข้อมูลสำเร็จ แต่บันทึกภาพ Dashboard ไม่สำเร็จ: ${captureResult.error || 'ไม่ทราบสาเหตุ'}`);
+        }
     } catch (err) {
         console.error('❌ [Telegram Trigger] ข้อผิดพลาดในการบันทึกแดชบอร์ด/ส่งแจ้งเตือน:', err);
     }

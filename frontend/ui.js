@@ -1,5 +1,82 @@
 // Cache for Khlong Hat geojson map
 let geojsonCache = null;
+let systemThemeListenerBound = false;
+
+const THEME_PREFERENCES = new Set(['system', 'light', 'dark']);
+const THEME_LABELS = {
+    system: 'อัตโนมัติตามระบบ',
+    light: 'โหมดสว่าง',
+    dark: 'โหมดมืด'
+};
+
+export function normalizeThemePreference(value) {
+    return THEME_PREFERENCES.has(value) ? value : 'system';
+}
+
+export function resolveTheme(preference, prefersDark = false) {
+    const normalized = normalizeThemePreference(preference);
+    if (normalized === 'system') return prefersDark ? 'dark' : 'light';
+    return normalized;
+}
+
+export function getNextThemePreference(preference) {
+    const normalized = normalizeThemePreference(preference);
+    return normalized === 'system' ? 'light' : normalized === 'light' ? 'dark' : 'system';
+}
+
+function getStoredThemePreference() {
+    if (typeof localStorage === 'undefined') return 'system';
+    return normalizeThemePreference(localStorage.getItem('theme'));
+}
+
+function prefersDarkColorScheme() {
+    return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+}
+
+function updateThemeControl(preference, resolvedTheme, announce = false) {
+    if (typeof document === 'undefined') return;
+    const button = document.getElementById('theme-toggle');
+    const icon = document.getElementById('theme-icon');
+    const status = document.getElementById('theme-status');
+    const nextPreference = getNextThemePreference(preference);
+
+    if (button) {
+        button.dataset.themePreference = preference;
+        button.setAttribute('aria-pressed', String(resolvedTheme === 'dark'));
+        button.setAttribute('aria-label', `ธีมปัจจุบัน: ${THEME_LABELS[preference]}. คลิกเพื่อเลือก ${THEME_LABELS[nextPreference]}`);
+        button.title = `ธีม: ${THEME_LABELS[preference]} — คลิกเพื่อเลือก ${THEME_LABELS[nextPreference]}`;
+    }
+    if (icon) {
+        icon.className = preference === 'system'
+            ? 'fas fa-desktop text-sm'
+            : resolvedTheme === 'dark' ? 'fas fa-moon text-sm' : 'fas fa-sun text-sm';
+    }
+    if (status && announce) status.textContent = `เปลี่ยนธีมเป็น${THEME_LABELS[preference]}`;
+}
+
+function applyThemePreference(preference, { persist = false, announce = false } = {}) {
+    if (typeof document === 'undefined') return;
+    const normalized = normalizeThemePreference(preference);
+    const resolvedTheme = resolveTheme(normalized, prefersDarkColorScheme());
+    const root = document.documentElement;
+    root.classList.toggle('dark', resolvedTheme === 'dark');
+    root.dataset.themePreference = normalized;
+    if (persist && typeof localStorage !== 'undefined') localStorage.setItem('theme', normalized);
+    updateThemeControl(normalized, resolvedTheme, announce);
+}
+
+function bindSystemThemeListener() {
+    if (systemThemeListenerBound || typeof window === 'undefined' || !window.matchMedia) return;
+    systemThemeListenerBound = true;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = event => {
+        if (getStoredThemePreference() === 'system') {
+            applyThemePreference('system');
+        }
+    };
+    if (typeof media.addEventListener === 'function') media.addEventListener('change', onChange);
+    else if (typeof media.addListener === 'function') media.addListener(onChange);
+}
 
 // DOM Elements - Safely initialized on demand
 const getEls = () => {
@@ -63,18 +140,113 @@ function getIssueReason(item = {}) {
     }
 }
 
+function escapeStatusHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+export function getClaimStatusPresentation(value) {
+    const label = String(value || 'ยังไม่ได้นำเข้า');
+    if (label === 'ตรง') return { tone: 'success', icon: 'fa-circle-check', label, description: 'ข้อมูลตรงกัน' };
+    if (label === 'ตรวจสอบ') return { tone: 'warning', icon: 'fa-triangle-exclamation', label, description: 'ต้องตรวจสอบ' };
+    if (['ไม่ตรง', 'ยังไม่ได้นำเข้า', 'ยังไม่เปิด Authen'].includes(label)) {
+        return { tone: 'danger', icon: 'fa-circle-xmark', label, description: 'ต้องดำเนินการ' };
+    }
+    return { tone: 'neutral', icon: 'fa-circle-info', label, description: 'รอตรวจสอบ' };
+}
+
+export function getColorStatusPresentation(value) {
+    const label = String(value || '-').toUpperCase();
+    if (label === 'GREEN') return { tone: 'success', icon: 'fa-circle-check', label, description: 'เรียบร้อย' };
+    if (label === 'YELLOW') return { tone: 'warning', icon: 'fa-triangle-exclamation', label, description: 'ต้องตรวจสอบ' };
+    if (label === 'RED') return { tone: 'danger', icon: 'fa-circle-xmark', label, description: 'ต้องดำเนินการ' };
+    return { tone: 'neutral', icon: 'fa-circle-info', label, description: 'ไม่ระบุสถานะ' };
+}
+
+export function getSyncRunStatusPresentation(value) {
+    const status = String(value || 'running').toLowerCase();
+    if (status === 'success') return { tone: 'success', icon: 'fa-circle-check', label: 'สำเร็จ', description: 'งานเสร็จสมบูรณ์' };
+    if (status === 'failed') return { tone: 'danger', icon: 'fa-circle-xmark', label: 'ล้มเหลว', description: 'งานทำไม่สำเร็จ' };
+    return { tone: 'warning', icon: 'fa-spinner fa-spin', label: 'กำลังทำงาน', description: 'งานยังดำเนินอยู่' };
+}
+
+function statusBadgeHtml(presentation) {
+    return `<span class="status-badge status-${presentation.tone}" aria-label="สถานะ: ${escapeStatusHtml(presentation.label)} — ${escapeStatusHtml(presentation.description)}">
+        <i class="fas ${presentation.icon}" aria-hidden="true"></i>
+        <span>${escapeStatusHtml(presentation.label)}</span>
+    </span>`;
+}
+
+function showTrackingDetails(item = {}) {
+    if (typeof document === 'undefined') return;
+    const dialog = document.getElementById('tracking-details-dialog');
+    const content = document.getElementById('tracking-details-content');
+    if (!dialog || !content) return;
+
+    const checkClaim = getClaimStatusPresentation(item.check_claimcode);
+    const fields = [
+        ['VN', item.vn],
+        ['เลขบัตรประชาชน', item.cid],
+        ['PTType', item.pttype],
+        ['HIPDATA / PCode', item.pcode || item.hipdata_code],
+        ['Auth Code (HOS)', item.authCode || item.Auth_Code || item.auth_code],
+        ['Claim Code (HOS)', item.claim_code],
+        ['Claim Code (NHSO)', item.nhso_claim_code || item.claimcode],
+        ['Authen Type', item.authen_code_type],
+        ['PTType Note', item.pttype_note],
+        ['เจ้าหน้าที่', item.staff],
+        ['สาเหตุที่ต้องแก้', item.issue_reason || getIssueReason(item)],
+        ['UC Money', item.uc_money != null && !isNaN(item.uc_money) ? Number(item.uc_money).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'],
+        ['Department', item.department]
+    ];
+
+    content.innerHTML = `
+        <div class="tracking-details-status">${statusBadgeHtml(checkClaim)}</div>
+        <dl class="tracking-details-grid">
+            ${fields.map(([label, value]) => `<div><dt>${escapeStatusHtml(label)}</dt><dd>${escapeStatusHtml(value || '-')}</dd></div>`).join('')}
+        </dl>
+    `;
+
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+}
+
 export const ui = {
+    initSidebar() {
+        if (typeof document === 'undefined' || typeof localStorage === 'undefined') return;
+        const collapsed = localStorage.getItem('sidebar_collapsed') === 'true';
+        document.getElementById('dashboard-section')?.classList.toggle('sidebar-collapsed', collapsed);
+        const button = document.getElementById('sidebar-toggle');
+        const icon = document.getElementById('sidebar-toggle-icon');
+        if (button) {
+            button.setAttribute('aria-expanded', String(!collapsed));
+            button.setAttribute('aria-label', collapsed ? 'ขยายเมนูด้านข้าง' : 'ย่อเมนูด้านข้าง');
+            button.title = collapsed ? 'ขยายเมนูด้านข้าง' : 'ย่อเมนูด้านข้าง';
+        }
+        if (icon) icon.className = collapsed ? 'fas fa-angles-right text-sm' : 'fas fa-angles-left text-sm';
+        document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+            const label = item.querySelector('span')?.textContent?.trim();
+            if (label) item.title = label;
+        });
+    },
+
+    toggleSidebar() {
+        if (typeof document === 'undefined' || typeof localStorage === 'undefined') return;
+        const dashboard = document.getElementById('dashboard-section');
+        if (!dashboard) return;
+        const collapsed = dashboard.classList.toggle('sidebar-collapsed');
+        localStorage.setItem('sidebar_collapsed', String(collapsed));
+        this.initSidebar();
+    },
+
     initTheme() {
         if (typeof document === 'undefined' || typeof localStorage === 'undefined') return;
-        
-        const currentTheme = localStorage.getItem('theme') || 'light';
-        const isDark = currentTheme === 'dark';
-        if (isDark) document.documentElement.classList.add('dark');
-        
-        const themeIcon = document.getElementById('theme-icon');
-        if (themeIcon) {
-            themeIcon.className = isDark ? 'fas fa-sun text-sm' : 'fas fa-moon text-sm';
-        }
+        applyThemePreference(getStoredThemePreference());
+        bindSystemThemeListener();
     },
 
     initTiltEffect() {
@@ -113,13 +285,7 @@ export const ui = {
 
     toggleTheme() {
         if (typeof document === 'undefined' || typeof localStorage === 'undefined') return;
-
-        const isDark = document.documentElement.classList.toggle('dark');
-        localStorage.setItem('theme', isDark ? 'dark' : 'light');
-        const themeIcon = document.getElementById('theme-icon');
-        if (themeIcon) {
-            themeIcon.className = isDark ? 'fas fa-sun text-sm' : 'fas fa-moon text-sm';
-        }
+        applyThemePreference(getNextThemePreference(getStoredThemePreference()), { persist: true, announce: true });
     },
 
     togglePatientList() {
@@ -210,25 +376,35 @@ export const ui = {
         }
     },
 
-    renderTable(data, sortBy = '', sortDesc = false) {
+    renderTable(data, sortBy = '', sortDesc = false, visibleRows = 50) {
         if (typeof document === 'undefined') return;
         const els = getEls();
         if (!els.tableBody) return;
+        const resultCount = document.getElementById('tracker-table-result-count');
+        const loadMoreButton = document.getElementById('load-more-tracker-rows');
+        const showLessButton = document.getElementById('show-less-tracker-rows');
         
         // Update table headers to show sorting indicators
         const headers = document.querySelectorAll('#tracking-table-thead th[data-sort]');
         headers.forEach(th => {
             const field = th.getAttribute('data-sort');
             th.className = th.className.replace(' text-blue-600 dark:text-blue-400', '');
-            const sortIndicator = th.querySelector('[data-sort-indicator]');
+            let sortIndicator = th.querySelector('[data-sort-indicator]');
+            if (!sortIndicator) {
+                sortIndicator = document.createElement('span');
+                sortIndicator.dataset.sortIndicator = '';
+                sortIndicator.className = 'ml-1 inline-block text-[9px]';
+                sortIndicator.setAttribute('aria-hidden', 'true');
+                th.appendChild(sortIndicator);
+            }
             
             if (field === sortBy) {
-                if (sortIndicator) sortIndicator.textContent = sortDesc ? '▼' : '▲';
+                sortIndicator.textContent = sortDesc ? '▼' : '▲';
                 th.classList.add('text-blue-600', 'dark:text-blue-400');
-            } else if (sortIndicator) {
-                sortIndicator.textContent = '';
+                th.setAttribute('aria-sort', sortDesc ? 'descending' : 'ascending');
             } else {
-                th.textContent = th.textContent.replace(/  [▲▼]/g, '');
+                sortIndicator.textContent = '';
+                th.setAttribute('aria-sort', 'none');
             }
         });
 
@@ -236,6 +412,9 @@ export const ui = {
         if (!data || data.length === 0) {
             if (els.noDataMsg) els.noDataMsg.classList.remove('hidden');
             if (els.exportBtn) els.exportBtn.classList.add('hidden'); // ซ่อนปุ่ม Export หากไม่มีข้อมูล
+            if (resultCount) resultCount.textContent = 'ไม่พบรายการ';
+            if (loadMoreButton) loadMoreButton.classList.add('hidden');
+            if (showLessButton) showLessButton.classList.add('hidden');
             return;
         }
         
@@ -248,33 +427,34 @@ export const ui = {
             else els.exportBtn.classList.add('hidden');
         }
 
-        // แสดงผลสูงสุด 50 รายการแรกเพื่อให้ตรวจสอบข้อมูลได้มากขึ้นโดยไม่ทำให้หน้าเว็บหนักเกินไป
-        const displayData = data.slice(0, 50);
+        const safeVisibleRows = Math.max(50, Number(visibleRows) || 50);
+        const displayData = data.slice(0, safeVisibleRows);
+        if (resultCount) resultCount.textContent = `แสดง ${displayData.length.toLocaleString()} จาก ${data.length.toLocaleString()} รายการ`;
+        if (loadMoreButton) {
+            const remaining = Math.max(0, data.length - displayData.length);
+            loadMoreButton.classList.toggle('hidden', remaining === 0);
+            loadMoreButton.textContent = `แสดงเพิ่ม (${Math.min(50, remaining).toLocaleString()} รายการ)`;
+        }
+        if (showLessButton) {
+            showLessButton.classList.toggle('hidden', safeVisibleRows <= 50 || data.length <= 50);
+        }
 
         displayData.forEach(item => {
             const tr = document.createElement('tr');
             const isGreen = item.color_status === 'GREEN';
-            const rowClass = isGreen ? 'bg-emerald-50/20 dark:bg-emerald-900/10' : '';
+            const rowClass = isGreen ? 'row-status-success' : '';
             tr.className = `hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 ${rowClass}`;
 
-            const checkClaimClass = item.check_claimcode === 'ตรง' ? 'status-green' :
-                                  item.check_claimcode === 'ตรวจสอบ' ? 'status-yellow' :
-                                  ['ไม่ตรง', 'ยังไม่ได้นำเข้า', 'ยังไม่เปิด Authen'].includes(item.check_claimcode) ? 'status-red' :
-                                  'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400';
-
             const checkClaimVal = item.check_claimcode || 'ยังไม่ได้นำเข้า';
+            const checkClaimPresentation = getClaimStatusPresentation(checkClaimVal);
             const issueReason = item.issue_reason || getIssueReason(item);
-            const issueClass = item.check_claimcode === 'ตรง'
-                ? 'text-emerald-600 dark:text-emerald-400'
-                : item.check_claimcode === 'ตรวจสอบ'
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-red-600 dark:text-red-400';
+            const issueClass = `status-text-${checkClaimPresentation.tone}`;
 
             tr.innerHTML = `
-                <td class="py-3.5 px-4 font-mono text-xs font-semibold">
+                <td class="tracker-sticky-vn py-3.5 px-4 font-mono text-xs font-semibold">
                     <span class="text-blue-600 dark:text-blue-400 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100/50 dark:border-blue-900/30 rounded-lg px-2.5 py-1 inline-block">${item.vn}</span>
+                    <button type="button" class="mobile-row-details-btn" aria-label="ดูรายละเอียด VN ${escapeStatusHtml(item.vn || '')}"><i class="fas fa-ellipsis" aria-hidden="true"></i></button>
                 </td>
-                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-mono">${item.cid_check || '-'}</td>
                 <td class="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-medium tracking-wide">${item.cid}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400">${item.pttype || '-'}</td>
                 <td class="py-3.5 px-4 text-xs font-medium text-slate-500 dark:text-slate-400">${item.pcode || '-'}</td>
@@ -286,16 +466,12 @@ export const ui = {
                 <td class="py-3.5 px-4 text-xs text-indigo-500 dark:text-indigo-400 font-semibold">${item.authen_code_type || '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]" title="${item.pttype_note || ''}">${item.pttype_note || '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${item.staff || '-'}</td>
-                <td class="py-3.5 px-4 text-center">
-                    <span class="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold shadow-sm leading-none ${checkClaimClass}">
-                        ${checkClaimVal}
-                    </span>
-                </td>
+                <td class="tracker-sticky-status py-3.5 px-4 text-center">${statusBadgeHtml(checkClaimPresentation)}</td>
                 <td class="py-3.5 px-4 text-xs font-semibold ${issueClass}">${issueReason}</td>
                 <td class="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 text-right">${(item.uc_money != null && !isNaN(item.uc_money)) ? Number(item.uc_money).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${item.department || '-'}</td>
-                <td class="py-3.5 px-4 text-xs text-center text-slate-600 dark:text-slate-300 font-bold">${item.cc_cid ?? '-'}</td>
             `;
+            tr.querySelector('.mobile-row-details-btn')?.addEventListener('click', () => showTrackingDetails(item));
             els.tableBody.appendChild(tr);
         });
     },
@@ -324,20 +500,14 @@ export const ui = {
 
         emptyState?.classList.add('hidden');
         rows.forEach(item => {
-            const checkClaimClass = item.check_claimcode === 'ตรง'
-                ? 'status-green'
-                : item.check_claimcode === 'ตรวจสอบ'
-                    ? 'status-yellow'
-                    : ['ไม่ตรง', 'ยังไม่ได้นำเข้า', 'ยังไม่เปิด Authen'].includes(item.check_claimcode)
-                        ? 'status-red'
-                        : 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400';
+            const checkClaimPresentation = getClaimStatusPresentation(item.check_claimcode);
             const tr = document.createElement('tr');
             tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150';
             tr.innerHTML = `
-                <td class="py-3.5 px-4 font-mono text-xs font-semibold">
+                <td class="tracker-sticky-vn py-3.5 px-4 font-mono text-xs font-semibold">
                     <span class="text-blue-600 dark:text-blue-400 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100/50 dark:border-blue-900/30 rounded-lg px-2.5 py-1 inline-block">${escapeHtml(item.vn || '-')}</span>
+                    <button type="button" class="mobile-row-details-btn" aria-label="ดูรายละเอียด VN ${escapeHtml(item.vn || '')}"><i class="fas fa-ellipsis" aria-hidden="true"></i></button>
                 </td>
-                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-mono">${escapeHtml(item.cid_check || '-')}</td>
                 <td class="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-medium tracking-wide">${escapeHtml(item.cid || '-')}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400">${escapeHtml(item.pttype || '-')}</td>
                 <td class="py-3.5 px-4 text-xs font-medium text-slate-500 dark:text-slate-400">${escapeHtml(item.pcode || '-')}</td>
@@ -347,15 +517,11 @@ export const ui = {
                 <td class="py-3.5 px-4 text-xs text-indigo-500 dark:text-indigo-400 font-semibold">${escapeHtml(item.authen_code_type || '-')}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]" title="${escapeHtml(item.pttype_note || '')}">${escapeHtml(item.pttype_note || '-')}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${escapeHtml(item.staff || '-')}</td>
-                <td class="py-3.5 px-4 text-center">
-                    <span class="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold shadow-sm leading-none ${checkClaimClass}">
-                        ${escapeHtml(item.check_claimcode || 'ยังไม่ได้นำเข้า')}
-                    </span>
-                </td>
+                <td class="tracker-sticky-status py-3.5 px-4 text-center">${statusBadgeHtml(checkClaimPresentation)}</td>
                 <td class="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 text-right">${(item.uc_money != null && !isNaN(item.uc_money)) ? Number(item.uc_money).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${escapeHtml(item.department || '-')}</td>
-                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-semibold text-center">${Number(item.cc_cid || 0).toLocaleString()}</td>
             `;
+            tr.querySelector('.mobile-row-details-btn')?.addEventListener('click', () => showTrackingDetails(item));
             tableBody.appendChild(tr);
         });
     },
@@ -365,6 +531,14 @@ export const ui = {
         const banner = document.getElementById('tracker-dashboard-filter-banner');
         const label = document.getElementById('tracker-dashboard-filter-label');
         if (!banner || !label) return;
+
+        document.querySelectorAll('[data-tracker-status-filter]').forEach(button => {
+            const isActive = filter?.type === 'status'
+                ? button.dataset.trackerStatusFilter === filter.value
+                : !filter?.value && button.dataset.trackerStatusFilter === 'all';
+            button.classList.toggle('is-active', isActive);
+            button.setAttribute('aria-pressed', String(isActive));
+        });
 
         if (!filter?.value) {
             banner.classList.add('hidden');
@@ -381,7 +555,9 @@ export const ui = {
             ? 'fa-hospital-user'
             : filter.type === 'right'
                 ? 'fa-id-card'
-                : 'fa-map-marker-alt';
+                : filter.type === 'status'
+                    ? 'fa-filter-circle-xmark'
+                    : 'fa-map-marker-alt';
         label.innerHTML = `<i class="fas ${icon} mr-1"></i> กำลังกรอง: ${escapeHtml(filter.label || filter.value)} (${count.toLocaleString()} รายการ)`;
         banner.classList.remove('hidden');
     },
@@ -661,16 +837,12 @@ export const ui = {
         const embedGrafanaView = document.getElementById('embed-grafana-view-container');
         const adminView = document.getElementById('admin-view-container');
 
-        const activeClass = 'px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0';
-        const inactiveClass = 'px-4 py-2.5 text-xs font-extrabold tracking-wider border-b-2 border-transparent text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition cursor-pointer flex items-center space-x-2 uppercase shrink-0';
-
-
-        // Reset all tabs to inactive
-        if (tabTracker) tabTracker.className = inactiveClass;
-        if (tabLiveDashboard) tabLiveDashboard.className = inactiveClass;
-        if (tabGrafana) tabGrafana.className = inactiveClass;
-        if (tabEmbedGrafana) tabEmbedGrafana.className = inactiveClass;
-        if (tabAdmin) tabAdmin.className = inactiveClass;
+        const tabs = [tabTracker, tabLiveDashboard, tabGrafana, tabEmbedGrafana, tabAdmin];
+        tabs.forEach(tab => {
+            if (!tab) return;
+            tab.classList.remove('is-active');
+            tab.removeAttribute('aria-current');
+        });
 
         // Hide all views
         if (trackerView) trackerView.classList.add('hidden');
@@ -681,19 +853,24 @@ export const ui = {
 
         // Activate selected tab and view
         if (tabId === 'tab-tracker' && tabTracker && trackerView) {
-            tabTracker.className = activeClass;
+            tabTracker.classList.add('is-active');
+            tabTracker.setAttribute('aria-current', 'page');
             trackerView.classList.remove('hidden');
         } else if (tabId === 'tab-live-dashboard' && tabLiveDashboard && liveDashboardView) {
-            tabLiveDashboard.className = activeClass;
+            tabLiveDashboard.classList.add('is-active');
+            tabLiveDashboard.setAttribute('aria-current', 'page');
             liveDashboardView.classList.remove('hidden');
         } else if (tabId === 'tab-grafana' && tabGrafana && grafanaView) {
-            tabGrafana.className = activeClass;
+            tabGrafana.classList.add('is-active');
+            tabGrafana.setAttribute('aria-current', 'page');
             grafanaView.classList.remove('hidden');
         } else if (tabId === 'tab-embed-grafana' && tabEmbedGrafana && embedGrafanaView) {
-            tabEmbedGrafana.className = activeClass;
+            tabEmbedGrafana.classList.add('is-active');
+            tabEmbedGrafana.setAttribute('aria-current', 'page');
             embedGrafanaView.classList.remove('hidden');
         } else if (tabId === 'tab-admin' && tabAdmin && adminView) {
-            tabAdmin.className = activeClass;
+            tabAdmin.classList.add('is-active');
+            tabAdmin.setAttribute('aria-current', 'page');
             adminView.classList.remove('hidden');
         }
     },
@@ -728,12 +905,12 @@ export const ui = {
                              user.role === 'viewer' ? 'Viewer' : 'User';
 
             // Check details for Line and Telegram config
-            const hasLine = user.line_token && user.line_group_id;
+            const hasLine = user.has_line_token && user.line_group_id;
             const lineStatus = hasLine ? 
                 `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ตั้งค่าแล้ว</span>` : 
                 `<span class="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/10">ยังไม่ได้ตั้งค่า</span>`;
 
-            const hasTelegram = user.telegram_token && user.telegram_chat_id;
+            const hasTelegram = user.has_telegram_token && user.telegram_chat_id;
             const telegramStatus = hasTelegram ? 
                 `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ตั้งค่าแล้ว</span>` : 
                 `<span class="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/10">ยังไม่ได้ตั้งค่า</span>`;
@@ -913,16 +1090,7 @@ export const ui = {
             const tr = document.createElement('tr');
             tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200 bg-transparent';
 
-            const statusClass = run.status === 'success'
-                ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
-                : run.status === 'failed'
-                    ? 'bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400'
-                    : 'bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400';
-            const statusIcon = run.status === 'success'
-                ? 'fa-check-circle'
-                : run.status === 'failed'
-                    ? 'fa-times-circle'
-                    : 'fa-spinner fa-spin';
+            const statusPresentation = getSyncRunStatusPresentation(run.status);
             const message = run.error || run.message || '-';
             const safeMessage = escapeHtml(message);
 
@@ -930,12 +1098,7 @@ export const ui = {
                 <td class="py-3.5 px-4 font-mono font-bold text-slate-500 dark:text-slate-400">#${run.id}</td>
                 <td class="py-3.5 px-4 font-semibold text-blue-600 dark:text-blue-400">${escapeHtml(run.source || '-')}</td>
                 <td class="py-3.5 px-4 font-mono">${escapeHtml(formatVisitDate(run.visit_date))}</td>
-                <td class="py-3.5 px-4">
-                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${statusClass}">
-                        <i class="fas ${statusIcon}"></i>
-                        ${escapeHtml(run.status || '-')}
-                    </span>
-                </td>
+                <td class="py-3.5 px-4">${statusBadgeHtml(statusPresentation)}</td>
                 <td class="py-3.5 px-4">${escapeHtml(run.username || '-')}</td>
                 <td class="py-3.5 px-4 text-right font-mono font-semibold">${Number(run.total_records || 0).toLocaleString()}</td>
                 <td class="py-3.5 px-4 truncate max-w-[260px]" title="${safeMessage}">${safeMessage}</td>
@@ -1178,15 +1341,9 @@ export const ui = {
                 if (val === null || val === undefined) {
                     td.innerHTML = '<span class="text-slate-400 dark:text-slate-600">-</span>';
                 } else if (header.toLowerCase() === 'color_status' || header.toLowerCase() === 'status_color') {
-                    const statusClass = val === 'RED' ? 'status-red' : 
-                                      val === 'YELLOW' ? 'status-yellow' : 
-                                      val === 'GREEN' ? 'status-green' : '';
-                    td.innerHTML = `<span class="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${statusClass}">${val}</span>`;
+                    td.innerHTML = statusBadgeHtml(getColorStatusPresentation(val));
                 } else if (header.toLowerCase() === 'check_claimcode' || header.toLowerCase() === 'check_claim') {
-                    const statusClass = val === 'ตรง' ? 'status-green' : 
-                                      val === 'ตรวจสอบ' ? 'status-yellow' : 
-                                      val === 'ไม่ตรง' ? 'status-red' : 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400';
-                    td.innerHTML = `<span class="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${statusClass}">${val}</span>`;
+                    td.innerHTML = statusBadgeHtml(getClaimStatusPresentation(val));
                 } else if (header.toLowerCase() === 'vn' || header.toLowerCase() === 'hn') {
                     td.className = 'py-2 px-4 font-mono text-[11px] font-semibold';
                     td.innerHTML = `<span class="text-blue-600 dark:text-blue-400 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100/50 dark:border-blue-900/30 rounded px-2 py-0.5 inline-block">${val}</span>`;

@@ -11,9 +11,21 @@ export function replaceGrafanaMacros(query, visitDate, hipdataCodes) {
 }
 
 export function isReadOnlySql(query) {
-    const trimmedQuery = String(query || '').trim().toUpperCase();
-    const allowedPrefixes = ['SELECT', 'WITH', 'SHOW', 'DESCRIBE'];
-    return allowedPrefixes.some(prefix => trimmedQuery.startsWith(prefix));
+    // Keep this deliberately conservative: the SQL panel is a reporting tool,
+    // not an alternate administration console. CTEs can precede mutating SQL in
+    // MySQL, so they are not accepted without a proper SQL parser.
+    const normalized = String(query || '')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/--[^\r\n]*/g, ' ')
+        .trim()
+        .toUpperCase();
+    if (!/^(SELECT|SHOW|DESCRIBE|EXPLAIN)\b/.test(normalized)) return false;
+
+    const blockedKeywords = /\b(ALTER|ANALYZE|CALL|CHANGE|CREATE|DELETE|DO|DROP|GRANT|HANDLER|INSERT|LOAD|LOCK|OPTIMIZE|RENAME|REPLACE|REVOKE|SET|TRUNCATE|UNLOCK|UPDATE|USE)\b/;
+    if (blockedKeywords.test(normalized)) return false;
+
+    // SELECT ... INTO OUTFILE/DUMPFILE writes to the database server filesystem.
+    return !/\bINTO\s+(OUTFILE|DUMPFILE)\b/.test(normalized);
 }
 
 export function hasMultipleStatements(query) {

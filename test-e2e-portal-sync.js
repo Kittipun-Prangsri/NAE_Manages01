@@ -1,6 +1,6 @@
 import { downloadNhsoReport, cleanOldDownloads } from './jobs/download-nhso.js';
 import { captureAndNotify } from './jobs/capture-grafana.js';
-import { getHosxpVisits, saveTrackingResults, saveAuthenLog, executeAdvancedRunLogic } from './backend/dataService.js';
+import { getHosxpVisits, saveTrackingResults, runHosxpSync } from './backend/dataService.js';
 import { processCrossCheck } from './backend/crossCheckLogic.js';
 import { checkConnections } from './backend/db.js';
 import * as xlsx from 'xlsx';
@@ -38,8 +38,7 @@ async function testE2ESyncAndCapture() {
         });
 
         console.log(`💾 Step 3: Importing and Syncing in Database...`);
-        await saveAuthenLog(excelData, visit_date);
-        await executeAdvancedRunLogic(visit_date);
+        await runHosxpSync(excelData, visit_date);
         const hosxpData = await getHosxpVisits(visit_date);
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);

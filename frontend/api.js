@@ -1,7 +1,7 @@
 // api.js
 const API_BASE = '/api';
 
-export const api = {
+const rawApi = {
     async login(username, password) {
         const res = await fetch(`${API_BASE}/auth/login`, {
             method: 'POST',
@@ -265,6 +265,18 @@ export const api = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
+    async testStoredNotification(id, type, token) {
+        const res = await fetch(`${API_BASE}/admin/users/${id}/test-notification`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ type })
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
     async fetchSchedules(token) {
         const res = await fetch(`${API_BASE}/admin/schedules`, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -318,3 +330,25 @@ export const api = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     }
 };
+
+// A Vite proxy error (for example 502 while the backend is restarting) can
+// return an empty HTML response. Keep that transport failure from crashing UI
+// flows that otherwise expect every API response to contain JSON.
+export const api = Object.fromEntries(
+    Object.entries(rawApi).map(([name, request]) => [name, async (...args) => {
+        try {
+            return await request(...args);
+        } catch (error) {
+            console.warn(`API request failed (${name}): ${error.message}`);
+            return {
+                ok: false,
+                status: 0,
+                data: {
+                    success: false,
+                    error: 'transport_error',
+                    message: 'ไม่สามารถติดต่อหรืออ่านผลตอบกลับจากเซิร์ฟเวอร์ได้ กรุณาตรวจสอบว่า backend ทำงานอยู่แล้วลองใหม่อีกครั้ง'
+                }
+            };
+        }
+    }])
+);

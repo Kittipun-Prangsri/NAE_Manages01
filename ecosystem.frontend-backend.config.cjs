@@ -37,7 +37,8 @@ module.exports = {
             env: {
                 NODE_ENV: 'development',
                 ENABLE_SERVER_BACKGROUND_JOBS: 'false',
-                ENABLE_DASHBOARD_MODULES: 'false'
+                ENABLE_DASHBOARD_MODULES: 'false',
+                ENABLE_SYNC_REPORTS: 'false'
             }
         }
     ]

@@ -49,6 +49,9 @@ const PORT = process.env.PORT || 3000;
 // Dashboard modules are opt-in while their HOSxP queries, custom SQL, and
 // embedded Grafana view are paused to reduce server and database load.
 const DASHBOARD_MODULES_ENABLED = process.env.ENABLE_DASHBOARD_MODULES === 'true';
+// Sync still imports and updates data when this is false; only the optional
+// post-sync summary, screenshot, and notification delivery are skipped.
+const SYNC_REPORTS_ENABLED = process.env.ENABLE_SYNC_REPORTS === 'true';
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: { files: 1, fileSize: getExcelUploadLimitBytes() }
@@ -65,6 +68,14 @@ function requireDashboardModulesEnabled(req, res, next) {
     return res.status(503).json({
         success: false,
         message: 'ส่วนแดชบอร์ดถูกปิดใช้งานชั่วคราวเพื่อลดการใช้ทรัพยากรระบบ'
+    });
+}
+
+function requireSyncReportsEnabled(req, res, next) {
+    if (SYNC_REPORTS_ENABLED) return next();
+    return res.status(503).json({
+        success: false,
+        message: 'การส่งรายงาน Sync ถูกปิดใช้งานชั่วคราว'
     });
 }
 
@@ -1149,7 +1160,7 @@ async function getUserNotificationCredentials(username) {
 /**
  * Endpoint สำหรับสั่งบันทึกหน้าจอ Grafana ด้วยตนเอง (Manual Trigger)
  */
-app.post('/api/sync/capture-grafana', authenticateToken, requireDashboardModulesEnabled, requireAdmin, async (req, res) => {
+app.post('/api/sync/capture-grafana', authenticateToken, requireDashboardModulesEnabled, requireSyncReportsEnabled, requireAdmin, async (req, res) => {
     try {
         const { visit_date, channels, report_types } = req.body;
         if (visit_date && !isValidDateString(visit_date)) return res.status(400).json({ success: false, message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
@@ -1246,8 +1257,10 @@ async function runManualPortalSyncInBackground(visit_date, username = null, user
         // Notifications use external networks. Keep them inside the protected
         // workflow so a Telegram/LINE timeout cannot leave a sync run stuck in
         // the "running" state before the portal work has even started.
-        await sendTelegramStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
-        await sendLineStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
+        if (SYNC_REPORTS_ENABLED) {
+            await sendTelegramStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
+            await sendLineStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
+        }
 
         const dlResult = await downloadNhsoReport(visit_date, (step, message, extra = null) => {
             currentSyncStatus.step = step;
@@ -1265,8 +1278,10 @@ async function runManualPortalSyncInBackground(visit_date, username = null, user
             currentSyncStatus.message = `ดาวน์โหลดรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`;
             currentSyncStatus.error = dlResult.error;
 
-            await sendTelegramStatusMessage(`❌ ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`, userCredentials);
-            await sendLineStatusMessage(`❌ [Manual Sync] ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`, userCredentials);
+            if (SYNC_REPORTS_ENABLED) {
+                await sendTelegramStatusMessage(`❌ ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`, userCredentials);
+                await sendLineStatusMessage(`❌ [Manual Sync] ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`, userCredentials);
+            }
             await finishSyncRun(syncRunId, 'failed', 0, 'NHSO portal download failed', dlResult.error || 'Download failed');
             return;
         }
@@ -1301,6 +1316,11 @@ async function runManualPortalSyncInBackground(visit_date, username = null, user
         // Keep only the latest Excel download as backup
         cleanOldDownloads(path.join(__dirname, '../downloads'));
 
+        if (!SYNC_REPORTS_ENABLED) {
+            await finishSyncRun(syncRunId, 'success', processedData.length, 'NHSO portal sync completed; sync report disabled');
+            return;
+        }
+
         // แจ้งเตือนใน Telegram & LINE
         await sendTelegramStatusMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`, userCredentials);
         await sendLineStatusMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`, userCredentials);
@@ -1326,8 +1346,10 @@ async function runManualPortalSyncInBackground(visit_date, username = null, user
         currentSyncStatus.step = 'failed';
         currentSyncStatus.message = `การซิงก์ขัดข้อง: ${err.message}`;
         currentSyncStatus.error = err.message;
-        await sendTelegramStatusMessage(`❌ การซิงก์ขัดข้อง: ${err.message}`, userCredentials);
-        await sendLineStatusMessage(`❌ การซิงก์ขัดข้อง: ${err.message}`, userCredentials);
+        if (SYNC_REPORTS_ENABLED) {
+            await sendTelegramStatusMessage(`❌ การซิงก์ขัดข้อง: ${err.message}`, userCredentials);
+            await sendLineStatusMessage(`❌ การซิงก์ขัดข้อง: ${err.message}`, userCredentials);
+        }
         await finishSyncRun(syncRunId, 'failed', 0, 'NHSO portal sync crashed', err.message);
     }
 }
@@ -1363,6 +1385,7 @@ app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
             trackingData: rows,
             hosxpStats: hosxpStats,
             disableNotifications: process.env.DISABLE_NOTIFICATIONS === 'true',
+            syncReportsEnabled: SYNC_REPORTS_ENABLED,
             generated_at: new Date().toISOString()
         });
     } catch (error) {
@@ -2345,6 +2368,11 @@ async function handleScheduledSyncAndCapture() {
         await saveTrackingResults(processedData);
         cleanOldDownloads(path.join(__dirname, '../downloads'));
         console.log('✅ [Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+
+        if (!SYNC_REPORTS_ENABLED) {
+            await finishSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync completed; sync report disabled');
+            return;
+        }
 
         // Do not publish a dashboard image unless this run actually updated the data.
         console.log('📸 [Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');

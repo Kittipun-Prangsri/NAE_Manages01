@@ -1129,7 +1129,7 @@ async function loadDashboardData() {
             // Hide manual capture button if notifications are globally disabled
             const captureBtn = document.getElementById('manual-capture-btn');
             if (captureBtn) {
-                if (appState.disableNotifications) {
+                if (appState.disableNotifications || data.syncReportsEnabled !== true) {
                     captureBtn.classList.add('hidden');
                 } else {
                     captureBtn.classList.remove('hidden');

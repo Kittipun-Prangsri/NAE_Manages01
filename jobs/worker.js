@@ -39,6 +39,7 @@ const __dirname = path.dirname(__filename);
 
 // Helper for absolute path to downloads
 const downloadsDir = path.join(__dirname, '../downloads');
+const SYNC_REPORTS_ENABLED = process.env.ENABLE_SYNC_REPORTS === 'true';
 
 // We will keep track of registered cron jobs
 let activeCronTasks = [];
@@ -106,6 +107,11 @@ async function handleScheduledSyncAndCapture() {
         await saveTrackingResults(processedData);
         cleanOldDownloads(downloadsDir);
         console.log('✅ [Worker-Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+
+        if (!SYNC_REPORTS_ENABLED) {
+            await finishScheduledSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync completed; sync report disabled');
+            return;
+        }
 
         console.log('📸 [Worker-Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
         const captureResult = await captureAndNotify(visit_date);

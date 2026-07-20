@@ -1219,10 +1219,8 @@ app.post('/api/sync/nhso-portal-download', authenticateToken, requireAdmin, asyn
             startedAt: new Date()
         };
 
-        const userCredentials = await getUserNotificationCredentials(req.user.username);
-
         // Run the sync process in the background to prevent HTTP connection timeouts
-        runManualPortalSyncInBackground(visit_date, req.user.username, userCredentials).catch(err => {
+        runManualPortalSyncInBackground(visit_date, req.user.username).catch(err => {
             console.error('❌ Error in manual portal background sync:', err);
             currentSyncStatus.status = 'failed';
             currentSyncStatus.step = 'failed';
@@ -1249,19 +1247,11 @@ app.get('/api/sync/status', authenticateToken, (req, res) => {
     res.json(currentSyncStatus);
 });
 
-async function runManualPortalSyncInBackground(visit_date, username = null, userCredentials = null) {
+async function runManualPortalSyncInBackground(visit_date, username = null) {
     console.log(`📥 [Background Portal Sync] Starting for date: ${visit_date}`);
     const syncRunId = await createSyncRun('nhso-portal', visit_date, username);
 
     try {
-        // Notifications use external networks. Keep them inside the protected
-        // workflow so a Telegram/LINE timeout cannot leave a sync run stuck in
-        // the "running" state before the portal work has even started.
-        if (SYNC_REPORTS_ENABLED) {
-            await sendTelegramStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
-            await sendLineStatusMessage(`⏳ [Manual Sync] เริ่มต้นดาวน์โหลดข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD ประจำวันที่ ${visit_date}...`, userCredentials);
-        }
-
         const dlResult = await downloadNhsoReport(visit_date, (step, message, extra = null) => {
             currentSyncStatus.step = step;
             currentSyncStatus.message = message;
@@ -1278,10 +1268,6 @@ async function runManualPortalSyncInBackground(visit_date, username = null, user
             currentSyncStatus.message = `ดาวน์โหลดรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`;
             currentSyncStatus.error = dlResult.error;
 
-            if (SYNC_REPORTS_ENABLED) {
-                await sendTelegramStatusMessage(`❌ ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`, userCredentials);
-                await sendLineStatusMessage(`❌ [Manual Sync] ไม่สามารถดึงรายงานอัตโนมัติของวันที่ ${visit_date} ได้: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`, userCredentials);
-            }
             await finishSyncRun(syncRunId, 'failed', 0, 'NHSO portal download failed', dlResult.error || 'Download failed');
             return;
         }
@@ -1316,29 +1302,9 @@ async function runManualPortalSyncInBackground(visit_date, username = null, user
         // Keep only the latest Excel download as backup
         cleanOldDownloads(path.join(__dirname, '../downloads'));
 
-        if (!SYNC_REPORTS_ENABLED) {
-            await finishSyncRun(syncRunId, 'success', processedData.length, 'NHSO portal sync completed; sync report disabled');
-            return;
-        }
-
-        // แจ้งเตือนใน Telegram & LINE
-        await sendTelegramStatusMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`, userCredentials);
-        await sendLineStatusMessage(`✅ ระบบดึงรายงานและประมวลผล Sync ประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังบันทึกภาพหน้าจอ Grafana...`, userCredentials);
-
-        // Keep the progress modal open until capture finishes so a missing image
-        // is visible to the user instead of being reported as a successful sync.
-        currentSyncStatus.step = 'capturing';
-        currentSyncStatus.message = 'ซิงก์ข้อมูลสำเร็จ กำลังบันทึกภาพ Dashboard และส่งรายงาน...';
-        const captureResult = await captureAndNotify(visit_date, ['line', 'telegram'], ['summary', 'screenshot'], userCredentials);
-        currentSyncStatus.step = 'completed';
-        if (!captureResult.success) {
-            currentSyncStatus.message = `ซิงก์ข้อมูลสำเร็จ แต่บันทึกภาพ Dashboard ไม่สำเร็จ: ${captureResult.error || 'ไม่ทราบสาเหตุ'}`;
-            console.error('❌ Dashboard capture after portal sync failed:', captureResult.error);
-            await finishSyncRun(syncRunId, 'success', processedData.length, 'NHSO portal sync completed; dashboard capture failed', captureResult.error || 'Dashboard capture failed');
-        } else {
-            currentSyncStatus.message = `การซิงก์และบันทึกภาพ Dashboard ประจำวันที่ ${visit_date} สำเร็จแล้ว`;
-            await finishSyncRun(syncRunId, 'success', processedData.length, 'NHSO portal sync and dashboard capture completed');
-        }
+        // A user-initiated Sync is intentionally local-only: do not generate
+        // a summary or send Telegram/LINE notifications from the server.
+        await finishSyncRun(syncRunId, 'success', processedData.length, 'NHSO portal sync completed');
 
     } catch (err) {
         console.error('❌ [Background Portal Sync] Crash error:', err);
@@ -1346,10 +1312,6 @@ async function runManualPortalSyncInBackground(visit_date, username = null, user
         currentSyncStatus.step = 'failed';
         currentSyncStatus.message = `การซิงก์ขัดข้อง: ${err.message}`;
         currentSyncStatus.error = err.message;
-        if (SYNC_REPORTS_ENABLED) {
-            await sendTelegramStatusMessage(`❌ การซิงก์ขัดข้อง: ${err.message}`, userCredentials);
-            await sendLineStatusMessage(`❌ การซิงก์ขัดข้อง: ${err.message}`, userCredentials);
-        }
         await finishSyncRun(syncRunId, 'failed', 0, 'NHSO portal sync crashed', err.message);
     }
 }
@@ -2613,22 +2575,7 @@ async function sendTelegramMessage(token, chatId, text) {
     }
 }
 
-async function sendTelegramStatusMessage(text, userCredentials = null) {
-    const token = userCredentials?.telegram_token || process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = userCredentials?.telegram_chat_id || process.env.TELEGRAM_CHAT_ID;
-    if (!token || !chatId || chatId === 'your_telegram_chat_id_here') return;
-
-    const chatIds = String(chatId).split(',').map(id => id.trim()).filter(id => id);
-    for (const id of chatIds) {
-        await sendTelegramMessage(token, id, text);
-    }
-}
-
 async function sendLineMessage(text) {
-    console.log('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
-}
-
-async function sendLineStatusMessage(text, userCredentials = null) {
     console.log('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
 }
 

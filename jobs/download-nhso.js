@@ -1,3 +1,17 @@
+import dns from 'dns';
+const originalLookup = dns.lookup;
+dns.lookup = function(hostname, options, callback) {
+    if (typeof options === 'function') {
+        callback = options;
+        options = {};
+    } else if (typeof options === 'number') {
+        options = { family: options };
+    }
+    options = options || {};
+    options.family = 4;
+    return originalLookup(hostname, options, callback);
+};
+
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import fs from 'fs';

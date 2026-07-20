@@ -17,7 +17,7 @@ export const hosxpPool = mysql.createPool({
     multipleStatements: false,
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
-    connectTimeout: 20000,
+    connectTimeout: 5000,
     maxIdle: 10, // max idle connections, the default value is the same as `connectionLimit`
     idleTimeout: 60000, // idle connections timeout, in milliseconds, the default value 60000
 });
@@ -43,7 +43,7 @@ export const hosxpWritePool = hasHosxpWriteCredentials
         multipleStatements: true,
         enableKeepAlive: true,
         keepAliveInitialDelay: 10000,
-        connectTimeout: 20000,
+        connectTimeout: 5000,
         maxIdle: 5,
         idleTimeout: 60000
     })
@@ -70,7 +70,7 @@ export const trackerPool = mysql.createPool({
     multipleStatements: false,
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
-    connectTimeout: 20000,
+    connectTimeout: 5000,
     maxIdle: 10,
     idleTimeout: 60000
 });

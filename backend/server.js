@@ -1,3 +1,17 @@
+import dns from 'dns';
+const originalLookup = dns.lookup;
+dns.lookup = function(hostname, options, callback) {
+    if (typeof options === 'function') {
+        callback = options;
+        options = {};
+    } else if (typeof options === 'number') {
+        options = { family: options };
+    }
+    options = options || {};
+    options.family = 4;
+    return originalLookup(hostname, options, callback);
+};
+
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -772,7 +786,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
 
 // --- LINE Webhook for Group ID Discovery & Commands ---
 app.post('/api/line/webhook', (req, res) => {
-    const events = req.body.events || [];
+    const events = req.body?.events || [];
     events.forEach(async (event) => {
         console.log(`💬 [LINE Webhook Event] Type: ${event.type}`);
         

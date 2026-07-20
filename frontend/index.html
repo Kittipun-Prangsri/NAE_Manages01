@@ -126,13 +126,13 @@
                     <button id="tab-tracker" type="button" class="sidebar-nav-item is-active" aria-current="page">
                         <i class="fas fa-tasks" aria-hidden="true"></i><span>ระบบตรวจสอบ</span>
                     </button>
-                    <button id="tab-live-dashboard" type="button" class="sidebar-nav-item">
+                    <button id="tab-live-dashboard" type="button" class="hidden sidebar-nav-item" aria-hidden="true">
                         <i class="fas fa-chart-pie" aria-hidden="true"></i><span>Live Dashboard</span>
                     </button>
-                    <button id="tab-grafana" type="button" class="sidebar-nav-item">
+                    <button id="tab-grafana" type="button" class="hidden sidebar-nav-item" aria-hidden="true">
                         <i class="fas fa-chart-line" aria-hidden="true"></i><span>วิเคราะห์ SQL</span>
                     </button>
-                    <button id="tab-embed-grafana" type="button" class="sidebar-nav-item">
+                    <button id="tab-embed-grafana" type="button" class="hidden sidebar-nav-item" aria-hidden="true">
                         <i class="fas fa-desktop" aria-hidden="true"></i><span>Grafana Embed</span>
                     </button>
                 </nav>
@@ -226,7 +226,7 @@
                                         <span>Paste TSV</span>
                                     </button>
                                     <button id="manual-capture-btn"
-                                        class="h-[38px] bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-xl flex items-center justify-center space-x-1.5 transition cursor-pointer text-xs"
+                                        class="hidden h-[38px] bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-xl flex items-center justify-center space-x-1.5 transition cursor-pointer text-xs"
                                         title="บันทึกหน้าจอ Grafana และจัดส่งรายงานทันที">
                                         <i class="fas fa-camera text-sm"></i>
                                         <span>Capture</span>
@@ -854,7 +854,7 @@
                     </div>
                     <div class="relative w-full h-[78vh] rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 shadow-md">
                         <iframe 
-                            src="https://khh.srakw.net/d/cdv2h2zc1d91ca/check-authen?orgId=1&kiosk=tv" 
+                            src="about:blank"
                             class="absolute inset-0 w-full h-full border-0" 
                             allowfullscreen>
                         </iframe>

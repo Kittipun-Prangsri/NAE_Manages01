@@ -141,6 +141,11 @@ async function sendTextSummaryToTelegram(token, chatId, targetDate, stats) {
  * Capture Grafana dashboard as screenshot and send notifications
  */
 async function captureAndNotify(targetDate = null, channels = ['line', 'telegram'], reportTypes = ['summary', 'screenshot'], userCredentials = null) {
+    if (process.env.ENABLE_DASHBOARD_MODULES !== 'true') {
+        console.log('ℹ️ Dashboard capture is disabled while dashboard modules are paused.');
+        return { success: true, skipped: true, message: 'Dashboard modules are temporarily disabled' };
+    }
+
     // Use userCredentials if provided, otherwise fall back to .env values
     const lineAccessToken = (userCredentials && userCredentials.line_token) || process.env.LINE_CHANNEL_ACCESS_TOKEN;
     const lineGroupId = (userCredentials && userCredentials.line_group_id) || process.env.LINE_GROUP_ID;

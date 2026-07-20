@@ -46,6 +46,9 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// Dashboard modules are opt-in while their HOSxP queries, custom SQL, and
+// embedded Grafana view are paused to reduce server and database load.
+const DASHBOARD_MODULES_ENABLED = process.env.ENABLE_DASHBOARD_MODULES === 'true';
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: { files: 1, fileSize: getExcelUploadLimitBytes() }
@@ -56,6 +59,14 @@ app.disable('x-powered-by');
 app.use(applySecurityHeaders);
 app.use(cors(createCorsOptions()));
 app.use(express.json({ limit: '1mb' }));
+
+function requireDashboardModulesEnabled(req, res, next) {
+    if (DASHBOARD_MODULES_ENABLED) return next();
+    return res.status(503).json({
+        success: false,
+        message: 'ส่วนแดชบอร์ดถูกปิดใช้งานชั่วคราวเพื่อลดการใช้ทรัพยากรระบบ'
+    });
+}
 
 // Visit routes
 app.use('/api/visits', authenticateToken, visitRoutes);
@@ -1138,7 +1149,7 @@ async function getUserNotificationCredentials(username) {
 /**
  * Endpoint สำหรับสั่งบันทึกหน้าจอ Grafana ด้วยตนเอง (Manual Trigger)
  */
-app.post('/api/sync/capture-grafana', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/sync/capture-grafana', authenticateToken, requireDashboardModulesEnabled, requireAdmin, async (req, res) => {
     try {
         const { visit_date, channels, report_types } = req.body;
         if (visit_date && !isValidDateString(visit_date)) return res.status(400).json({ success: false, message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
@@ -1792,7 +1803,7 @@ app.get('/api/hipdata', authenticateToken, async (req, res) => {
 /**
  * ดึงข้อมูลสรุปแบบเรียลไทม์ (แผนที่ความหนาแน่นคนไข้รายตำบล + ปริมาณคนไข้ตามแผนก)
  */
-app.get('/api/dashboard/live-data', authenticateToken, async (req, res) => {
+app.get('/api/dashboard/live-data', authenticateToken, requireDashboardModulesEnabled, async (req, res) => {
     try {
         const visit_date = req.query.date || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
         console.log(`📊 [Live Dashboard] Fetching live data for date: ${visit_date} by user: ${req.user.username}`);
@@ -1873,7 +1884,7 @@ app.get('/api/tracking/summary', authenticateToken, async (req, res) => {
 // --- Grafana-like Custom Query Routes ---
 
 // 1. Endpoint รันคำสั่ง SQL Query
-app.post('/api/custom-query', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/custom-query', authenticateToken, requireDashboardModulesEnabled, requireAdmin, async (req, res) => {
     try {
         const { query, db_type, visit_date, hipdata_code } = req.body;
         if (!query) return res.status(400).json({ message: 'กรุณาระบุคำสั่ง SQL Query' });
@@ -1924,7 +1935,7 @@ app.post('/api/custom-query', authenticateToken, requireAdmin, async (req, res) 
     }
 });
 
-app.get('/api/query-history', authenticateToken, async (req, res) => {
+app.get('/api/query-history', authenticateToken, requireDashboardModulesEnabled, async (req, res) => {
     try {
         const [rows] = await trackerPool.query(
             `SELECT id, db_type, query_text, visit_date, hipdata_code, rows_count, execution_time_ms, created_at
@@ -1941,7 +1952,7 @@ app.get('/api/query-history', authenticateToken, async (req, res) => {
     }
 });
 
-app.delete('/api/query-history', authenticateToken, async (req, res) => {
+app.delete('/api/query-history', authenticateToken, requireDashboardModulesEnabled, async (req, res) => {
     try {
         await trackerPool.query('DELETE FROM query_history WHERE username = ?', [req.user.username || null]);
         await writeAuditLog(req, 'query_history_clear', 'query_history', req.user.username || null);
@@ -1953,7 +1964,7 @@ app.delete('/api/query-history', authenticateToken, async (req, res) => {
 });
 
 // 2. ดึงรายการคำสั่งที่บันทึกไว้
-app.get('/api/saved-queries', authenticateToken, async (req, res) => {
+app.get('/api/saved-queries', authenticateToken, requireDashboardModulesEnabled, async (req, res) => {
     try {
         const [rows] = await trackerPool.query('SELECT * FROM saved_queries ORDER BY name ASC');
         res.json(rows);
@@ -1964,7 +1975,7 @@ app.get('/api/saved-queries', authenticateToken, async (req, res) => {
 });
 
 // 3. บันทึกคำสั่ง
-app.post('/api/saved-queries', authenticateToken, async (req, res) => {
+app.post('/api/saved-queries', authenticateToken, requireDashboardModulesEnabled, async (req, res) => {
     try {
         const { name, query_text, db_type } = req.body;
         if (!name || !query_text) return res.status(400).json({ message: 'กรุณาระบุชื่อและคำสั่ง SQL' });
@@ -1981,7 +1992,7 @@ app.post('/api/saved-queries', authenticateToken, async (req, res) => {
 });
 
 // 4. ลบคำสั่ง
-app.delete('/api/saved-queries/:id', authenticateToken, async (req, res) => {
+app.delete('/api/saved-queries/:id', authenticateToken, requireDashboardModulesEnabled, async (req, res) => {
     try {
         const { id } = req.params;
         await trackerPool.query('DELETE FROM saved_queries WHERE id = ?', [id]);

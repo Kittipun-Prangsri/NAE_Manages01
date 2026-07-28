@@ -1412,8 +1412,8 @@ async function openUcPendingListModal() {
     }
 
     try {
-        // If they click this card on Live Dashboard without loading tracker tab, fetch raw data first
-        if (appState.lgoTableData.length === 0 && appState.rawTableData.length === 0) {
+        // Always fetch raw tracking data if not loaded in memory yet
+        if (appState.rawTableData.length === 0) {
             const date = visitDateInput?.value || new Date().toISOString().split('T')[0];
             const response = await api.fetchDashboard(date, appState.token);
             if (response.ok && response.data) {
@@ -1424,7 +1424,7 @@ async function openUcPendingListModal() {
         console.error('Failed to pre-fetch tracking data for modal:', err);
     }
 
-    const baseData = appState.lgoTableData.length > 0 ? appState.lgoTableData : appState.rawTableData;
+    const baseData = appState.rawTableData;
 
     const pendingUcData = baseData.filter(item => {
         const pcode = String(item.pcode || item.hipdata_code || item.hipdata || '').toUpperCase();

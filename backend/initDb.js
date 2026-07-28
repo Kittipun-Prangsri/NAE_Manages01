@@ -12,6 +12,7 @@ export async function initInternalDb() {
             pttype VARCHAR(10),
             pcode VARCHAR(10),
             uc_money DOUBLE(15,3),
+            item_money DOUBLE(15,3),
             claim_code VARCHAR(50),
             authen_code_type VARCHAR(100),
             pttype_note TEXT,

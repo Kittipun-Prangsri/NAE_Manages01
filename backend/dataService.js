@@ -34,6 +34,7 @@ export async function getHosxpVisits(visitDate) {
                )
             ) AS check_claimcode,
             v.uc_money,
+            v.item_money,
             CONVERT(k.department USING utf8) AS department,
             p.tmbpart AS subdistrict_code,
             CONVERT(t.name USING utf8) AS subdistrict_name,
@@ -144,12 +145,13 @@ export async function getHosxpTotalVisits(visitDate) {
 export async function saveTrackingResults(results) {
     const query = `
         INSERT INTO visit_tracking 
-        (vn, hn, cid, full_name, visit_date, pttype, pcode, uc_money, claim_code, authen_code_type, pttype_note, department, subdistrict_code, subdistrict_name, nhso_authen_code, authen_status, endpoint_status, color_status, staff, check_claimcode)
+        (vn, hn, cid, full_name, visit_date, pttype, pcode, uc_money, item_money, claim_code, authen_code_type, pttype_note, department, subdistrict_code, subdistrict_name, nhso_authen_code, authen_status, endpoint_status, color_status, staff, check_claimcode)
         VALUES ?
         ON DUPLICATE KEY UPDATE
         pttype = VALUES(pttype),
         pcode = VALUES(pcode),
         uc_money = VALUES(uc_money),
+        item_money = VALUES(item_money),
         claim_code = VALUES(claim_code),
         authen_code_type = VALUES(authen_code_type),
         pttype_note = VALUES(pttype_note),
@@ -167,7 +169,7 @@ export async function saveTrackingResults(results) {
 
     const values = results.map(r => [
         r.vn, r.hn, r.cid, r.full_name, r.visit_date, r.pttype,
-        r.pcode, r.uc_money, r.claim_code, r.authen_code_type, r.pttype_note, r.department,
+        r.pcode, r.uc_money, r.item_money, r.claim_code, r.authen_code_type, r.pttype_note, r.department,
         r.subdistrict_code, r.subdistrict_name,
         r.nhso_authen_code, r.authen_status, r.endpoint_status, r.color_status,
         r.staff, r.check_claimcode

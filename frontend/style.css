@@ -689,7 +689,7 @@ body::before {
   padding-inline: 0.5rem;
 }
 
-#dashboard-section.sidebar-collapsed .sidebar-section-label,
+#dashboard-section.sidebar-collapsed .sidebar-section-label > span,
 #dashboard-section.sidebar-collapsed .sidebar-nav-item > span {
   position: absolute;
   width: 1px;

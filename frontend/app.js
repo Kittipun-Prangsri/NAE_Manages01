@@ -6,7 +6,7 @@ import { exportToCsv, isTokenExpired } from './utils.js';
 // App State
 let isLoggingOut = false;
 const LIVE_DASHBOARD_REFRESH_MS = 30000;
-const TRACKER_PAGE_SIZE = 50;
+const TRACKER_PAGE_SIZE = 20;
 
 const getInitialState = () => {
     if (typeof localStorage === 'undefined') {
@@ -26,7 +26,7 @@ const getInitialState = () => {
             trackerSearchFilter: '',
             trackerColumnFilters: {},
             trackerDashboardFilter: null,
-            trackerVisibleRows: TRACKER_PAGE_SIZE,
+            trackerCurrentPage: 1,
             // liveDashboardInterval: null,
             // liveDashboardCountdownInterval: null,
             // liveDashboardNextRefreshAt: null,
@@ -55,7 +55,7 @@ const getInitialState = () => {
         trackerSearchFilter: '',
         trackerColumnFilters: {},
         trackerDashboardFilter: null,
-        trackerVisibleRows: TRACKER_PAGE_SIZE,
+        trackerCurrentPage: 1,
         liveDashboardInterval: null,
         liveDashboardCountdownInterval: null,
         liveDashboardNextRefreshAt: null,
@@ -182,18 +182,16 @@ function setupEventListeners() {
     // Homepage table search input
     document.getElementById('tracker-search-input')?.addEventListener('input', (e) => {
         appState.trackerSearchFilter = e.target.value;
-        appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
+        appState.trackerCurrentPage = 1;
         renderTrackerTable();
     });
     document.getElementById('clear-tracker-dashboard-filter')?.addEventListener('click', clearTrackerDashboardFilter);
-    document.getElementById('load-more-tracker-rows')?.addEventListener('click', () => {
-        appState.trackerVisibleRows += TRACKER_PAGE_SIZE;
-        renderTrackerTable();
-    });
-    document.getElementById('show-less-tracker-rows')?.addEventListener('click', () => {
-        appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
-        renderTrackerTable();
-        document.getElementById('tracker-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+    document.addEventListener('tracker-page-change', (e) => {
+        if (e.detail && e.detail.page) {
+            appState.trackerCurrentPage = e.detail.page;
+            renderTrackerTable();
+        }
     });
     document.querySelectorAll('[data-tracker-status-filter]').forEach(button => {
         button.addEventListener('click', () => {
@@ -401,7 +399,7 @@ function openTrackerColumnFilterMenu(field, anchor) {
     clearFilterBtn.textContent = 'Clear filter';
     clearFilterBtn.addEventListener('click', () => {
         delete appState.trackerColumnFilters[field];
-        appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
+        appState.trackerCurrentPage = 1;
         closeTrackerColumnFilterMenu();
         renderTrackerTable();
     });
@@ -423,7 +421,7 @@ function openTrackerColumnFilterMenu(field, anchor) {
         } else {
             appState.trackerColumnFilters[field] = checkedValues;
         }
-        appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
+        appState.trackerCurrentPage = 1;
         closeTrackerColumnFilterMenu();
         renderTrackerTable();
     });
@@ -1030,7 +1028,7 @@ async function loadDashboardData() {
             appState.rawTableData = data.trackingData || [];
             appState.hosxpStats = data.hosxpStats || null;
             appState.lgoTableData = [];
-            appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
+            appState.trackerCurrentPage = 1;
             renderTrackerTable();
             await loadRightsTrackingTable(date);
             await loadGroupInsights(date);
@@ -1340,7 +1338,7 @@ function renderTrackerTable() {
     const tableData = columnFilteredData;
     const hasColumnFilters = Object.values(appState.trackerColumnFilters || {}).some(values => Array.isArray(values));
     const hasFilters = Boolean(appState.trackerDashboardFilter?.value || appState.trackerSearchFilter || hasColumnFilters);
-    ui.renderTable(tableData, appState.trackerSortBy, appState.trackerSortDesc, appState.trackerVisibleRows);
+    ui.renderTable(tableData, appState.trackerSortBy, appState.trackerSortDesc, appState.trackerCurrentPage, TRACKER_PAGE_SIZE);
     ui.renderTrackerDashboardFilter(appState.trackerDashboardFilter, data.length);
     updateTrackerColumnFilterHeaders();
     ui.updateStats(data, hasFilters ? null : appState.hosxpStats);
@@ -1370,7 +1368,7 @@ async function applyTrackerDashboardFilter(type, value, label = value, options =
     if (!value) return;
     appState.trackerDashboardFilter = { type, value, label, ...options };
     appState.trackerSearchFilter = '';
-    appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
+    appState.trackerCurrentPage = 1;
 
     const searchInput = document.getElementById('tracker-search-input');
     if (searchInput) searchInput.value = '';
@@ -1398,7 +1396,7 @@ function handleGroupInsightDepartmentClick(item) {
 
 function clearTrackerDashboardFilter() {
     appState.trackerDashboardFilter = null;
-    appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
+    appState.trackerCurrentPage = 1;
     renderTrackerTable();
     announceTrackerFilterResult();
     requestAnimationFrame(revealTrackerResults);

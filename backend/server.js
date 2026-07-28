@@ -1388,6 +1388,7 @@ app.get('/api/tracking/rights-table', authenticateToken, async (req, res) => {
                     ELSE 'ไม่ตรง'
                 END AS check_claimcode,
                 v.uc_money,
+                v.item_money,
                 CAST(CONVERT(k.department USING utf8) AS CHAR) AS department,
                 COUNT(DISTINCT v.cid) AS cc_cid
              FROM vn_stat v

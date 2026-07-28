@@ -384,6 +384,9 @@ body::before {
 }
 
 .tracking-details-dialog {
+  position: fixed !important;
+  inset: 0 !important;
+  margin: auto !important;
   width: min(42rem, calc(100vw - 2rem));
   max-height: min(46rem, calc(100vh - 2rem));
   overflow: auto;
@@ -1964,4 +1967,10 @@ text.tcount {
 .no-scrollbar {
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
+}
+
+/* Wide dialog for tracking tables */
+.tracking-table-dialog {
+  width: min(60rem, calc(100vw - 2rem)) !important;
+  max-width: min(60rem, calc(100vw - 2rem)) !important;
 }

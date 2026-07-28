@@ -1,6 +1,6 @@
 // app.js
 import { api } from './api.js';
-import { ui } from './ui.js';
+import { ui, getClaimStatusPresentation } from './ui.js';
 import { exportToCsv, isTokenExpired } from './utils.js';
 
 // App State
@@ -153,6 +153,7 @@ function setupEventListeners() {
     document.getElementById('api-sync-btn')?.addEventListener('click', handleApiSync);
     document.getElementById('auto-portal-btn')?.addEventListener('click', handleAutoPortalSync);
     document.getElementById('refresh-btn')?.addEventListener('click', loadDashboardData);
+    document.getElementById('uc-pending-total-count-card')?.addEventListener('click', openUcPendingListModal);
     visitDateInput?.addEventListener('change', loadDashboardData);
 
     // Homepage table sorting
@@ -1392,6 +1393,69 @@ function handleGroupInsightDepartmentClick(item) {
     }
     const type = item.groupBy === 'subdistrict' ? 'tambon' : 'department';
     applyTrackerDashboardFilter(type, item.groupKey, item.label || `${item.groupLabel || 'กลุ่ม'} ${item.groupKey}`, { mode });
+}
+
+function openUcPendingListModal() {
+    const dialog = document.getElementById('uc-pending-list-dialog');
+    const tbody = document.getElementById('uc-pending-list-tbody');
+    const emptyState = document.getElementById('uc-pending-list-empty');
+    if (!dialog || !tbody) return;
+
+    // Support both LGO tracking data and main tracking data
+    const baseData = appState.lgoTableData.length > 0 ? appState.lgoTableData : appState.rawTableData;
+
+    const pendingUcData = baseData.filter(item => {
+        const pcode = String(item.pcode || item.hipdata_code || item.hipdata || '').toUpperCase();
+        const status = String(item.color_status || '').toUpperCase();
+        return ['UC', 'UCS'].includes(pcode) && ['RED', 'YELLOW'].includes(status);
+    });
+
+    const titleEl = document.getElementById('uc-pending-list-title');
+    if (titleEl) {
+        titleEl.textContent = `รายการ UCS ที่ต้องติดตาม (ทั้งหมด ${pendingUcData.length.toLocaleString()} รายการ)`;
+    }
+
+    tbody.innerHTML = '';
+    if (pendingUcData.length === 0) {
+        emptyState?.classList.remove('hidden');
+    } else {
+        emptyState?.classList.add('hidden');
+        pendingUcData.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200';
+            
+            const checkClaimVal = item.check_claimcode || 'ยังไม่ได้นำเข้า';
+            const checkClaimPresentation = getClaimStatusPresentation(checkClaimVal);
+            const issueReason = item.issue_reason || getTrackingIssueReason(item);
+
+            tr.innerHTML = `
+                <td class="py-2.5 px-3 font-mono font-semibold text-blue-600 dark:text-blue-400">${escapeHtml(item.vn || '-')}</td>
+                <td class="py-2.5 px-3 font-medium tracking-wide">${escapeHtml(item.cid || '-')}</td>
+                <td class="py-2.5 px-3">${escapeHtml(item.full_name || '-')}</td>
+                <td class="py-2.5 px-3 text-slate-500 dark:text-slate-400">${escapeHtml(item.department || '-')}</td>
+                <td class="py-2.5 px-3 text-right font-semibold">${(() => {
+                    const uc = Number(item.uc_money) || 0;
+                    const im = Number(item.item_money) || 0;
+                    const val = uc === 0 ? im : uc;
+                    return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                })()}</td>
+                <td class="py-2.5 px-3 text-center">
+                    <span class="status-badge status-${checkClaimPresentation.tone} px-2 py-0.5 text-[10px]">
+                        <i class="fas ${checkClaimPresentation.icon}"></i>
+                        <span>${escapeHtml(checkClaimPresentation.label)}</span>
+                    </span>
+                </td>
+                <td class="py-2.5 px-3 text-[11px] font-semibold status-text-${checkClaimPresentation.tone}">${escapeHtml(issueReason || '-')}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    if (typeof dialog.showModal === 'function') {
+        dialog.showModal();
+    } else {
+        dialog.setAttribute('open', '');
+    }
 }
 
 function clearTrackerDashboardFilter() {

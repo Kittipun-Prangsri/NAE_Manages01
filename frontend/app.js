@@ -1426,13 +1426,11 @@ async function openUcPendingListModal() {
 
             pendingUcData = liveRows.filter(item => {
                 const pcode = String(item.pcode || item.hipdata_code || item.hipdata || '').toUpperCase();
-                const status = String(item.color_status || '').toUpperCase();
                 const ucMoney = Number(item.uc_money) || Number(item.item_money) || 0;
                 const authenType = String(item.authen_code_type || item.pttype_note || '').toUpperCase().trim();
                 const isAuthencodeOrEmpty = authenType === 'AUTHENCODE' || authenType === '';
                 
                 return ['UC', 'UCS'].includes(pcode) && 
-                       status === 'RED' && 
                        ucMoney > 0 && 
                        isAuthencodeOrEmpty;
             });

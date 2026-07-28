@@ -1551,7 +1551,6 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                  WHERE visit_date = ?
                    AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
                    AND color_status IN ('RED', 'YELLOW')
-                   AND COALESCE(uc_money, 0) > 0
                  GROUP BY group_key
                  ORDER BY count DESC, total_money DESC
                  LIMIT 10`,
@@ -1583,8 +1582,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
              FROM visit_tracking
              WHERE visit_date = ?
                AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
-               AND color_status IN ('RED', 'YELLOW')
-               AND COALESCE(uc_money, 0) > 0`,
+               AND color_status IN ('RED', 'YELLOW')`,
             [date]
         );
 
@@ -1716,7 +1714,6 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
              WHERE visit_date = ?
                AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
                AND color_status IN ('RED', 'YELLOW')
-               AND COALESCE(uc_money, 0) > 0
              GROUP BY right_name
              ORDER BY count DESC, total_money DESC
              LIMIT 9`,

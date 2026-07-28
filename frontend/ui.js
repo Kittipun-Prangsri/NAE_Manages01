@@ -765,7 +765,7 @@ export const ui = {
             `;
         };
 
-        if (pendingTotalCount) pendingTotalCount.textContent = Number(pendingTotal.count || 0).toLocaleString();
+        if (pendingTotalCount) pendingTotalCount.textContent = Number(debtorTotal.count || 0).toLocaleString();
         if (debtorTotalMoney) debtorTotalMoney.textContent = moneyFormatter.format(Number(debtorTotal.total_money || 0));
         if (serviceTotalCount) serviceTotalCount.textContent = Number(serviceTotal.count || 0).toLocaleString();
         renderServiceSparkline();

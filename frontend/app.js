@@ -1407,7 +1407,8 @@ function openUcPendingListModal() {
     const pendingUcData = baseData.filter(item => {
         const pcode = String(item.pcode || item.hipdata_code || item.hipdata || '').toUpperCase();
         const status = String(item.color_status || '').toUpperCase();
-        return ['UC', 'UCS'].includes(pcode) && ['RED', 'YELLOW'].includes(status);
+        const ucMoney = Number(item.uc_money) || Number(item.item_money) || 0;
+        return ['UC', 'UCS'].includes(pcode) && ['RED', 'YELLOW'].includes(status) && ucMoney > 0;
     });
 
     const titleEl = document.getElementById('uc-pending-list-title');

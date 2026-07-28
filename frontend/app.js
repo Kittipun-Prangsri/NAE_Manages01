@@ -1411,30 +1411,35 @@ async function openUcPendingListModal() {
         dialog.setAttribute('open', '');
     }
 
+    let pendingUcData = [];
     try {
-        // Always fetch raw tracking data if not loaded in memory yet
-        if (appState.rawTableData.length === 0) {
-            const date = visitDateInput?.value || new Date().toISOString().split('T')[0];
-            const response = await api.fetchDashboard(date, appState.token);
-            if (response.ok && response.data) {
-                appState.rawTableData = response.data.trackingData || [];
-            }
+        // ALWAYS fetch fresh HOSxP live crossed data to be 100% real-time
+        const date = visitDateInput?.value || new Date().toISOString().split('T')[0];
+        const response = await api.fetchRightsTrackingTable(date, appState.token);
+        if (response.ok && response.data) {
+            const liveRows = (response.data.rows || []).map(row => ({
+                ...row,
+                color_status: String(row.check_claimcode).toUpperCase() === 'ตรง' ? 'GREEN' : 'RED',
+                issue_reason: row.check_claimcode === 'ตรง' ? 'ข้อมูลถูกต้องเรียบร้อยแล้ว' : 
+                             (row.check_claimcode === 'ยังไม่ได้นำเข้า' ? 'ไม่มีข้อมูลการส่ง Claim ใน Temp-Authen' : 'ข้อมูลผิดพลาดหรือซ้ำซ้อน')
+            }));
+
+            pendingUcData = liveRows.filter(item => {
+                const pcode = String(item.pcode || item.hipdata_code || item.hipdata || '').toUpperCase();
+                const status = String(item.color_status || '').toUpperCase();
+                const ucMoney = Number(item.uc_money) || Number(item.item_money) || 0;
+                const authenType = String(item.authen_code_type || item.pttype_note || '').toUpperCase().trim();
+                const isAuthencodeOrEmpty = authenType === 'AUTHENCODE' || authenType === '';
+                
+                return ['UC', 'UCS'].includes(pcode) && 
+                       status === 'RED' && 
+                       ucMoney > 0 && 
+                       isAuthencodeOrEmpty;
+            });
         }
     } catch (err) {
-        console.error('Failed to pre-fetch tracking data for modal:', err);
+        console.error('Failed to fetch real-time tracking data for modal:', err);
     }
-
-    const baseData = appState.rawTableData;
-
-    const pendingUcData = baseData.filter(item => {
-        const pcode = String(item.pcode || item.hipdata_code || item.hipdata || '').toUpperCase();
-        const status = String(item.color_status || '').toUpperCase();
-        const ucMoney = Number(item.uc_money) || Number(item.item_money) || 0;
-        const authenType = String(item.authen_code_type || item.pttype_note || '').toUpperCase().trim();
-        const isAuthencodeOrEmpty = authenType === 'AUTHENCODE' || authenType === '';
-        
-        return ['UC', 'UCS'].includes(pcode) && ['RED', 'YELLOW'].includes(status) && ucMoney > 0 && isAuthencodeOrEmpty;
-    });
 
     const titleEl = document.getElementById('uc-pending-list-title');
     if (titleEl) {

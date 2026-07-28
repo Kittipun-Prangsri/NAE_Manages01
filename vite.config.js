@@ -18,7 +18,12 @@ export default defineConfig({
         '**/.git/**',
         '**/.kob/**',
         '**/.agents/**',
-        '**/.npm_cache/**'
+        '**/.npm_cache/**',
+        '**/*.png',
+        '**/*.img',
+        '**/*.pdf',
+        '**/*.xlsx',
+        '**/*.xls'
       ]
     },
     proxy: {

@@ -1395,13 +1395,35 @@ function handleGroupInsightDepartmentClick(item) {
     applyTrackerDashboardFilter(type, item.groupKey, item.label || `${item.groupLabel || 'กลุ่ม'} ${item.groupKey}`, { mode });
 }
 
-function openUcPendingListModal() {
+async function openUcPendingListModal() {
     const dialog = document.getElementById('uc-pending-list-dialog');
     const tbody = document.getElementById('uc-pending-list-tbody');
     const emptyState = document.getElementById('uc-pending-list-empty');
     if (!dialog || !tbody) return;
 
-    // Support both LGO tracking data and main tracking data
+    // Show loading state in the table while fetching
+    tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500"><i class="fas fa-spinner fa-spin mr-2"></i> กำลังโหลดข้อมูล...</td></tr>';
+    emptyState?.classList.add('hidden');
+
+    if (typeof dialog.showModal === 'function') {
+        dialog.showModal();
+    } else {
+        dialog.setAttribute('open', '');
+    }
+
+    try {
+        // If they click this card on Live Dashboard without loading tracker tab, fetch raw data first
+        if (appState.lgoTableData.length === 0 && appState.rawTableData.length === 0) {
+            const date = visitDateInput?.value || new Date().toISOString().split('T')[0];
+            const response = await api.fetchDashboard(date, appState.token);
+            if (response.ok && response.data) {
+                appState.rawTableData = response.data.trackingData || [];
+            }
+        }
+    } catch (err) {
+        console.error('Failed to pre-fetch tracking data for modal:', err);
+    }
+
     const baseData = appState.lgoTableData.length > 0 ? appState.lgoTableData : appState.rawTableData;
 
     const pendingUcData = baseData.filter(item => {
@@ -1450,12 +1472,6 @@ function openUcPendingListModal() {
             `;
             tbody.appendChild(tr);
         });
-    }
-
-    if (typeof dialog.showModal === 'function') {
-        dialog.showModal();
-    } else {
-        dialog.setAttribute('open', '');
     }
 }
 

@@ -1465,7 +1465,6 @@ async function openUcPendingListModal() {
                     const val = uc === 0 ? im : uc;
                     return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 })()}</td>
-                <td class="py-2.5 px-3 text-center text-slate-500 font-mono">${escapeHtml(item.authen_code_type || item.pttype_note || '')}</td>
                 <td class="py-2.5 px-3 text-center">
                     <span class="status-badge status-${checkClaimPresentation.tone} px-2 py-0.5 text-[10px]">
                         <i class="fas ${checkClaimPresentation.icon}"></i>

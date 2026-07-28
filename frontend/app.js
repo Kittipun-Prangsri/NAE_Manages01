@@ -1606,6 +1606,7 @@ async function handleLiveFullscreen() {
 
 // จัดการสลับหน้าจอ Tab
 function handleTabSwitch(tabId) {
+    if (tabId === 'tab-live-dashboard') return;
     stopLiveDashboardAutoRefresh();
 
     const doSwitch = () => {

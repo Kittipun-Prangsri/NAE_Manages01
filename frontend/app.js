@@ -124,6 +124,16 @@ function init() {
         ui.showLogin();
     }
 
+    // Automatically refresh dashboard data silently in the background every 30 seconds
+    setInterval(() => {
+        if (appState.token && appState.user) {
+            const trackerView = document.getElementById('tracker-view-container');
+            if (trackerView && !trackerView.classList.contains('hidden')) {
+                loadDashboardData(true);
+            }
+        }
+    }, 30000);
+
     setupEventListeners();
     ui.initTiltEffect();
 }
@@ -1015,11 +1025,13 @@ async function loadWeeklySummary() {
     }
 }
 
-async function loadDashboardData() {
+async function loadDashboardData(isSilent = false) {
     const date = visitDateInput.value;
     if (!date) return;
 
-    ui.setLoading(true);
+    if (!isSilent) {
+        ui.setLoading(true);
+    }
     try {
         const response = await api.fetchDashboard(date, appState.token);
         if (handleApiResponse(response)) {
@@ -1038,7 +1050,9 @@ async function loadDashboardData() {
     } catch (error) {
         console.error('Fetch error:', error);
     } finally {
-        ui.setLoading(false);
+        if (!isSilent) {
+            ui.setLoading(false);
+        }
     }
 }
 

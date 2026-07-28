@@ -1549,7 +1549,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                     SUM(color_status = 'YELLOW') AS yellow_count
                  FROM visit_tracking
                  WHERE visit_date = ?
-                   AND UPPER(COALESCE(pcode, '')) = 'UC'
+                   AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
                    AND color_status IN ('RED', 'YELLOW')
                    AND COALESCE(uc_money, 0) > 0
                  GROUP BY group_key
@@ -1570,7 +1570,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                 SUM(color_status = 'GREEN') AS green_count
              FROM visit_tracking
              WHERE visit_date = ?
-               AND UPPER(COALESCE(pcode, '')) = 'UC'
+               AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
                AND COALESCE(uc_money, 0) > 0
              GROUP BY group_key
              ORDER BY total_money DESC, count DESC
@@ -1582,7 +1582,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
             `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
              FROM visit_tracking
              WHERE visit_date = ?
-               AND UPPER(COALESCE(pcode, '')) = 'UC'
+               AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
                AND color_status IN ('RED', 'YELLOW')
                AND COALESCE(uc_money, 0) > 0`,
             [date]
@@ -1592,7 +1592,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
             `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
              FROM visit_tracking
              WHERE visit_date = ?
-               AND UPPER(COALESCE(pcode, '')) = 'UC'
+               AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
                AND COALESCE(uc_money, 0) > 0`,
             [date]
         );
@@ -1601,7 +1601,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
             `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
              FROM visit_tracking
              WHERE visit_date = ?
-               AND UPPER(COALESCE(pcode, '')) = 'UC'`,
+               AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')`,
             [date]
         );
 
@@ -1701,7 +1701,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
             `SELECT COUNT(*) AS count, COALESCE(SUM(uc_money), 0) AS total_money
              FROM visit_tracking
              WHERE visit_date = ?
-               AND UPPER(COALESCE(pcode, '')) = 'UC'
+               AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
                AND color_status = 'RED'`,
                 [date]
             );
@@ -1714,7 +1714,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                 COALESCE(SUM(uc_money), 0) AS total_money
              FROM visit_tracking
              WHERE visit_date = ?
-               AND UPPER(COALESCE(pcode, '')) = 'UC'
+               AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
                AND color_status IN ('RED', 'YELLOW')
                AND COALESCE(uc_money, 0) > 0
              GROUP BY right_name

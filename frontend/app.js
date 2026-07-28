@@ -1430,7 +1430,10 @@ async function openUcPendingListModal() {
         const pcode = String(item.pcode || item.hipdata_code || item.hipdata || '').toUpperCase();
         const status = String(item.color_status || '').toUpperCase();
         const ucMoney = Number(item.uc_money) || Number(item.item_money) || 0;
-        return ['UC', 'UCS'].includes(pcode) && ['RED', 'YELLOW'].includes(status) && ucMoney > 0;
+        const authenType = String(item.authen_code_type || item.pttype_note || '').toUpperCase().trim();
+        const isAuthencodeOrEmpty = authenType === 'AUTHENCODE' || authenType === '';
+        
+        return ['UC', 'UCS'].includes(pcode) && ['RED', 'YELLOW'].includes(status) && ucMoney > 0 && isAuthencodeOrEmpty;
     });
 
     const titleEl = document.getElementById('uc-pending-list-title');
@@ -1462,6 +1465,7 @@ async function openUcPendingListModal() {
                     const val = uc === 0 ? im : uc;
                     return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 })()}</td>
+                <td class="py-2.5 px-3 text-center text-slate-500 font-mono">${escapeHtml(item.authen_code_type || item.pttype_note || '')}</td>
                 <td class="py-2.5 px-3 text-center">
                     <span class="status-badge status-${checkClaimPresentation.tone} px-2 py-0.5 text-[10px]">
                         <i class="fas ${checkClaimPresentation.icon}"></i>

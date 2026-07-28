@@ -124,16 +124,6 @@ function init() {
         ui.showLogin();
     }
 
-    // Automatically refresh dashboard data silently in the background every 30 seconds
-    setInterval(() => {
-        if (appState.token && appState.user) {
-            const trackerView = document.getElementById('tracker-view-container');
-            if (trackerView && !trackerView.classList.contains('hidden')) {
-                loadDashboardData(true);
-            }
-        }
-    }, 30000);
-
     setupEventListeners();
     ui.initTiltEffect();
 }

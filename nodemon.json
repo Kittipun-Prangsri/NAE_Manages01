@@ -1,0 +1,21 @@
+{
+  "watch": [
+    "backend"
+  ],
+  "ignore": [
+    "frontend/**",
+    "puppeteer_session/**",
+    "downloads/**",
+    "screenshots/**",
+    "scratch/**",
+    "_logs/**",
+    "node_modules/**",
+    "NAE_Manages01/**",
+    "*.png",
+    "*.img",
+    "*.pdf",
+    "*.xlsx",
+    "*.xls"
+  ],
+  "ext": "js,json,mjs,cjs"
+}

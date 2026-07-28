@@ -21,6 +21,7 @@ import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '../backend/runtimeConfig.js';
 import { getLocalDashboardUrl } from './captureConfig.js';
 import { trackerPool } from '../backend/db.js';
+import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 
 dotenv.config();
 
@@ -31,59 +32,41 @@ const __dirname = path.dirname(__filename);
  * Fetch data summary statistics from internal tracker database
  */
 async function fetchSummaryStats(queryDate) {
-    // 1. Total visits
-    const [[{ total_visits }]] = await trackerPool.query(
-        'SELECT COUNT(*) as total_visits FROM visit_tracking WHERE visit_date = ?',
-        [queryDate]
-    );
-
-    // 2. Total money
-    const [[{ total_money }]] = await trackerPool.query(
-        'SELECT COALESCE(SUM(uc_money), 0) as total_money FROM visit_tracking WHERE visit_date = ?',
-        [queryDate]
-    );
-
-    // 3. Status counts
-    const [[{ endpoint_count }]] = await trackerPool.query(
-        "SELECT COUNT(*) as endpoint_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'YELLOW'",
-        [queryDate]
-    );
-
-    const [[{ not_imported_count }]] = await trackerPool.query(
-        "SELECT COUNT(*) as not_imported_count FROM visit_tracking WHERE visit_date = ? AND check_claimcode = 'ยังไม่ได้นำเข้า'",
-        [queryDate]
-    );
-
-    const [[{ authen_count }]] = await trackerPool.query(
-        "SELECT COUNT(*) as authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'",
-        [queryDate]
-    );
-
-    // 4. Top 3 rights
-    const [rights] = await trackerPool.query(
-        'SELECT COALESCE(pttype_note, pttype) as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3',
-        [queryDate]
-    );
-
-    // 5. UCS outstanding
-    const [[{ ucs_total }]] = await trackerPool.query(
-        "SELECT COUNT(*) as ucs_total FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW')",
-        [queryDate]
-    );
-
-    const [ucs_departments] = await trackerPool.query(
-        "SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW') GROUP BY dept_name ORDER BY cnt DESC LIMIT 3",
-        [queryDate]
-    );
+    // Keep the notification path light: one aggregate query replaces five
+    // separate scans of visit_tracking for the same date.
+    const [summaryResult, rightsResult, departmentsResult] = await Promise.all([
+        trackerPool.query(
+            `SELECT COUNT(*) AS total_visits,
+                    COALESCE(SUM(uc_money), 0) AS total_money,
+                    SUM(color_status = 'YELLOW') AS endpoint_count,
+                    SUM(check_claimcode = 'ยังไม่ได้นำเข้า') AS not_imported_count,
+                    SUM(color_status = 'GREEN') AS authen_count,
+                    SUM(UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW')) AS ucs_total
+             FROM visit_tracking
+             WHERE visit_date = ?`,
+            [queryDate]
+        ),
+        trackerPool.query(
+            'SELECT COALESCE(pttype_note, pttype) as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3',
+            [queryDate]
+        ),
+        trackerPool.query(
+            "SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(pcode) = 'UC' AND color_status IN ('RED', 'YELLOW') GROUP BY dept_name ORDER BY cnt DESC LIMIT 3",
+            [queryDate]
+        )
+    ]);
+    const [[summary]] = summaryResult;
+    const [rights] = rightsResult;
+    const [ucs_departments] = departmentsResult;
 
     return {
-        total_visits,
-        total_money,
-        endpoint_count,
-        not_imported_count,
-        authen_count,
+        total_visits: summary?.total_visits || 0,
+        total_money: summary?.total_money || 0,
+        endpoint_count: summary?.endpoint_count || 0,
+        not_imported_count: summary?.not_imported_count || 0,
+        authen_count: summary?.authen_count || 0,
         rights,
-        ucs_total,
+        ucs_total: summary?.ucs_total || 0,
         ucs_departments
     };
 }
@@ -162,9 +145,16 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
     let filepath = null;
     let filename = null;
     let captureError = null;
+    let captureLockHolderId = null;
 
     // Check if screenshot is requested
     if (reportTypes.includes('screenshot')) {
+        captureLockHolderId = createSchedulerHolderId();
+        const acquired = await acquireSchedulerLock(trackerPool, 'dashboard_capture', captureLockHolderId);
+        if (!acquired) {
+            console.warn('ℹ️ Dashboard capture skipped because another capture is already running.');
+            return { success: false, skipped: true, filepath, filename, error: 'Dashboard capture is already running' };
+        }
         const localAppUrl = getLocalDashboardUrl();
 
         console.log(`🚀 Starting screenshot capture process for local dashboard: ${localAppUrl}`);
@@ -269,6 +259,10 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
             if (browser) {
                 await browser.close();
                 console.log('🔒 Browser closed.');
+            }
+            if (captureLockHolderId) {
+                await releaseSchedulerLock(trackerPool, 'dashboard_capture', captureLockHolderId);
+                captureLockHolderId = null;
             }
         }
     } else {

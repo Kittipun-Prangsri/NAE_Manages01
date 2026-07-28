@@ -19,6 +19,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { execSync } from 'child_process';
+import { trackerPool } from '../backend/db.js';
+import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 
 dotenv.config();
 puppeteer.use(StealthPlugin());
@@ -58,7 +60,19 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
     if (statusCallback) statusCallback('starting_browser', 'กำลังรันบราวเซอร์ Puppeteer เบื้องหลัง...');
     
     let browser;
+    const portalLockHolderId = createSchedulerHolderId();
+    let portalLockAcquired = false;
     try {
+        // All portal jobs share one browser profile.  A database-backed lock
+        // prevents manual, scheduled and Telegram triggers from launching
+        // Chromium against that profile at the same time.
+        portalLockAcquired = await acquireSchedulerLock(trackerPool, 'nhso_portal_download', portalLockHolderId);
+        if (!portalLockAcquired) {
+            const message = 'มีงานดาวน์โหลดรายงาน สปสช. กำลังทำงานอยู่แล้ว';
+            console.warn(`ℹ️ ${message}`);
+            if (statusCallback) statusCallback('busy', message);
+            return { success: false, busy: true, error: message };
+        }
         const sessionPath = path.join(__dirname, '../puppeteer_session');
         
         // Terminate stale Chrome/Chromium processes under Linux to release lock handles
@@ -329,6 +343,9 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         if (browser) {
             await browser.close();
             console.log('🔒 Browser closed.');
+        }
+        if (portalLockAcquired) {
+            await releaseSchedulerLock(trackerPool, 'nhso_portal_download', portalLockHolderId);
         }
     }
 }

@@ -28,7 +28,8 @@ export async function initInternalDb() {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             INDEX idx_cid_date (cid, visit_date),
-            INDEX idx_color (color_status)
+            INDEX idx_color (color_status),
+            INDEX idx_visit_date_status (visit_date, color_status)
         );
     `;
 
@@ -158,6 +159,14 @@ export async function initInternalDb() {
 
         await trackerPool.query(schema);
         console.log('✅ Internal database table "visit_tracking" is ready.');
+
+        // Older installations predate the indexes used by the dashboard's
+        // daily filters.  Add them conditionally so upgrades stay online-safe.
+        const [trackingIndexes] = await trackerPool.query("SHOW INDEX FROM visit_tracking WHERE Key_name = 'idx_visit_date_status'");
+        if (trackingIndexes.length === 0) {
+            await trackerPool.query('ALTER TABLE visit_tracking ADD INDEX idx_visit_date_status (visit_date, color_status)');
+            console.log('✅ Added visit_tracking index "idx_visit_date_status".');
+        }
 
         const [subdistrictCodeCols] = await trackerPool.query('SHOW COLUMNS FROM visit_tracking LIKE "subdistrict_code"');
         if (subdistrictCodeCols.length === 0) {

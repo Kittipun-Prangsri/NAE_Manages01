@@ -159,6 +159,55 @@ const RIGHT_CARD_DEFINITIONS = Object.freeze([
     { key: 'self_pay', label: 'อื่นๆ (ชำระเงินเอง)', pttypeSppIds: [6] }
 ]);
 
+// The live dashboard is refreshed by every open browser.  Coalesce identical
+// requests for a short window so several viewers do not repeatedly run the
+// same expensive HOSxP aggregates at once.
+const LIVE_DASHBOARD_CACHE_TTL_MS = Math.min(
+    Math.max(Number(process.env.LIVE_DASHBOARD_CACHE_TTL_MS || 20000), 5000),
+    60000
+);
+const liveDashboardCache = new Map();
+
+async function getCachedLiveDashboardData(visitDate) {
+    const now = Date.now();
+    const cached = liveDashboardCache.get(visitDate);
+    if (cached?.data && cached.expiresAt > now) return cached.data;
+    if (cached?.inFlight) return cached.inFlight;
+
+    const inFlight = (async () => {
+        const [geoData, depData, hosxpStats, pendingResult] = await Promise.all([
+            getLiveDashboardGeo(visitDate),
+            getLiveDashboardDeps(visitDate),
+            getHosxpTotalVisits(visitDate),
+            trackerPool.query(
+                "SELECT COUNT(*) as pending_count FROM visit_tracking WHERE visit_date = ? AND color_status IN ('RED', 'YELLOW')",
+                [visitDate]
+            )
+        ]);
+        const [[{ pending_count }]] = pendingResult;
+        const data = {
+            success: true,
+            visit_date: visitDate,
+            geoData,
+            depData,
+            hosxpStats,
+            pending_count: pending_count || 0
+        };
+        liveDashboardCache.set(visitDate, { data, expiresAt: Date.now() + LIVE_DASHBOARD_CACHE_TTL_MS });
+        return data;
+    })();
+
+    liveDashboardCache.set(visitDate, { inFlight, expiresAt: 0 });
+    try {
+        return await inFlight;
+    } catch (error) {
+        // Do not cache a failed query; the next request may recover once HOSxP
+        // is reachable again.
+        liveDashboardCache.delete(visitDate);
+        throw error;
+    }
+}
+
 function buildNumericSqlCondition(values) {
     const normalizedValues = values
         .map(value => Number(value))
@@ -1172,6 +1221,12 @@ app.post('/api/sync/capture-grafana', authenticateToken, requireDashboardModules
         const userCredentials = await getUserNotificationCredentials(username);
 
         const result = await captureAndNotify(visit_date, normalizedChannels, normalizedReportTypes, userCredentials);
+        if (result.skipped) {
+            return res.status(409).json({
+                success: false,
+                message: 'กำลังบันทึกภาพ Dashboard จากคำสั่งอื่นอยู่ กรุณารอสักครู่แล้วลองใหม่'
+            });
+        }
         if (result.success) {
             res.json({
                 success: true,
@@ -1793,30 +1848,8 @@ app.get('/api/dashboard/live-data', authenticateToken, requireDashboardModulesEn
     try {
         const visit_date = req.query.date || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
         console.log(`📊 [Live Dashboard] Fetching live data for date: ${visit_date} by user: ${req.user.username}`);
-
-        // Fetch subdistrict density map data (from HOSxP)
-        const geoData = await getLiveDashboardGeo(visit_date);
-
-        // Fetch department volumes (from HOSxP)
-        const depData = await getLiveDashboardDeps(visit_date);
-
-        // Fetch HOSxP stats for the date (total visits, total persons, total uc money)
-        const hosxpStats = await getHosxpTotalVisits(visit_date);
-
-        // Fetch pending count from the internal tracking DB (where authen is not completed yet)
-        const [[{ pending_count }]] = await trackerPool.query(
-            "SELECT COUNT(*) as pending_count FROM visit_tracking WHERE visit_date = ? AND color_status IN ('RED', 'YELLOW')",
-            [visit_date]
-        );
-
-        res.json({
-            success: true,
-            visit_date,
-            geoData,
-            depData,
-            hosxpStats,
-            pending_count: pending_count || 0
-        });
+        const data = await getCachedLiveDashboardData(visit_date);
+        res.json(data);
     } catch (error) {
         console.error('❌ Error fetching live dashboard data:', error);
         res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Dashboard' });

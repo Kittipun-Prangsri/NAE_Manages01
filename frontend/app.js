@@ -154,6 +154,7 @@ function setupEventListeners() {
     document.getElementById('auto-portal-btn')?.addEventListener('click', handleAutoPortalSync);
     document.getElementById('refresh-btn')?.addEventListener('click', loadDashboardData);
     document.getElementById('uc-pending-total-count-card')?.addEventListener('click', openUcPendingListModal);
+    document.getElementById('uc-insight-refresh-btn')?.addEventListener('click', refreshGroupInsights);
     visitDateInput?.addEventListener('change', loadDashboardData);
 
     // Homepage table sorting
@@ -1078,6 +1079,26 @@ async function loadGroupInsights(date = visitDateInput.value) {
         }
     } catch (error) {
         console.error('Failed to load group insights:', error);
+    }
+}
+
+async function refreshGroupInsights() {
+    const refreshBtn = document.getElementById('uc-insight-refresh-btn');
+    const refreshIcon = document.getElementById('uc-insight-refresh-icon');
+    if (!refreshBtn || !refreshIcon) return;
+    
+    refreshIcon.classList.add('fa-spin');
+    refreshBtn.disabled = true;
+    
+    try {
+        await loadGroupInsights();
+    } catch (err) {
+        console.error('Failed to refresh group insights:', err);
+    } finally {
+        setTimeout(() => {
+            refreshIcon.classList.remove('fa-spin');
+            refreshBtn.disabled = false;
+        }, 600);
     }
 }
 

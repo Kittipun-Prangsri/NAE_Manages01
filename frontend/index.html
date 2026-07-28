@@ -370,8 +370,13 @@
                             <div class="uc-insight-layout">
                                 <div class="uc-insight-left">
                                     <div class="uc-insight-eyebrow">
-                                        <span>UCS ไม่ได้ปิดสิทธิ</span>
-                                        <small id="uc-insight-updated-at">อัปเดตล่าสุด: -</small>
+                                        <div class="flex items-center gap-1.5">
+                                            <span>UCS ไม่ได้ปิดสิทธิ</span>
+                                            <small id="uc-insight-updated-at">อัปเดตล่าสุด: -</small>
+                                        </div>
+                                        <button type="button" id="uc-insight-refresh-btn" class="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-blue-600 transition-all text-[10px] font-bold cursor-pointer border-0 flex items-center gap-1 hover:scale-105 active:scale-95" title="รีเฟรชข้อมูล">
+                                            <i class="fas fa-sync-alt" id="uc-insight-refresh-icon"></i> รีเฟรช
+                                        </button>
                                     </div>
                                     <div class="uc-major-metric">
                                         <p>ค่ารักษาลูกหนี้ (sum)</p>

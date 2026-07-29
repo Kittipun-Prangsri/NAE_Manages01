@@ -417,14 +417,18 @@ export async function runHosxpSync(excelData, visitDate, writePool = getHosxpWri
 export async function checkNhsoStatusViaApi(cid, date, serviceCode, token) {
     const url = `${process.env.NHSO_API_URL}?personalId=${cid}&serviceDate=${date}&serviceCode=${serviceCode}`;
     
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     try {
         const response = await fetch(url, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Accept': 'application/json'
-            }
+            },
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
             if (response.status === 500) {
@@ -436,6 +440,7 @@ export async function checkNhsoStatusViaApi(cid, date, serviceCode, token) {
 
         return await response.json();
     } catch (error) {
+        clearTimeout(timeoutId);
         console.error(`❌ CID ${cid} API Error:`, error.message);
         return null;
     }

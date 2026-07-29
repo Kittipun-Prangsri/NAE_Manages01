@@ -835,14 +835,18 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
             ]
         };
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
         const response = await fetch('https://api.line.me/v2/bot/message/reply', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         const resData = await response.json().catch(() => ({}));
         if (response.ok) {
@@ -2162,14 +2166,18 @@ async function handleTestNotification(req, res) {
                 ]
             };
 
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
             const response = await fetch('https://api.line.me/v2/bot/message/push', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
             const data = await response.json().catch(() => ({}));
             if (response.ok) {
@@ -2179,11 +2187,15 @@ async function handleTestNotification(req, res) {
             }
         } else if (type === 'telegram') {
             console.log(`📲 Testing Telegram message push...`);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
             const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: target, text: testMessage })
+                body: JSON.stringify({ chat_id: target, text: testMessage }),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
             const data = await response.json().catch(() => ({}));
             if (response.ok && data.ok) {
@@ -2596,11 +2608,15 @@ async function sendTelegramMessage(token, chatId, text) {
         return;
     }
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: text })
+            body: JSON.stringify({ chat_id: chatId, text: text }),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
     } catch (err) {
         console.error('Error sending message:', err);
     }

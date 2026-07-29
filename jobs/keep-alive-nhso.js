@@ -22,11 +22,12 @@ export async function keepAliveNhsoSession() {
         
         // Cleanup singleton lock
         const lockFile = path.join(sessionPath, 'SingletonLock');
-        if (fs.existsSync(lockFile)) {
-            try {
-                fs.unlinkSync(lockFile);
-                console.log('🧹 [Keep-Alive] Cleaned up Puppeteer SingletonLock.');
-            } catch (e) {
+        try {
+            const stat = fs.lstatSync(lockFile);
+            fs.unlinkSync(lockFile);
+            console.log('🧹 [Keep-Alive] Cleaned up Puppeteer SingletonLock.');
+        } catch (e) {
+            if (e.code !== 'ENOENT') {
                 console.warn('⚠️ [Keep-Alive] Warning: Could not remove SingletonLock:', e.message);
             }
         }

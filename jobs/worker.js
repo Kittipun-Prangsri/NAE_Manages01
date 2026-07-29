@@ -185,11 +185,15 @@ async function sendTelegramMessage(token, chatId, text) {
         return;
     }
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: text })
+            body: JSON.stringify({ chat_id: chatId, text: text }),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
     } catch (err) {
         console.error('Error sending message:', err);
     }

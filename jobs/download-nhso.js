@@ -87,11 +87,12 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         }
 
         const lockFile = path.join(sessionPath, 'SingletonLock');
-        if (fs.existsSync(lockFile)) {
-            try {
-                fs.unlinkSync(lockFile);
-                console.log('🧹 Cleaned up stale Puppeteer SingletonLock.');
-            } catch (e) {
+        try {
+            const stat = fs.lstatSync(lockFile);
+            fs.unlinkSync(lockFile);
+            console.log('🧹 Cleaned up stale Puppeteer SingletonLock.');
+        } catch (e) {
+            if (e.code !== 'ENOENT') {
                 console.warn('⚠️ Warning: Could not remove SingletonLock:', e.message);
             }
         }

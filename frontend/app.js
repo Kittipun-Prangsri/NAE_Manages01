@@ -167,11 +167,16 @@ function setupEventListeners() {
 
     setupTrackerColumnFilters();
 
-    // Homepage table search input
+    // Homepage table search input (with debounce to prevent table flickering while typing)
+    let trackerSearchTimeout = null;
     document.getElementById('tracker-search-input')?.addEventListener('input', (e) => {
-        appState.trackerSearchFilter = e.target.value;
-        appState.trackerCurrentPage = 1;
-        renderTrackerTable();
+        const val = e.target.value;
+        clearTimeout(trackerSearchTimeout);
+        trackerSearchTimeout = setTimeout(() => {
+            appState.trackerSearchFilter = val;
+            appState.trackerCurrentPage = 1;
+            renderTrackerTable();
+        }, 200);
     });
     document.getElementById('clear-tracker-dashboard-filter')?.addEventListener('click', clearTrackerDashboardFilter);
     
@@ -276,17 +281,40 @@ async function loadDashboardData(isSilent = false) {
         ui.setLoading(true);
     }
     try {
-        const response = await api.fetchDashboard(date, appState.token);
-        if (handleApiResponse(response)) {
-            const data = response.data;
+        const [dashboardRes, rightsRes] = await Promise.all([
+            api.fetchDashboard(date, appState.token),
+            api.fetchRightsTrackingTable(date, appState.token).catch(err => {
+                console.error('Failed to load rights tracking table:', err);
+                return null;
+            })
+        ]);
+
+        if (handleApiResponse(dashboardRes)) {
+            const data = dashboardRes.data;
             appState.disableNotifications = data.disableNotifications;
 
             appState.rawTableData = data.trackingData || [];
             appState.hosxpStats = data.hosxpStats || null;
-            appState.lgoTableData = [];
+
+            if (rightsRes && rightsRes.ok && rightsRes.data?.rows) {
+                appState.lgoTableData = (rightsRes.data.rows || []).map(row => ({
+                    ...row,
+                    issue_reason: getTrackingIssueReason(row),
+                    color_status: row.check_claimcode === 'ตรง'
+                        ? 'GREEN'
+                        : row.check_claimcode === 'ตรวจสอบ'
+                            ? 'YELLOW'
+                            : 'RED'
+                }));
+            } else {
+                appState.lgoTableData = [];
+            }
+
             appState.trackerCurrentPage = 1;
             renderTrackerTable();
-            await loadRightsTrackingTable(date);
+            if (appState.lgoTableData.length > 0) {
+                ui.renderLgoTrackingTable(appState.lgoTableData);
+            }
             await loadGroupInsights(date);
         }
     } catch (error) {

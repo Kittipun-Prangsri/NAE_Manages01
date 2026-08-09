@@ -19,7 +19,17 @@ export default async function handler(req, res) {
     }
 
     try {
-        const events = req.body?.events || [];
+        let events = [];
+        if (req.body) {
+            if (Array.isArray(req.body.events)) {
+                events = req.body.events;
+            } else if (typeof req.body === 'string') {
+                try {
+                    const parsed = JSON.parse(req.body);
+                    events = parsed?.events || [];
+                } catch (e) {}
+            }
+        }
 
         // Log events for debugging in Vercel function logs
         if (Array.isArray(events) && events.length > 0) {
@@ -36,7 +46,7 @@ export default async function handler(req, res) {
                 }
 
                 if (event.type === 'message' && event.message && event.message.type === 'text') {
-                    const text = event.message.text.trim();
+                    const text = (event.message.text || '').trim();
                     const replyToken = event.replyToken;
 
                     if (/^(|\/)(นำเข้าข้อมูล|นำเข้า|summary|สรุปข้อมูล)/i.test(text)) {

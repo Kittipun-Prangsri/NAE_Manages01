@@ -328,7 +328,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Helper to reply LINE message using Flex Report (Free)
-async function sendLineReplyFlexSummary(replyToken, queryDate) {
+async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) {
     if (process.env.DISABLE_NOTIFICATIONS === 'true') {
         logger.info('ℹ️ LINE Flex summary reply is globally disabled via DISABLE_NOTIFICATIONS=true.');
         return;
@@ -352,11 +352,18 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
         let service_total_count = 0;
         let dbErrorOccurred = false;
 
+        const queryWithTimeout = (promise, ms = 2000) => {
+            return Promise.race([
+                promise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error('DB Query Timeout (2s)')), ms))
+            ]);
+        };
+
         // ดึงข้อมูลจากตาราง visit_tracking (ผลลัพธ์จริงของการ sync ล่าสุด) แทนการ
         // คำนวณสดจาก HOSxP เพื่อให้ตัวเลขที่ตอบกลับใน LINE ตรงกับสถานะที่ sync ไว้จริง
         try {
             // สิทธิ์บัตรทองที่ยังไม่ปิดสิทธิ์ (RED/YELLOW) และมีค่ารักษาค้างอยู่
-            const [[vRows]] = await trackerPool.query(
+            const [[vRows]] = await queryWithTimeout(trackerPool.query(
                 `SELECT COUNT(*) as total_visits
                  FROM visit_tracking
                  WHERE visit_date = ?
@@ -364,19 +371,19 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                    AND color_status IN ('RED', 'YELLOW')
                    AND COALESCE(uc_money, 0) > 0`,
                 [queryDate]
-            );
+            ));
             total_visits = vRows?.total_visits || 0;
             ucs_total = total_visits;
 
             // จำนวนผู้มารับบริการทั้งหมด (ครั้ง) ที่ sync ไว้สำหรับวันที่ระบุ
-            const [[sRows]] = await trackerPool.query(
+            const [[sRows]] = await queryWithTimeout(trackerPool.query(
                 `SELECT COUNT(*) as service_total FROM visit_tracking WHERE visit_date = ?`,
                 [queryDate]
-            );
+            ));
             service_total_count = sRows?.service_total || 0;
 
             // ยอดค่ารักษาลูกหนี้บัตรทองที่ยังค้างสิทธิ์
-            const [[mRows]] = await trackerPool.query(
+            const [[mRows]] = await queryWithTimeout(trackerPool.query(
                 `SELECT COALESCE(SUM(uc_money), 0) AS total_money
                  FROM visit_tracking
                  WHERE visit_date = ?
@@ -384,25 +391,25 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                    AND color_status IN ('RED', 'YELLOW')
                    AND COALESCE(uc_money, 0) > 0`,
                 [queryDate]
-            );
+            ));
             total_money = mRows?.total_money || 0;
 
             // RED: ยังไม่ได้ขอ Authen Code
-            const [[nRows]] = await trackerPool.query(
+            const [[nRows]] = await queryWithTimeout(trackerPool.query(
                 `SELECT COUNT(*) AS not_imported_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'RED'`,
                 [queryDate]
-            );
+            ));
             not_imported_count = nRows?.not_imported_count || 0;
 
             // GREEN: ตรวจสอบสิทธิ์ผ่านสมบูรณ์ (มี Authen Code และปิด Endpoint แล้ว)
-            const [[aRows]] = await trackerPool.query(
+            const [[aRows]] = await queryWithTimeout(trackerPool.query(
                 `SELECT COUNT(*) AS authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'`,
                 [queryDate]
-            );
+            ));
             authen_count = aRows?.authen_count || 0;
 
             // สิทธิการรักษา Top 3 จากผลการ sync จริง จัดกลุ่มตามรหัสสิทธิ (hipdata_code)
-            const [rRows] = await trackerPool.query(
+            const [rRows] = await queryWithTimeout(trackerPool.query(
                 `SELECT COALESCE(pcode, 'ไม่ระบุสิทธิ') as right_name, COUNT(*) as cnt
                  FROM visit_tracking
                  WHERE visit_date = ?
@@ -410,11 +417,11 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                  ORDER BY cnt DESC
                  LIMIT 3`,
                 [queryDate]
-            );
+            ));
             rights = rRows || [];
 
             // จุดบริการ/แผนกที่มีผู้ป่วยบัตรทองค้างสิทธิ์มากที่สุด 3 ลำดับแรก
-            const [dRows] = await trackerPool.query(
+            const [dRows] = await queryWithTimeout(trackerPool.query(
                 `SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt
                  FROM visit_tracking
                  WHERE visit_date = ?
@@ -425,7 +432,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
                  ORDER BY cnt DESC
                  LIMIT 3`,
                 [queryDate]
-            );
+            ));
             ucs_departments = dRows || [];
         } catch (dbErr) {
             logger.error('❌ Database error in sendLineReplyFlexSummary (using fallback mock data):', dbErr.message);
@@ -740,23 +747,52 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
         };
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-        const response = await fetch('https://api.line.me/v2/bot/message/reply', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(payload),
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        let response = null;
+        try {
+            response = await fetch('https://api.line.me/v2/bot/message/reply', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+        } catch (fetchErr) {
+            logger.warn(`⚠️ LINE Reply fetch error: ${fetchErr.message}`);
+        } finally {
+            clearTimeout(timeoutId);
+        }
 
-        const resData = await response.json().catch(() => ({}));
-        if (response.ok) {
+        const resData = response ? await response.json().catch(() => ({})) : {};
+        if (response && response.ok) {
             logger.info('✅ Sent LINE Reply Flex Message successfully.');
         } else {
             logger.error('❌ LINE Reply API returned error:', resData);
+
+            // Fallback to push message if replyToken failed or expired
+            const fallbackTarget = targetId || process.env.LINE_GROUP_ID;
+            if (fallbackTarget) {
+                logger.info(`📲 Attempting fallback Push message to ${fallbackTarget}...`);
+                const pushRes = await fetch('https://api.line.me/v2/bot/message/push', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        to: fallbackTarget,
+                        messages: payload.messages
+                    })
+                });
+                const pushData = await pushRes.json().catch(() => ({}));
+                if (pushRes.ok) {
+                    logger.info('✅ Sent LINE Fallback Push Flex Message successfully.');
+                } else {
+                    logger.error('❌ LINE Fallback Push API error:', pushData);
+                }
+            }
         }
     } catch (error) {
         logger.error('❌ Error replying to LINE:', error);
@@ -769,17 +805,20 @@ app.post('/api/line/webhook', (req, res) => {
     events.forEach(async (event) => {
         logger.info(`💬 [LINE Webhook Event] Type: ${event.type}`);
         
-        // Log Group IDs and sources
+        let targetId = null;
         if (event.source) {
             logger.info(`   Source Type: ${event.source.type}`);
             if (event.source.groupId) {
                 logger.info(`   👉 LINE Group ID: ${event.source.groupId}`);
+                targetId = event.source.groupId;
             }
             if (event.source.roomId) {
                 logger.info(`   👉 LINE Room ID: ${event.source.roomId}`);
+                if (!targetId) targetId = event.source.roomId;
             }
             if (event.source.userId) {
                 logger.info(`   👉 LINE User ID: ${event.source.userId}`);
+                if (!targetId) targetId = event.source.userId;
             }
         }
 
@@ -788,12 +827,10 @@ app.post('/api/line/webhook', (req, res) => {
             const text = event.message.text.trim();
             const replyToken = event.replyToken;
 
-            if (text.startsWith('นำเข้าข้อมูล')) {
+            if (/^(|\/)(นำเข้าข้อมูล|นำเข้า|summary|สรุปข้อมูล)/i.test(text)) {
                 const parts = text.split(/\s+/);
-                // Default to today (Bangkok timezone YYYY-MM-DD)
                 let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
                 
-                // Allow specifying custom date, e.g. "นำเข้าข้อมูล 2026-07-07"
                 if (parts.length > 1) {
                     const dateMatch = parts[1].match(/^\d{4}-\d{2}-\d{2}$/);
                     if (dateMatch) {
@@ -801,10 +838,9 @@ app.post('/api/line/webhook', (req, res) => {
                     }
                 }
 
-                logger.info(`💬 [LINE Webhook] Command 'นำเข้าข้อมูล' received for date: ${queryDate}. Sending Reply Flex Message...`);
+                logger.info(`💬 [LINE Webhook] Command '${text}' received for date: ${queryDate}. Sending Reply Flex Message...`);
                 
-                // Reply asynchronously in the background
-                sendLineReplyFlexSummary(replyToken, queryDate).catch(err => {
+                sendLineReplyFlexSummary(replyToken, queryDate, targetId).catch(err => {
                     logger.error('❌ Error executing LINE reply handler:', err);
                 });
             }

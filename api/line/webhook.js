@@ -25,23 +25,30 @@ export default async function handler(req, res) {
         if (Array.isArray(events) && events.length > 0) {
             for (const event of events) {
                 console.log(`💬 [LINE Webhook Event] Type: ${event.type}`);
+                let targetId = null;
                 if (event.source) {
-                    if (event.source.groupId) console.log(`   👉 Group ID: ${event.source.groupId}`);
-                    if (event.source.userId) console.log(`   👉 User ID: ${event.source.userId}`);
+                    if (event.source.groupId) {
+                        console.log(`   👉 Group ID: ${event.source.groupId}`);
+                        targetId = event.source.groupId;
+                    }
+                    if (event.source.roomId) targetId = targetId || event.source.roomId;
+                    if (event.source.userId) targetId = targetId || event.source.userId;
                 }
 
                 if (event.type === 'message' && event.message && event.message.type === 'text') {
                     const text = event.message.text.trim();
                     const replyToken = event.replyToken;
 
-                    if (text.startsWith('นำเข้าข้อมูล')) {
+                    if (/^(|\/)(นำเข้าข้อมูล|นำเข้า|summary|สรุปข้อมูล)/i.test(text)) {
                         const parts = text.split(/\s+/);
                         let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
                         if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) {
                             queryDate = parts[1];
                         }
-                        console.log(`💬 Processing command 'นำเข้าข้อมูล' for date ${queryDate}`);
-                        await sendLineReplyFlexSummary(replyToken, queryDate);
+                        console.log(`💬 Processing command '${text}' for date ${queryDate}`);
+                        sendLineReplyFlexSummary(replyToken, queryDate, targetId).catch(err => {
+                            console.error('❌ LINE Reply Error:', err);
+                        });
                     }
                 }
             }
@@ -67,9 +74,16 @@ async function fetchSummaryData(queryDate) {
     let ucs_departments = [];
     let dataSource = 'No Data';
 
+    const queryWithTimeout = (promise, ms = 2000) => {
+        return Promise.race([
+            promise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Query Timeout (2s)')), ms))
+        ]);
+    };
+
     // 1. Try querying internal visit_tracking table (synced data) first
     try {
-        const [summaryRows] = await trackerPool.query(
+        const [summaryRows] = await queryWithTimeout(trackerPool.query(
             `SELECT COUNT(*) AS service_total_count,
                     SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') THEN 1 ELSE 0 END) AS total_visits,
                     COALESCE(SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') THEN uc_money ELSE 0 END), 0) AS total_money,
@@ -80,7 +94,7 @@ async function fetchSummaryData(queryDate) {
              FROM visit_tracking
              WHERE visit_date = ?`,
             [queryDate]
-        );
+        ));
 
         const summary = summaryRows[0] || {};
         if (summary.service_total_count > 0) {
@@ -92,22 +106,22 @@ async function fetchSummaryData(queryDate) {
             authen_count = summary.authen_count || 0;
             ucs_total = summary.ucs_total || 0;
 
-            const [rightsRows] = await trackerPool.query(
+            const [rightsRows] = await queryWithTimeout(trackerPool.query(
                 `SELECT COALESCE(NULLIF(TRIM(pttype_note), ''), NULLIF(TRIM(pttype), ''), 'ไม่ระบุสิทธิ') as right_name, COUNT(*) as cnt 
                  FROM visit_tracking 
                  WHERE visit_date = ? 
                  GROUP BY right_name ORDER BY cnt DESC LIMIT 3`,
                 [queryDate]
-            );
+            ));
             rights = rightsRows || [];
 
-            const [deptRows] = await trackerPool.query(
+            const [deptRows] = await queryWithTimeout(trackerPool.query(
                 `SELECT COALESCE(NULLIF(TRIM(department), ''), 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt 
                  FROM visit_tracking 
                  WHERE visit_date = ? AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') 
                  GROUP BY dept_name ORDER BY cnt DESC LIMIT 3`,
                 [queryDate]
-            );
+            ));
             ucs_departments = deptRows || [];
             dataSource = 'Synced Tracking DB';
         }
@@ -120,7 +134,7 @@ async function fetchSummaryData(queryDate) {
         try {
             const DEFAULT_HIPDATA_SQL_LIST = "'OFC','UCS','OTH','BMT','XXX','LGO','STP','SSS','SSI','A2','BKK','PTY','A9'";
 
-            const [[vRows]] = await hosxpPool.query(
+            const [[vRows]] = await queryWithTimeout(hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) as total_visits, COALESCE(SUM(v.uc_money), 0) AS total_money
                  FROM vn_stat v
                  LEFT JOIN ovst ov ON ov.vn = v.vn
@@ -136,7 +150,7 @@ async function fetchSummaryData(queryDate) {
                    AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
                    AND COALESCE(v.uc_money, 0) > 0`,
                 [queryDate]
-            );
+            ));
             total_visits = vRows?.total_visits || 0;
             total_money = Number(vRows?.total_money || 0);
             ucs_total = total_visits;
@@ -263,7 +277,7 @@ async function fetchSummaryData(queryDate) {
     };
 }
 
-async function sendLineReplyFlexSummary(replyToken, queryDate) {
+async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) {
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token) {
         console.error('❌ LINE Token is not configured in Vercel environment variables.');
@@ -422,20 +436,54 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
         ]
     };
 
-    const response = await fetch('https://api.line.me/v2/bot/message/reply', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    let response = null;
 
-    const resData = await response.json().catch(() => ({}));
-    if (response.ok) {
+    try {
+        response = await fetch('https://api.line.me/v2/bot/message/reply', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        });
+    } catch (fetchErr) {
+        console.warn('⚠️ LINE Reply fetch error:', fetchErr.message);
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    const resData = response ? await response.json().catch(() => ({})) : {};
+    if (response && response.ok) {
         console.log('✅ Sent LINE Reply Flex Message successfully via Vercel Function.');
     } else {
         console.error('❌ LINE Reply API error:', resData);
+
+        // Fallback to push message if replyToken failed or expired
+        const fallbackTarget = targetId || process.env.LINE_GROUP_ID;
+        if (fallbackTarget) {
+            console.log(`📲 Attempting fallback Push message to ${fallbackTarget}...`);
+            const pushRes = await fetch('https://api.line.me/v2/bot/message/push', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    to: fallbackTarget,
+                    messages: payload.messages
+                })
+            });
+            const pushData = await pushRes.json().catch(() => ({}));
+            if (pushRes.ok) {
+                console.log('✅ Sent LINE Fallback Push Flex Message successfully.');
+            } else {
+                console.error('❌ LINE Fallback Push API error:', pushData);
+            }
+        }
     }
 }
 

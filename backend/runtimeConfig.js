@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import logger from './logger.js';
 
 let developmentJwtSecret = null;
 
@@ -15,7 +16,7 @@ export function getJwtSecret(env = process.env) {
     }
     if (!developmentJwtSecret) {
         developmentJwtSecret = crypto.randomBytes(48).toString('base64url');
-        console.warn('⚠️ JWT_SECRET is not configured. Using an ephemeral development-only secret; all sessions reset when the server restarts.');
+        logger.warn('⚠️ JWT_SECRET is not configured. Using an ephemeral development-only secret; all sessions reset when the server restarts.');
     }
     return developmentJwtSecret;
 }

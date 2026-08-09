@@ -7,6 +7,10 @@
       "destination": "/api/line/webhook"
     },
     {
+      "source": "/api/:path*",
+      "destination": "https://nhsoauthen.nhsotracker.site/api/:path*"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

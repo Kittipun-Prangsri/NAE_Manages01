@@ -38,6 +38,7 @@ import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
 import visitRoutes from './routes/visitRoutes.js';
+import logger from './logger.js';
 
 dotenv.config();
 
@@ -130,7 +131,7 @@ function checkSyncStatusTimeout() {
     if (currentSyncStatus.status === 'running' && currentSyncStatus.startedAt) {
         const diffMs = Date.now() - new Date(currentSyncStatus.startedAt).getTime();
         if (diffMs > 15 * 60 * 1000) { // 15 minutes timeout
-            console.warn('⚠️ Sync process has timed out (exceeded 15 minutes). Resetting to idle.');
+            logger.warn('⚠️ Sync process has timed out (exceeded 15 minutes). Resetting to idle.');
             currentSyncStatus = {
                 status: 'failed',
                 step: 'timeout',
@@ -251,7 +252,7 @@ async function createSyncRun(source, visitDate, username, req = null) {
         await writeAuditLog(req, 'sync_started', 'sync_run', result.insertId, { source, visitDate });
         return result.insertId;
     } catch (error) {
-        console.error('❌ Failed to create sync run audit:', error.message);
+        logger.error('❌ Failed to create sync run audit:', error.message);
         return null;
     }
 }
@@ -265,7 +266,7 @@ async function finishSyncRun(id, status, totalRecords, message, error = null, re
         );
         await writeAuditLog(req, `sync_${status}`, 'sync_run', id, { totalRecords: totalRecords || 0, message, error });
     } catch (dbError) {
-        console.error('❌ Failed to update sync run audit:', dbError.message);
+        logger.error('❌ Failed to update sync run audit:', dbError.message);
     }
 }
 
@@ -329,12 +330,12 @@ app.post('/api/auth/login', async (req, res) => {
 // Helper to reply LINE message using Flex Report (Free)
 async function sendLineReplyFlexSummary(replyToken, queryDate) {
     if (process.env.DISABLE_NOTIFICATIONS === 'true') {
-        console.log('ℹ️ LINE Flex summary reply is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        logger.info('ℹ️ LINE Flex summary reply is globally disabled via DISABLE_NOTIFICATIONS=true.');
         return;
     }
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token || token === 'your_line_token_here') {
-        console.error('❌ LINE token not configured.');
+        logger.error('❌ LINE token not configured.');
         return;
     }
     
@@ -520,7 +521,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
             );
             ucs_departments = dRows || [];
         } catch (dbErr) {
-            console.error('❌ Database error in sendLineReplyFlexSummary (using fallback mock data):', dbErr.message);
+            logger.error('❌ Database error in sendLineReplyFlexSummary (using fallback mock data):', dbErr.message);
             dbErrorOccurred = true;
             
             // Mock data fallback
@@ -850,12 +851,12 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
 
         const resData = await response.json().catch(() => ({}));
         if (response.ok) {
-            console.log('✅ Sent LINE Reply Flex Message successfully.');
+            logger.info('✅ Sent LINE Reply Flex Message successfully.');
         } else {
-            console.error('❌ LINE Reply API returned error:', resData);
+            logger.error('❌ LINE Reply API returned error:', resData);
         }
     } catch (error) {
-        console.error('❌ Error replying to LINE:', error);
+        logger.error('❌ Error replying to LINE:', error);
     }
 }
 
@@ -863,19 +864,19 @@ async function sendLineReplyFlexSummary(replyToken, queryDate) {
 app.post('/api/line/webhook', (req, res) => {
     const events = req.body?.events || [];
     events.forEach(async (event) => {
-        console.log(`💬 [LINE Webhook Event] Type: ${event.type}`);
+        logger.info(`💬 [LINE Webhook Event] Type: ${event.type}`);
         
         // Log Group IDs and sources
         if (event.source) {
-            console.log(`   Source Type: ${event.source.type}`);
+            logger.info(`   Source Type: ${event.source.type}`);
             if (event.source.groupId) {
-                console.log(`   👉 LINE Group ID: ${event.source.groupId}`);
+                logger.info(`   👉 LINE Group ID: ${event.source.groupId}`);
             }
             if (event.source.roomId) {
-                console.log(`   👉 LINE Room ID: ${event.source.roomId}`);
+                logger.info(`   👉 LINE Room ID: ${event.source.roomId}`);
             }
             if (event.source.userId) {
-                console.log(`   👉 LINE User ID: ${event.source.userId}`);
+                logger.info(`   👉 LINE User ID: ${event.source.userId}`);
             }
         }
 
@@ -897,11 +898,11 @@ app.post('/api/line/webhook', (req, res) => {
                     }
                 }
 
-                console.log(`💬 [LINE Webhook] Command 'นำเข้าข้อมูล' received for date: ${queryDate}. Sending Reply Flex Message...`);
+                logger.info(`💬 [LINE Webhook] Command 'นำเข้าข้อมูล' received for date: ${queryDate}. Sending Reply Flex Message...`);
                 
                 // Reply asynchronously in the background
                 sendLineReplyFlexSummary(replyToken, queryDate).catch(err => {
-                    console.error('❌ Error executing LINE reply handler:', err);
+                    logger.error('❌ Error executing LINE reply handler:', err);
                 });
             }
         }
@@ -978,7 +979,7 @@ app.post('/api/sync/probe-date', authenticateToken, upload.single('excel'), (req
             missingRequired
         });
     } catch (error) {
-        console.error('Probing Error:', error);
+        logger.error('Probing Error:', error);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดในการอ่านไฟล์ Excel' });
     }
 });
@@ -1046,7 +1047,7 @@ app.post('/api/sync/process', authenticateToken, requireAdmin, upload.single('ex
         });
 
     } catch (error) {
-        console.error('Processing Error:', error);
+        logger.error('Processing Error:', error);
         await finishSyncRun(syncRunId, 'failed', 0, 'Excel upload sync failed', error.message, req);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดในการประมวลผลข้อมูล' });
     }
@@ -1087,7 +1088,7 @@ app.post('/api/sync/process-json', authenticateToken, requireAdmin, async (req, 
         });
 
     } catch (error) {
-        console.error('JSON Processing Error:', error);
+        logger.error('JSON Processing Error:', error);
         await finishSyncRun(syncRunId, 'failed', 0, 'Clipboard sync failed', error.message, req);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดในการประมวลผลข้อมูลจาก Clipboard' });
     }
@@ -1118,7 +1119,7 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, requireAdmin, async (re
             return res.status(400).json({ message: 'กรุณาตั้งค่า NHSO_BEARER_TOKEN ใน .env ก่อนใช้งานฟีเจอร์นี้' });
         }
 
-        console.log(`🚀 Starting direct API sync for ${hosxpData.length} patients on ${visit_date}`);
+        logger.info(`🚀 Starting direct API sync for ${hosxpData.length} patients on ${visit_date}`);
         
         const apiResults = [];
         const batchSize = 5; // เรียกพร้อมกันทีละ 5 รายการ
@@ -1174,7 +1175,7 @@ app.post('/api/sync/nhso-direct-api', authenticateToken, requireAdmin, async (re
         }
 
     } catch (error) {
-        console.error('Direct API Sync Error:', error);
+        logger.error('Direct API Sync Error:', error);
         await finishSyncRun(syncRunId, 'failed', 0, 'NHSO direct API sync failed', error.message, req);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเชื่อมต่อกับ NHSO API' });
     }
@@ -1187,7 +1188,7 @@ async function getUserNotificationCredentials(username) {
         [username]
     );
     if (userRows.length === 0) {
-        console.warn(`⚠️ User ${username} not found in internal DB. Falling back to system credentials from .env.`);
+        logger.warn(`⚠️ User ${username} not found in internal DB. Falling back to system credentials from .env.`);
         return null;
     }
 
@@ -1197,11 +1198,11 @@ async function getUserNotificationCredentials(username) {
     const hasLine = lineToken && user.line_group_id;
     const hasTelegram = telegramToken && user.telegram_chat_id;
     if (!hasLine && !hasTelegram) {
-        console.warn(`⚠️ User ${username} has no notification channels configured in their profile. Falling back to system credentials from .env.`);
+        logger.warn(`⚠️ User ${username} has no notification channels configured in their profile. Falling back to system credentials from .env.`);
         return null;
     }
 
-    console.log(`📲 Using personal notification credentials for user: ${username} (LINE: ${hasLine ? 'yes' : 'no'}, Telegram: ${hasTelegram ? 'yes' : 'no'})`);
+    logger.info(`📲 Using personal notification credentials for user: ${username} (LINE: ${hasLine ? 'yes' : 'no'}, Telegram: ${hasTelegram ? 'yes' : 'no'})`);
     return {
         line_token: lineToken || null,
         line_group_id: user.line_group_id || null,
@@ -1220,7 +1221,7 @@ app.post('/api/sync/capture-grafana', authenticateToken, requireDashboardModules
         const normalizedChannels = normalizeChannels(channels);
         const normalizedReportTypes = normalizeReportTypes(report_types);
         const username = req.user.username;
-        console.log(`📸 [Manual Trigger] Grafana Capture requested by user: ${username} for date: ${visit_date || 'today'}`);
+        logger.info(`📸 [Manual Trigger] Grafana Capture requested by user: ${username} for date: ${visit_date || 'today'}`);
 
         const userCredentials = await getUserNotificationCredentials(username);
 
@@ -1244,7 +1245,7 @@ app.post('/api/sync/capture-grafana', authenticateToken, requireDashboardModules
             });
         }
     } catch (error) {
-        console.error('Manual Capture Error:', error);
+        logger.error('Manual Capture Error:', error);
         res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
     }
 });
@@ -1256,7 +1257,7 @@ app.post('/api/sync/nhso-portal-download', authenticateToken, requireAdmin, asyn
     try {
         const visit_date = req.body.visit_date || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
         if (!isValidDateString(visit_date)) return res.status(400).json({ success: false, message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
-        console.log(`📥 [Manual Trigger] NHSO Portal Download requested for date: ${visit_date} by user: ${req.user.username}`);
+        logger.info(`📥 [Manual Trigger] NHSO Portal Download requested for date: ${visit_date} by user: ${req.user.username}`);
 
         // Check if there is already an active run, using timeout check first
         checkSyncStatusTimeout();
@@ -1280,7 +1281,7 @@ app.post('/api/sync/nhso-portal-download', authenticateToken, requireAdmin, asyn
 
         // Run the sync process in the background to prevent HTTP connection timeouts
         runManualPortalSyncInBackground(visit_date, req.user.username).catch(err => {
-            console.error('❌ Error in manual portal background sync:', err);
+            logger.error('❌ Error in manual portal background sync:', err);
             currentSyncStatus.status = 'failed';
             currentSyncStatus.step = 'failed';
             currentSyncStatus.message = `เกิดข้อผิดพลาดในการรันระบบเบื้องหลัง: ${err.message}`;
@@ -1293,7 +1294,7 @@ app.post('/api/sync/nhso-portal-download', authenticateToken, requireAdmin, asyn
         });
 
     } catch (error) {
-        console.error('Manual Portal Download Sync Trigger Error:', error);
+        logger.error('Manual Portal Download Sync Trigger Error:', error);
         res.status(500).json({ success: false, message: `เกิดข้อผิดพลาดในการประมวลผล: ${error.message}` });
     }
 });
@@ -1307,7 +1308,7 @@ app.get('/api/sync/status', authenticateToken, (req, res) => {
 });
 
 async function runManualPortalSyncInBackground(visit_date, username = null) {
-    console.log(`📥 [Background Portal Sync] Starting for date: ${visit_date}`);
+    logger.info(`📥 [Background Portal Sync] Starting for date: ${visit_date}`);
     const syncRunId = await createSyncRun('nhso-portal', visit_date, username);
 
     try {
@@ -1320,7 +1321,7 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
         });
         
         if (!dlResult.success || !dlResult.filePath) {
-            console.error(`❌ [Background Portal Sync] Download failed: ${dlResult.error}`);
+            logger.error(`❌ [Background Portal Sync] Download failed: ${dlResult.error}`);
             
             currentSyncStatus.status = 'failed';
             currentSyncStatus.step = 'failed';
@@ -1331,7 +1332,7 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
             return;
         }
 
-        console.log(`📥 [Background Portal Sync] Reading downloaded file: ${dlResult.filePath}`);
+        logger.info(`📥 [Background Portal Sync] Reading downloaded file: ${dlResult.filePath}`);
         currentSyncStatus.step = 'importing_database';
         currentSyncStatus.message = 'ดาวน์โหลดรายงานสำเร็จ กำลังอ่านไฟล์และนำเข้าข้อมูลดิบลงตาราง HOSxP...';
 
@@ -1353,7 +1354,7 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);
         
-        console.log('✅ [Background Portal Sync] Database sync completed.');
+        logger.info('✅ [Background Portal Sync] Database sync completed.');
         currentSyncStatus.status = 'success';
         currentSyncStatus.step = 'completed';
         currentSyncStatus.message = `การซิงก์และประมวลผลข้อมูลเปรียบเทียบประจำวันที่ ${visit_date} สำเร็จเสร็จสิ้นแล้ว!`;
@@ -1366,7 +1367,7 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
         await finishSyncRun(syncRunId, 'success', processedData.length, 'NHSO portal sync completed');
 
     } catch (err) {
-        console.error('❌ [Background Portal Sync] Crash error:', err);
+        logger.error('❌ [Background Portal Sync] Crash error:', err);
         currentSyncStatus.status = 'failed';
         currentSyncStatus.step = 'failed';
         currentSyncStatus.message = `การซิงก์ขัดข้อง: ${err.message}`;
@@ -1410,7 +1411,7 @@ app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
             generated_at: new Date().toISOString()
         });
     } catch (error) {
-        console.error('Dashboard Fetch Error:', error);
+        logger.error('Dashboard Fetch Error:', error);
         res.status(500).json({ message: 'ไม่สามารถดึงข้อมูล Dashboard ได้' });
     }
 });
@@ -1473,7 +1474,7 @@ app.get('/api/tracking/rights-table', authenticateToken, async (req, res) => {
             generated_at: new Date().toISOString()
         });
     } catch (error) {
-        console.error('Rights Tracking Table Fetch Error:', error);
+        logger.error('Rights Tracking Table Fetch Error:', error);
         res.status(500).json({ message: 'ไม่สามารถดึงข้อมูลตารางทุกสิทธิได้' });
     }
 });
@@ -1542,7 +1543,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                 [date]
             );
         } catch (hosxpError) {
-            console.warn('HOSxP UC pending department summary unavailable:', hosxpError.message);
+            logger.warn('HOSxP UC pending department summary unavailable:', hosxpError.message);
             [ucPendingByDepartment] = await trackerPool.query(
                 `SELECT
                     ${groupConfig.expression} AS group_key,
@@ -1653,7 +1654,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                 [date]
             );
         } catch (hosxpError) {
-            console.warn('HOSxP service total unavailable:', hosxpError.message);
+            logger.warn('HOSxP service total unavailable:', hosxpError.message);
             [serviceByGroup] = await trackerPool.query(
                 `SELECT
                     ${groupConfig.expression} AS group_key,
@@ -1696,7 +1697,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                 condition: 'missing_temp_authen_claimcode'
             };
         } catch (hosxpError) {
-            console.warn('HOSxP temp authencode not-imported summary unavailable:', hosxpError.message);
+            logger.warn('HOSxP temp authencode not-imported summary unavailable:', hosxpError.message);
         }
         if (!notImportedTotal) {
             [[notImportedTotal]] = await trackerPool.query(
@@ -1778,7 +1779,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
                 hipdata_codes: ['UCS']
             };
         } catch (hosxpError) {
-            console.warn('HOSxP debtor SPP summary unavailable:', hosxpError.message);
+            logger.warn('HOSxP debtor SPP summary unavailable:', hosxpError.message);
         }
 
         res.json({
@@ -1801,7 +1802,7 @@ app.get('/api/tracking/group-insights', authenticateToken, async (req, res) => {
             ucDebtorByDepartment
         });
     } catch (error) {
-        console.error('Group insights fetch error:', error);
+        logger.error('Group insights fetch error:', error);
         res.status(500).json({ message: 'ไม่สามารถดึงข้อมูลกลุ่มสรุปได้' });
     }
 });
@@ -1830,7 +1831,7 @@ app.get('/api/hipdata', authenticateToken, async (req, res) => {
             rows
         });
     } catch (error) {
-        console.error('Hipdata fetch error:', error);
+        logger.error('Hipdata fetch error:', error);
         res.json({
             success: true,
             fallback: true,
@@ -1848,11 +1849,11 @@ app.get('/api/hipdata', authenticateToken, async (req, res) => {
 app.get('/api/dashboard/live-data', authenticateToken, requireDashboardModulesEnabled, async (req, res) => {
     try {
         const visit_date = req.query.date || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
-        console.log(`📊 [Live Dashboard] Fetching live data for date: ${visit_date} by user: ${req.user.username}`);
+        logger.info(`📊 [Live Dashboard] Fetching live data for date: ${visit_date} by user: ${req.user.username}`);
         const data = await getCachedLiveDashboardData(visit_date);
         res.json(data);
     } catch (error) {
-        console.error('❌ Error fetching live dashboard data:', error);
+        logger.error('❌ Error fetching live dashboard data:', error);
         res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Dashboard' });
     }
 });
@@ -1865,14 +1866,14 @@ app.get('/api/geojson', authenticateToken, async (req, res) => {
         const geojsonPath = path.join(__dirname, 'khlonghat.geojson');
         fs.readFile(geojsonPath, 'utf8', (err, data) => {
             if (err) {
-                console.error('Error reading GeoJSON:', err);
+                logger.error('Error reading GeoJSON:', err);
                 return res.status(500).json({ error: 'ไม่พบไฟล์ขอบเขตแผนที่ระดับตำบล' });
             }
             res.setHeader('Content-Type', 'application/json');
             res.send(data);
         });
     } catch (error) {
-        console.error('❌ Error serving geojson:', error);
+        logger.error('❌ Error serving geojson:', error);
         res.status(500).json({ message: 'เกิดข้อผิดพลาดในการโหลดแผนที่' });
     }
 });
@@ -1923,7 +1924,7 @@ app.post('/api/custom-query', authenticateToken, requireDashboardModulesEnabled,
 
         // แปลง Grafana Macros
         const processedQuery = replaceGrafanaMacros(query, visit_date, hipdata_code || DEFAULT_HIPDATA_SQL_LIST);
-        console.log(`[SQL Query] DB: ${db_type || 'hosxp'} | User: ${req.user.username} | Role: ${req.user.role}`);
+        logger.info(`[SQL Query] DB: ${db_type || 'hosxp'} | User: ${req.user.username} | Role: ${req.user.role}`);
 
         const pool = db_type === 'tracker' ? trackerPool : hosxpPool;
         const startTime = Date.now();
@@ -1950,7 +1951,7 @@ app.post('/api/custom-query', authenticateToken, requireDashboardModulesEnabled,
             processedQuery
         });
     } catch (error) {
-        console.error('❌ SQL Query Error:', error.message);
+        logger.error('❌ SQL Query Error:', error.message);
         res.status(500).json({ message: `ข้อผิดพลาด SQL: ${error.message}` });
     }
 });
@@ -1967,7 +1968,7 @@ app.get('/api/query-history', authenticateToken, requireDashboardModulesEnabled,
         );
         res.json({ success: true, history: rows });
     } catch (error) {
-        console.error('Query history fetch error:', error);
+        logger.error('Query history fetch error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -1978,7 +1979,7 @@ app.delete('/api/query-history', authenticateToken, requireDashboardModulesEnabl
         await writeAuditLog(req, 'query_history_clear', 'query_history', req.user.username || null);
         res.json({ success: true, message: 'ล้างประวัติคำสั่ง SQL สำเร็จ' });
     } catch (error) {
-        console.error('Query history clear error:', error);
+        logger.error('Query history clear error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -1989,7 +1990,7 @@ app.get('/api/saved-queries', authenticateToken, requireDashboardModulesEnabled,
         const [rows] = await trackerPool.query('SELECT * FROM saved_queries ORDER BY name ASC');
         res.json(rows);
     } catch (error) {
-        console.error('Saved queries fetch error:', error);
+        logger.error('Saved queries fetch error:', error);
         res.json([]);
     }
 });
@@ -2045,7 +2046,7 @@ app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =>
             notification_tokens_encrypted: [line_token, telegram_token].filter(Boolean).every(isEncryptedNotificationToken)
         })));
     } catch (error) {
-        console.error('Fetch users error:', error);
+        logger.error('Fetch users error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -2065,7 +2066,7 @@ app.post('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =
         await writeAuditLog(req, 'user_create', 'user', result.insertId, { username, role: role || 'user', department: department || '' });
         res.json({ success: true, message: 'เพิ่มผู้ใช้งานสำเร็จ' });
     } catch (error) {
-        console.error('Create user error:', error);
+        logger.error('Create user error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -2089,7 +2090,7 @@ app.put('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res
         await writeAuditLog(req, 'user_update', 'user', id, { username, role: role || 'user', department: department || '' });
         res.json({ success: true, message: 'แก้ไขข้อมูลผู้ใช้งานสำเร็จ' });
     } catch (error) {
-        console.error('Update user error:', error);
+        logger.error('Update user error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -2102,7 +2103,7 @@ app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, 
         await writeAuditLog(req, 'user_delete', 'user', id);
         res.json({ success: true, message: 'ลบผู้ใช้งานสำเร็จ' });
     } catch (error) {
-        console.error('Delete user error:', error);
+        logger.error('Delete user error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -2124,7 +2125,7 @@ app.get('/api/admin/sync-runs', authenticateToken, requireAdmin, async (req, res
         `);
         res.json({ success: true, runs: rows, summary });
     } catch (error) {
-        console.error('Fetch sync runs error:', error);
+        logger.error('Fetch sync runs error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -2139,7 +2140,7 @@ app.get('/api/admin/audit-logs', authenticateToken, requireAdmin, async (req, re
         );
         res.json({ success: true, logs: rows });
     } catch (error) {
-        console.error('Fetch audit logs error:', error);
+        logger.error('Fetch audit logs error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -2155,7 +2156,7 @@ async function handleTestNotification(req, res) {
         const testMessage = `🔔 Test Notification from NAE Manages System\n📅 Date: ${new Date().toLocaleString('th-TH')}\n⚙️ Status: Connection OK!`;
 
         if (type === 'line') {
-            console.log(`📲 Testing LINE message push...`);
+            logger.info(`📲 Testing LINE message push...`);
             const payload = {
                 to: target,
                 messages: [
@@ -2186,7 +2187,7 @@ async function handleTestNotification(req, res) {
                 return res.status(400).json({ success: false, message: `LINE API Error: ${data.message || response.statusText}` });
             }
         } else if (type === 'telegram') {
-            console.log(`📲 Testing Telegram message push...`);
+            logger.info(`📲 Testing Telegram message push...`);
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
             const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -2207,7 +2208,7 @@ async function handleTestNotification(req, res) {
             return res.status(400).json({ success: false, message: 'ไม่รองรับช่องทางนี้' });
         }
     } catch (error) {
-        console.error('Test notification error:', error);
+        logger.error('Test notification error:', error);
         res.status(500).json({ success: false, message: `เกิดข้อผิดพลาดในการเชื่อมต่อ: ${error.message}` });
     }
 }
@@ -2226,7 +2227,7 @@ app.post('/api/admin/users/:id/test-notification', authenticateToken, requireAdm
         req.body = { type, token, target };
         return handleTestNotification(req, res);
     } catch (error) {
-        console.error('Stored notification test error:', error);
+        logger.error('Stored notification test error:', error);
         res.status(500).json({ success: false, message: 'ไม่สามารถอ่านข้อมูลแจ้งเตือนได้' });
     }
 });
@@ -2247,7 +2248,7 @@ app.get('/api/admin/schedules', authenticateToken, requireAdmin, async (req, res
         });
         res.json({ success: true, schedules: formatted });
     } catch (error) {
-        console.error('Get schedules error:', error);
+        logger.error('Get schedules error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -2265,7 +2266,7 @@ app.post('/api/admin/schedules', authenticateToken, requireAdmin, async (req, re
         await reloadSchedules();
         res.json({ success: true, message: 'เพิ่มเวลาทำงานสำเร็จ' });
     } catch (error) {
-        console.error('Add schedule error:', error);
+        logger.error('Add schedule error:', error);
         if (error.code === 'ER_DUP_ENTRY') {
             res.status(400).json({ success: false, message: 'เวลานี้ถูกกำหนดไว้แล้ว' });
         } else {
@@ -2295,7 +2296,7 @@ app.put('/api/admin/schedules/:id', authenticateToken, requireAdmin, async (req,
         await reloadSchedules();
         res.json({ success: true, message: 'อัปเดตเวลาทำงานสำเร็จ' });
     } catch (error) {
-        console.error('Update schedule error:', error);
+        logger.error('Update schedule error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -2309,7 +2310,7 @@ app.delete('/api/admin/schedules/:id', authenticateToken, requireAdmin, async (r
         await reloadSchedules();
         res.json({ success: true, message: 'ลบเวลาทำงานสำเร็จ' });
     } catch (error) {
-        console.error('Delete schedule error:', error);
+        logger.error('Delete schedule error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -2326,7 +2327,7 @@ app.use((error, req, res, next) => {
     if (error?.code === 'CORS_ORIGIN_DENIED') {
         return res.status(403).json({ success: false, message: 'CORS origin ไม่ได้รับอนุญาต' });
     }
-    console.error('Unhandled request error:', error);
+    logger.error('Unhandled request error:', error);
     return res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
 });
 
@@ -2350,19 +2351,19 @@ app.use((req, res) => {
 
 // ฟังก์ชันดึงรายงานและแคปหน้าจออัตโนมัติแบบต่อเนื่อง (Sequential)
 async function handleScheduledSyncAndCapture() {
-    console.log('⏰ [Scheduler] เริ่มต้นกระบวนการดาวน์โหลดข้อมูลและบันทึกหน้าจออัตโนมัติ...');
+    logger.info('⏰ [Scheduler] เริ่มต้นกระบวนการดาวน์โหลดข้อมูลและบันทึกหน้าจออัตโนมัติ...');
     const visit_date = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
     const syncRunId = await createSyncRun('server-scheduler', visit_date, null);
     
     try {
         const dlResult = await downloadNhsoReport();
         if (!dlResult.success || !dlResult.filePath) {
-            console.warn(`⚠️ [Scheduler] การดาวน์โหลดข้อมูลอัตโนมัติไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
+            logger.warn(`⚠️ [Scheduler] การดาวน์โหลดข้อมูลอัตโนมัติไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
             await finishSyncRun(syncRunId, 'failed', 0, 'Scheduled NHSO portal download failed', dlResult.error || 'Download failed');
             return;
         }
 
-        console.log(`📥 [Scheduler] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
+        logger.info(`📥 [Scheduler] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
         const fileBuffer = fs.readFileSync(dlResult.filePath);
         const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
         const sheetName = workbook.SheetNames[0];
@@ -2372,7 +2373,7 @@ async function handleScheduledSyncAndCapture() {
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);
         cleanOldDownloads(path.join(__dirname, '../downloads'));
-        console.log('✅ [Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+        logger.info('✅ [Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
 
         if (!SYNC_REPORTS_ENABLED) {
             await finishSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync completed; sync report disabled');
@@ -2380,7 +2381,7 @@ async function handleScheduledSyncAndCapture() {
         }
 
         // Do not publish a dashboard image unless this run actually updated the data.
-        console.log('📸 [Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
+        logger.info('📸 [Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
         const captureResult = await captureAndNotify(visit_date);
         if (captureResult?.success === false) {
             await finishSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync completed; dashboard capture failed', captureResult.error || 'Dashboard capture failed');
@@ -2388,7 +2389,7 @@ async function handleScheduledSyncAndCapture() {
             await finishSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync and dashboard capture completed');
         }
     } catch (err) {
-        console.error('❌ [Scheduler] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
+        logger.error('❌ [Scheduler] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
         await finishSyncRun(syncRunId, 'failed', 0, 'Scheduled sync crashed', err.message);
     }
 }
@@ -2402,27 +2403,27 @@ async function runScheduledSyncAndCaptureWithLock() {
     try {
         const acquired = await acquireSchedulerLock(trackerPool, lockKey, schedulerHolderId);
         if (!acquired) {
-            console.warn('ℹ️ [Scheduler] Another process is already running the scheduled sync; skipping this trigger.');
+            logger.warn('ℹ️ [Scheduler] Another process is already running the scheduled sync; skipping this trigger.');
             return;
         }
         await handleScheduledSyncAndCapture();
     } catch (error) {
-        console.error('❌ [Scheduler] Could not acquire scheduled-job lock:', error.message);
+        logger.error('❌ [Scheduler] Could not acquire scheduled-job lock:', error.message);
     } finally {
         try {
             await releaseSchedulerLock(trackerPool, lockKey, schedulerHolderId);
         } catch (error) {
-            console.error('❌ [Scheduler] Could not release scheduled-job lock:', error.message);
+            logger.error('❌ [Scheduler] Could not release scheduled-job lock:', error.message);
         }
     }
 }
 
 async function reloadSchedules() {
     if (process.env.ENABLE_SERVER_BACKGROUND_JOBS !== 'true') {
-        console.log('ℹ️ [Scheduler] Server scheduler disabled; worker process owns background jobs.');
+        logger.info('ℹ️ [Scheduler] Server scheduler disabled; worker process owns background jobs.');
         return;
     }
-    console.log('⏰ [Scheduler] Reloading cron schedules from database...');
+    logger.info('⏰ [Scheduler] Reloading cron schedules from database...');
     try {
         // Stop and destroy all currently running tasks
         activeCronTasks.forEach(task => {
@@ -2435,7 +2436,7 @@ async function reloadSchedules() {
         // Fetch enabled schedules from database
         const [rows] = await trackerPool.query('SELECT schedule_time FROM cron_schedules WHERE is_enabled = TRUE');
         
-        console.log(`⏰ [Scheduler] Found ${rows.length} active schedule(s). Registering tasks...`);
+        logger.info(`⏰ [Scheduler] Found ${rows.length} active schedule(s). Registering tasks...`);
         
         for (const row of rows) {
             const timeStr = row.schedule_time; // format 'HH:MM:SS' or 'HH:MM'
@@ -2444,10 +2445,10 @@ async function reloadSchedules() {
             // Build standard cron pattern: 'mm hh * * *'
             const cronPattern = `${parseInt(mm, 10)} ${parseInt(hh, 10)} * * *`;
             
-            console.log(`⏰ [Scheduler] Scheduling job at ${hh}:${mm} (Cron pattern: "${cronPattern}")`);
+            logger.info(`⏰ [Scheduler] Scheduling job at ${hh}:${mm} (Cron pattern: "${cronPattern}")`);
             
             const task = cron.schedule(cronPattern, () => {
-                console.log(`⏰ [Cron Scheduler] Automatically triggering sync and capture task for time: ${timeStr}...`);
+                logger.info(`⏰ [Cron Scheduler] Automatically triggering sync and capture task for time: ${timeStr}...`);
                 runScheduledSyncAndCaptureWithLock();
             }, {
                 scheduled: true,
@@ -2456,19 +2457,19 @@ async function reloadSchedules() {
             
             activeCronTasks.push(task);
         }
-        console.log('✅ [Scheduler] Schedules reloaded and registered successfully.');
+        logger.info('✅ [Scheduler] Schedules reloaded and registered successfully.');
     } catch (error) {
-        console.error('❌ [Scheduler] Error reloading cron schedules:', error);
+        logger.error('❌ [Scheduler] Error reloading cron schedules:', error);
     }
 }
 
 app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+    logger.info(`Server is running on http://localhost:${PORT}`);
     if (process.env.ENABLE_SERVER_BACKGROUND_JOBS === 'true') {
         startTelegramBotListener();
         reloadSchedules(); // Initial loading of database schedules
     } else {
-        console.log('ℹ️ [Server] Background jobs are disabled here. Run "npm run worker" for scheduler, Telegram polling, and NHSO keep-alive.');
+        logger.info('ℹ️ [Server] Background jobs are disabled here. Run "npm run worker" for scheduler, Telegram polling, and NHSO keep-alive.');
     }
 });
 
@@ -2476,7 +2477,7 @@ app.listen(PORT, () => {
 let lastUpdateId = 0;
 
 async function startTelegramBotListener() {
-    console.log('🤖 Telegram Bot message listener started (Long Polling)...');
+    logger.info('🤖 Telegram Bot message listener started (Long Polling)...');
     
     let isPolling = false;
     
@@ -2529,7 +2530,7 @@ async function startTelegramBotListener() {
                         
                         if (allowedChatIds.includes(fromChatId)) {
                             if (text === 'เข้าระบบ' || text === 'ดึงข้อมูล' || text.toLowerCase() === '/login' || text.toLowerCase() === '/sync') {
-                                console.log(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
+                                logger.info(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
                                 
                                 // Send initial acknowledgment
                                 await sendTelegramMessage(token, fromChatId, '⏳ กำลังเตรียมการเข้าสู่ระบบ สปสช. และดึง QR Code ของ ThaiD...');
@@ -2537,7 +2538,7 @@ async function startTelegramBotListener() {
                                 
                                 // Run the end-to-end sync and capture in the background!
                                 runE2EPortalSyncAndCapture(fromChatId).catch(err => {
-                                    console.error('Error running E2E portal sync via telegram command:', err);
+                                    logger.error('Error running E2E portal sync via telegram command:', err);
                                 });
                             }
                         }
@@ -2590,10 +2591,10 @@ async function startTelegramBotListener() {
                         details += ` [${error.cause.errors.map(e => e.message || e.code).join(', ')}]`;
                     }
                 }
-                console.warn(`⚠️ [Telegram Bot] Network connection/timeout while polling updates: ${details}. Retrying in 30s...`);
+                logger.warn(`⚠️ [Telegram Bot] Network connection/timeout while polling updates: ${details}. Retrying in 30s...`);
                 setTimeout(poll, 30000);
             } else {
-                console.error('❌ [Telegram Bot] Error polling Telegram updates:', error);
+                logger.error('❌ [Telegram Bot] Error polling Telegram updates:', error);
                 setTimeout(poll, 10000);
             }
         }
@@ -2604,7 +2605,7 @@ async function startTelegramBotListener() {
 
 async function sendTelegramMessage(token, chatId, text) {
     if (process.env.DISABLE_NOTIFICATIONS === 'true') {
-        console.log('ℹ️ Telegram message is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        logger.info('ℹ️ Telegram message is globally disabled via DISABLE_NOTIFICATIONS=true.');
         return;
     }
     try {
@@ -2618,12 +2619,12 @@ async function sendTelegramMessage(token, chatId, text) {
         });
         clearTimeout(timeoutId);
     } catch (err) {
-        console.error('Error sending message:', err);
+        logger.error('Error sending message:', err);
     }
 }
 
 async function sendLineMessage(text) {
-    console.log('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
+    logger.info('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
 }
 
 async function runE2EPortalSyncAndCapture(targetChatId) {
@@ -2631,7 +2632,7 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
     try {
         const dlResult = await downloadNhsoReport();
         if (dlResult.success && dlResult.filePath) {
-            console.log(`📥 [Telegram Trigger] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
+            logger.info(`📥 [Telegram Trigger] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
             
             // อ่าน Excel
             const fileBuffer = fs.readFileSync(dlResult.filePath);
@@ -2647,7 +2648,7 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             const hosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(hosxpData, excelData);
             await saveTrackingResults(processedData);
-            console.log('✅ [Telegram Trigger] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+            logger.info('✅ [Telegram Trigger] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
             
             // เคลียร์ไฟล์ดาวน์โหลด
             cleanOldDownloads(path.join(__dirname, '../downloads'));
@@ -2656,20 +2657,20 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, '✅ ซิงก์ข้อมูลฐานข้อมูลสำเร็จแล้ว! กำลังเตรียมบันทึกหน้าจอ Grafana...');
             await sendLineMessage(`✅ ดึงข้อมูลรายงานและประมวลผลข้อมูลประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังเตรียมส่งรายงาน Flex...`);
         } else {
-            console.warn(`⚠️ [Telegram Trigger] การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
+            logger.warn(`⚠️ [Telegram Trigger] การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
             await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `❌ ดึงข้อมูลรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
             await sendLineMessage(`❌ ดึงข้อมูลรายงานของวันที่ ${visit_date} ไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
             return;
         }
     } catch (err) {
-        console.error('❌ [Telegram Trigger] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
+        logger.error('❌ [Telegram Trigger] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
         await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `❌ ข้อผิดพลาดภายในเซิร์ฟเวอร์: ${err.message}`);
         await sendLineMessage(`❌ เกิดข้อผิดพลาดในเซิร์ฟเวอร์: ${err.message}`);
         return;
     }
     
     // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
-    console.log('📸 [Telegram Trigger] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
+    logger.info('📸 [Telegram Trigger] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
     try {
         const telegramChatIdEnv = process.env.TELEGRAM_CHAT_ID || '';
         const chatIds = new Set([
@@ -2682,6 +2683,6 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `⚠️ ซิงก์ข้อมูลสำเร็จ แต่บันทึกภาพ Dashboard ไม่สำเร็จ: ${captureResult.error || 'ไม่ทราบสาเหตุ'}`);
         }
     } catch (err) {
-        console.error('❌ [Telegram Trigger] ข้อผิดพลาดในการบันทึกแดชบอร์ด/ส่งแจ้งเตือน:', err);
+        logger.error('❌ [Telegram Trigger] ข้อผิดพลาดในการบันทึกแดชบอร์ด/ส่งแจ้งเตือน:', err);
     }
 }

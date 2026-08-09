@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { hosxpPool, trackerPool } from './db.js';
 import crypto from 'crypto';
 import { getJwtSecret } from './runtimeConfig.js';
+import logger from './logger.js';
 
 dotenv.config();
 
@@ -81,16 +82,16 @@ export async function verifyUserLogin(username, password) {
 
         if (!hasOfficerPassword(officerRecord) && !hasOpduserPassword(opduserRecord)) {
             if (!canUseDevLoginPassword(password)) {
-                console.warn(`⚠️ Login failed: HOSxP user has no password set: ${username}`);
+                logger.warn(`⚠️ Login failed: HOSxP user has no password set: ${username}`);
                 return { success: false, message: 'บัญชี HOSxP นี้ยังไม่ได้ตั้งรหัสผ่าน กรุณาตั้งรหัสผ่านใน HOSxP หรือกำหนด HOSXP_DEV_LOGIN_PASSWORD เฉพาะเครื่องพัฒนา' };
             }
-            console.warn(`⚠️ Development login override used for HOSxP user without password: ${username}`);
+            logger.warn(`⚠️ Development login override used for HOSxP user without password: ${username}`);
         } else if (!matchedOfficer && !matchedOpduser) {
-            console.warn(`⚠️ Login failed: Invalid password for user: ${username}`);
+            logger.warn(`⚠️ Login failed: Invalid password for user: ${username}`);
             return { success: false, message: 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง' };
         }
 
-        console.log(`✅ Login successful for user: ${username}`);
+        logger.info(`✅ Login successful for user: ${username}`);
         
         // Get name and department (group text)
         const loginName = officerRecord?.officer_login_name || opduserRecord?.loginname || username;
@@ -118,7 +119,7 @@ export async function verifyUserLogin(username, password) {
                 );
             }
         } catch (dbErr) {
-            console.error('❌ Internal DB Sync Error:', dbErr.message);
+            logger.error('❌ Internal DB Sync Error:', dbErr.message);
             // We continue even if sync fails, but role stays 'user'
         }
 
@@ -135,7 +136,7 @@ export async function verifyUserLogin(username, password) {
         return { success: true, token, user: userData };
         
     } catch (error) {
-        console.error("❌ Auth Error Details:", error.message);
+        logger.error("❌ Auth Error Details:", error.message);
         return { success: false, message: `เกิดข้อผิดพลาด: ${error.message}` };
     }
 }
@@ -153,7 +154,7 @@ export function authenticateToken(req, res, next) {
         if (err) {
             // If token is expired → 401 so the client can auto-logout / refresh
             if (err.name === 'TokenExpiredError') {
-                console.warn(`⚠️ JWT Expired: ${err.message}`);
+                logger.warn(`⚠️ JWT Expired: ${err.message}`);
                 return res.status(401).json({ 
                     message: 'Session Expired', 
                     error: 'token_expired',
@@ -162,7 +163,7 @@ export function authenticateToken(req, res, next) {
             }
             
             // Any other JWT error (invalid signature, malformed, etc.) → 401 (Unauthorized) so the client auto-logs out
-            console.error(`❌ JWT Verification Failed: ${err.message}`);
+            logger.error(`❌ JWT Verification Failed: ${err.message}`);
             return res.status(401).json({ 
                 success: false,
                 message: 'Session Expired or Invalid Token', 

@@ -1,4 +1,5 @@
 import * as visitService from '../services/visitService.js';
+import logger from '../logger.js';
 
 export async function getTodayByTambon(req, res) {
   try {
@@ -6,7 +7,7 @@ export async function getTodayByTambon(req, res) {
     const data = await visitService.getTodayVisitSummary(ampCode);
     res.json(data);
   } catch (err) {
-    console.error('[visitController] error:', err);
+    logger.error('[visitController] error:', err);
     res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลผู้ป่วยได้ในขณะนี้' });
   }
 }

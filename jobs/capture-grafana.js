@@ -22,6 +22,7 @@ import { getJwtSecret } from '../backend/runtimeConfig.js';
 import { getLocalDashboardUrl } from './captureConfig.js';
 import { trackerPool } from '../backend/db.js';
 import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
+import logger from '../backend/logger.js';
 
 dotenv.config();
 
@@ -75,7 +76,7 @@ async function fetchSummaryStats(queryDate) {
  * Send text summary to Telegram Chat
  */
 async function sendTextSummaryToTelegram(token, chatId, targetDate, stats) {
-    console.log(`📲 Sending Text Summary to Telegram Chat: ${chatId}...`);
+    logger.info(`📲 Sending Text Summary to Telegram Chat: ${chatId}...`);
     try {
         const formattedDate = new Date(targetDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
         
@@ -111,12 +112,12 @@ async function sendTextSummaryToTelegram(token, chatId, targetDate, stats) {
 
         const resData = await response.json().catch(() => ({}));
         if (response.ok && resData.ok) {
-            console.log('✅ Text summary sent to Telegram successfully.');
+            logger.info('✅ Text summary sent to Telegram successfully.');
         } else {
-            console.error('❌ Telegram Bot API returned error:', resData);
+            logger.error('❌ Telegram Bot API returned error:', resData);
         }
     } catch (error) {
-        console.error('❌ Error sending text summary to Telegram:', error);
+        logger.error('❌ Error sending text summary to Telegram:', error);
     }
 }
 
@@ -125,12 +126,12 @@ async function sendTextSummaryToTelegram(token, chatId, targetDate, stats) {
  */
 async function captureAndNotify(targetDate = null, channels = ['line', 'telegram'], reportTypes = ['summary', 'screenshot'], userCredentials = null) {
     if (process.env.ENABLE_SYNC_REPORTS !== 'true') {
-        console.log('ℹ️ Sync report delivery is disabled; skipping summary and screenshot generation.');
+        logger.info('ℹ️ Sync report delivery is disabled; skipping summary and screenshot generation.');
         return { success: true, skipped: true, message: 'Sync reports are temporarily disabled' };
     }
 
     if (process.env.ENABLE_DASHBOARD_MODULES !== 'true') {
-        console.log('ℹ️ Dashboard capture is disabled while dashboard modules are paused.');
+        logger.info('ℹ️ Dashboard capture is disabled while dashboard modules are paused.');
         return { success: true, skipped: true, message: 'Dashboard modules are temporarily disabled' };
     }
 
@@ -152,16 +153,16 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
         captureLockHolderId = createSchedulerHolderId();
         const acquired = await acquireSchedulerLock(trackerPool, 'dashboard_capture', captureLockHolderId);
         if (!acquired) {
-            console.warn('ℹ️ Dashboard capture skipped because another capture is already running.');
+            logger.warn('ℹ️ Dashboard capture skipped because another capture is already running.');
             return { success: false, skipped: true, filepath, filename, error: 'Dashboard capture is already running' };
         }
         const localAppUrl = getLocalDashboardUrl();
 
-        console.log(`🚀 Starting screenshot capture process for local dashboard: ${localAppUrl}`);
+        logger.info(`🚀 Starting screenshot capture process for local dashboard: ${localAppUrl}`);
 
         let browser;
         try {
-            console.log('🌐 Launching browser...');
+            logger.info('🌐 Launching browser...');
             browser = await puppeteer.launch({
                 headless: true,
                 args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -171,11 +172,11 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
             await page.setViewport({ width: 1920, height: 1080 });
             await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
 
-            console.log(`🔗 Navigating to local application URL: ${localAppUrl}`);
+            logger.info(`🔗 Navigating to local application URL: ${localAppUrl}`);
             await page.goto(localAppUrl, { waitUntil: 'load', timeout: 30000 });
 
             // Generate JWT token for system capture user
-            console.log('🔑 Generating system authentication token...');
+            logger.info('🔑 Generating system authentication token...');
             const tokenPayload = {
                 username: 'system_capture',
                 full_name: 'System Capture Bot',
@@ -186,7 +187,7 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
             const token = jwt.sign(tokenPayload, jwtSecret, { expiresIn: '15m' });
 
             // Inject credentials and force light theme
-            console.log('🧪 Injecting auth credentials and setting theme to light...');
+            logger.info('🧪 Injecting auth credentials and setting theme to light...');
             await page.evaluate((tok, usr) => {
                 localStorage.setItem('nhso_token', tok);
                 localStorage.setItem('nhso_user', JSON.stringify(usr));
@@ -195,12 +196,12 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
             }, token, tokenPayload);
 
             // Reload page to apply login
-            console.log('🔄 Reloading page to apply login...');
+            logger.info('🔄 Reloading page to apply login...');
             await page.goto(localAppUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
             // Set the target date if provided
             if (queryDate) {
-                console.log(`📅 Setting target date: ${queryDate}`);
+                logger.info(`📅 Setting target date: ${queryDate}`);
                 await page.evaluate((date) => {
                     const dateInput = document.getElementById('visit-date');
                     if (dateInput) {
@@ -211,16 +212,16 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
             }
 
             // Switch to the Live Dashboard tab
-            console.log('📊 Switching to Live Dashboard tab...');
+            logger.info('📊 Switching to Live Dashboard tab...');
             await page.waitForSelector('#tab-live-dashboard', { timeout: 10000 });
             await page.click('#tab-live-dashboard');
 
             // Wait for the Live Dashboard container to render and load data
-            console.log('⏳ Waiting for Live Dashboard content to render...');
+            logger.info('⏳ Waiting for Live Dashboard content to render...');
             await page.waitForSelector('#live-dashboard-view-container', { timeout: 10000 });
             
             // Wait for charts/animations to load completely
-            console.log('⏱️ Waiting for charts animations...');
+            logger.info('⏱️ Waiting for charts animations...');
             await new Promise(resolve => setTimeout(resolve, 5000));
 
             const screenshotsDir = path.join(__dirname, '../screenshots');
@@ -239,26 +240,26 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
             filename = `grafana_${yyyy}-${mm}-${dd}_${hh}-${min}-${sec}.png`;
             filepath = path.join(screenshotsDir, filename);
 
-            console.log('📸 Capturing element screenshot (.uc-insight-board)...');
+            logger.info('📸 Capturing element screenshot (.uc-insight-board)...');
             const element = await page.$('.uc-insight-board');
             if (element) {
                 await element.screenshot({ path: filepath });
-                console.log(`💾 Element screenshot successfully saved to: ${filepath}`);
+                logger.info(`💾 Element screenshot successfully saved to: ${filepath}`);
             } else {
-                console.warn('⚠️ Element .uc-insight-board not found. Capturing full page instead.');
+                logger.warn('⚠️ Element .uc-insight-board not found. Capturing full page instead.');
                 await page.screenshot({ path: filepath });
-                console.log(`💾 Full page screenshot successfully saved to: ${filepath}`);
+                logger.info(`💾 Full page screenshot successfully saved to: ${filepath}`);
             }
 
             cleanOldScreenshots(screenshotsDir);
 
         } catch (error) {
-            console.error('❌ Error in screenshot capture:', error);
+            logger.error('❌ Error in screenshot capture:', error);
             captureError = error;
         } finally {
             if (browser) {
                 await browser.close();
-                console.log('🔒 Browser closed.');
+                logger.info('🔒 Browser closed.');
             }
             if (captureLockHolderId) {
                 await releaseSchedulerLock(trackerPool, 'dashboard_capture', captureLockHolderId);
@@ -266,12 +267,12 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
             }
         }
     } else {
-        console.log('ℹ️ Screenshot disabled for this run (Data Summary only).');
+        logger.info('ℹ️ Screenshot disabled for this run (Data Summary only).');
     }
 
     // Now send notifications
     if (process.env.DISABLE_NOTIFICATIONS === 'true') {
-        console.log('ℹ️ Notifications are globally disabled via DISABLE_NOTIFICATIONS=true. Skipping send.');
+        logger.info('ℹ️ Notifications are globally disabled via DISABLE_NOTIFICATIONS=true. Skipping send.');
         return { success: !captureError, filepath, filename, error: captureError?.message || null };
     }
 
@@ -280,11 +281,11 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
     // Fetch database stats once if summary is needed
     let stats = null;
     if (reportTypes.includes('summary')) {
-        console.log('📊 Fetching database stats for summary messages...');
+        logger.info('📊 Fetching database stats for summary messages...');
         try {
             stats = await fetchSummaryStats(queryDate);
         } catch (err) {
-            console.error('❌ Failed to fetch database stats for summary:', err);
+            logger.error('❌ Failed to fetch database stats for summary:', err);
         }
     }
 
@@ -295,12 +296,12 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
                 sendToLineBot(lineAccessToken, lineGroupId, queryDate, stats)
             );
         } else {
-            console.log('ℹ️ LINE Group: Summary not requested or failed, nothing to send.');
+            logger.info('ℹ️ LINE Group: Summary not requested or failed, nothing to send.');
         }
     } else if (!channels.includes('line')) {
-        console.log('ℹ️ LINE Group notifications disabled for this run.');
+        logger.info('ℹ️ LINE Group notifications disabled for this run.');
     } else {
-        console.log('⚠️ LINE_CHANNEL_ACCESS_TOKEN or LINE_GROUP_ID is missing in .env, skipping LINE Bot.');
+        logger.info('⚠️ LINE_CHANNEL_ACCESS_TOKEN or LINE_GROUP_ID is missing in .env, skipping LINE Bot.');
     }
 
     // Telegram Bot
@@ -319,9 +320,9 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
             }
         });
     } else if (!channels.includes('telegram')) {
-        console.log('ℹ️ Telegram notifications disabled for this run.');
+        logger.info('ℹ️ Telegram notifications disabled for this run.');
     } else {
-        console.log('⚠️ TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing in .env, skipping Telegram Bot.');
+        logger.info('⚠️ TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing in .env, skipping Telegram Bot.');
     }
 
     if (notificationPromises.length > 0) {
@@ -332,11 +333,11 @@ async function captureAndNotify(targetDate = null, channels = ['line', 'telegram
 }
 
 async function sendToLineBot(token, groupId, targetDate, stats) {
-    console.log('ℹ️ LINE Flex summary push message is disabled (only replies are allowed).');
+    logger.info('ℹ️ LINE Flex summary push message is disabled (only replies are allowed).');
 }
 
 async function sendToTelegram(filepath, filename, token, chatId, targetDate = null) {
-    console.log('📲 Sending screenshot to Telegram via Telegram Bot API...');
+    logger.info('📲 Sending screenshot to Telegram via Telegram Bot API...');
     try {
         const fileBuffer = fs.readFileSync(filepath);
         const blob = new Blob([fileBuffer], { type: 'image/png' });
@@ -359,12 +360,12 @@ async function sendToTelegram(filepath, filename, token, chatId, targetDate = nu
 
         const resData = await response.json();
         if (response.ok && resData.ok) {
-            console.log('✅ Photo sent to Telegram successfully.');
+            logger.info('✅ Photo sent to Telegram successfully.');
         } else {
-            console.error('❌ Telegram Bot API returned error:', resData);
+            logger.error('❌ Telegram Bot API returned error:', resData);
         }
     } catch (error) {
-        console.error('❌ Error sending to Telegram:', error);
+        logger.error('❌ Error sending to Telegram:', error);
     }
 }
 
@@ -383,13 +384,13 @@ function cleanOldScreenshots(screenshotsDir) {
             const filePath = path.join(screenshotsDir, file);
             try {
                 fs.unlinkSync(filePath);
-                console.log(`🗑️ Deleted old screenshot: ${file}`);
+                logger.info(`🗑️ Deleted old screenshot: ${file}`);
             } catch (err) {
-                console.error(`❌ Error deleting file ${file}:`, err);
+                logger.error(`❌ Error deleting file ${file}:`, err);
             }
         });
     } catch (error) {
-        console.error('❌ Error during screenshots folder cleanup:', error);
+        logger.error('❌ Error during screenshots folder cleanup:', error);
     }
 }
 

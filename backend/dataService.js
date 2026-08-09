@@ -1,4 +1,5 @@
 import { getHosxpWritePool, hosxpPool, trackerPool } from './db.js';
+import logger from './logger.js';
 // NOTE: authencode is in HOSxP. All writes use the explicitly configured write pool.
 
 export const DEFAULT_HIPDATA_CODES = ['OFC', 'UCS', 'OTH', 'BMT', 'XXX', 'LGO', 'STP', 'SSS', 'SSI', 'A2', 'BKK', 'PTY', 'A9'];
@@ -60,7 +61,7 @@ export async function getHosxpVisits(visitDate) {
         const [rows] = await hosxpPool.query(query, [visitDate, visitDate, visitDate]);
         return rows;
     } catch (error) {
-        console.error('❌ HOSxP Query Error:', error);
+        logger.error('❌ HOSxP Query Error:', error);
         throw error;
     }
 }
@@ -123,7 +124,7 @@ export async function getHosxpTotalVisits(visitDate) {
             result.completedTreatmentEndpointCount = Number(completedTreatment?.completedTreatmentEndpointCount || 0);
             result.completedTreatmentSource = 'hosxp_endpoint_with_drug';
         } catch (completedError) {
-            console.warn('⚠️ HOSxP Completed Treatment Query fallback:', completedError.message);
+            logger.warn('⚠️ HOSxP Completed Treatment Query fallback:', completedError.message);
             const [[endpointClosed]] = await hosxpPool.query(endpointClosedQuery, [visitDate]);
             result.completedTreatmentEndpointCount = Number(endpointClosed?.completedTreatmentEndpointCount || 0);
             result.completedTreatmentSource = 'hosxp_endpoint_closed';
@@ -134,7 +135,7 @@ export async function getHosxpTotalVisits(visitDate) {
         // Fallback to mock counts matching the sum of geoData (247 visits, 247 persons, e.g. 154200 uc money)
         return { totalPersons: 247, totalVisits: 247, totalUcMoney: 154200.00, completedTreatmentEndpointCount: 0, completedTreatmentSource: 'fallback_mock' };
     } catch (error) {
-        console.error('❌ HOSxP Total Visits Query Error:', error);
+        logger.error('❌ HOSxP Total Visits Query Error:', error);
         return { totalPersons: 247, totalVisits: 247, totalUcMoney: 154200.00, completedTreatmentEndpointCount: 0, completedTreatmentSource: 'fallback_mock' };
     }
 }
@@ -178,10 +179,10 @@ export async function saveTrackingResults(results) {
     try {
         if (values.length === 0) return;
         await trackerPool.query(query, [values]);
-        console.log(`✅ Saved/Updated ${results.length} records to internal DB.`);
+        logger.info(`✅ Saved/Updated ${results.length} records to internal DB.`);
 
     } catch (error) {
-        console.error('❌ Save Tracking Error:', error.message);
+        logger.error('❌ Save Tracking Error:', error.message);
         throw error;
     }
 }
@@ -243,9 +244,9 @@ export async function executeAdvancedRunLogic(visitDate, executor = getHosxpWrit
 
     try {
         await executor.query(query, [visitDate]);
-        console.log(`✅ Executed advanced HOSxP update logic for date: ${visitDate}`);
+        logger.info(`✅ Executed advanced HOSxP update logic for date: ${visitDate}`);
     } catch (error) {
-        console.error('❌ Advanced Run Logic Error:', error.message);
+        logger.error('❌ Advanced Run Logic Error:', error.message);
         throw error;
     }
 }
@@ -380,9 +381,9 @@ export async function saveAuthenLog(excelData, visitDate, executor = getHosxpWri
 
     try {
         await executor.query(query, [values]);
-        console.log(`✅ Logged ${excelData.length} records to "authencode" table.`);
+        logger.info(`✅ Logged ${excelData.length} records to "authencode" table.`);
     } catch (error) {
-        console.error('❌ Could not save to authencode table:', error.message);
+        logger.error('❌ Could not save to authencode table:', error.message);
         throw error;
     }
 }
@@ -398,12 +399,12 @@ export async function runHosxpSync(excelData, visitDate, writePool = getHosxpWri
         await saveAuthenLog(excelData, visitDate, connection);
         await executeAdvancedRunLogic(visitDate, connection);
         await connection.commit();
-        console.log(`✅ HOSxP sync transaction committed for date: ${visitDate}`);
+        logger.info(`✅ HOSxP sync transaction committed for date: ${visitDate}`);
     } catch (error) {
         try {
             await connection.rollback();
         } catch (rollbackError) {
-            console.error('❌ HOSxP sync rollback failed:', rollbackError.message);
+            logger.error('❌ HOSxP sync rollback failed:', rollbackError.message);
         }
         throw error;
     } finally {
@@ -441,7 +442,7 @@ export async function checkNhsoStatusViaApi(cid, date, serviceCode, token) {
         return await response.json();
     } catch (error) {
         clearTimeout(timeoutId);
-        console.error(`❌ CID ${cid} API Error:`, error.message);
+        logger.error(`❌ CID ${cid} API Error:`, error.message);
         return null;
     }
 }
@@ -482,7 +483,7 @@ export async function getLiveDashboardGeo(visitDate) {
             { subdistrict_code: '07', subdistrict_name: 'คลองไก่เถื่อน', unique_patients: 32, visit_count: 32 }
         ];
     } catch (error) {
-        console.error('❌ HOSxP Geo Query Error:', error);
+        logger.error('❌ HOSxP Geo Query Error:', error);
         // Fallback to mock data where ไทรทอง (T02) has 11 patients
         return [
             { subdistrict_code: '01', subdistrict_name: 'ไทรเดี่ยว', unique_patients: 45, visit_count: 45 },
@@ -526,7 +527,7 @@ export async function getLiveDashboardDeps(visitDate) {
             { dep_code: 'DENTAL', dep_name: 'Dental Clinic', unique_patients: 21, visit_count: 21 }
         ];
     } catch (error) {
-        console.error('❌ HOSxP Department Query Error:', error);
+        logger.error('❌ HOSxP Department Query Error:', error);
         return [
             { dep_code: 'OPD', dep_name: 'Outpatient Dept. (OPD)', unique_patients: 72, visit_count: 72 },
             { dep_code: 'ER', dep_name: 'Emergency Room (ER)', unique_patients: 17, visit_count: 17 },
@@ -674,7 +675,7 @@ export async function getHosxpSummaryStats(visitDate) {
             ucs_departments: ucs_departments || []
         };
     } catch (error) {
-        console.error('❌ HOSxP Summary Stats Query Error:', error);
+        logger.error('❌ HOSxP Summary Stats Query Error:', error);
         throw error;
     }
 }

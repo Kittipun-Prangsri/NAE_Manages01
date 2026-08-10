@@ -99,20 +99,23 @@ export async function verifyUserLogin(username, password) {
         const department = officerRecord?.officer_group_list_text || opduserRecord?.groupname || 'ไม่ระบุกลุ่มงาน';
 
         // --- Sync with Internal users table ---
-        let role = 'user';
+        const isAdminUser = ['admin', 'kittipun', 'kittipun_tong', 'khos'].includes(username.toLowerCase()) || fullName.includes('กิตติพันธ์');
+        let role = isAdminUser ? 'admin' : 'user';
+
         try {
             // Check if user exists in our internal DB
             const [internalUser] = await trackerPool.query('SELECT role FROM users WHERE username = ?', [username]);
             
             if (internalUser.length > 0) {
-                role = internalUser[0].role;
+                // Keep admin role if already set or if auto-promoted
+                role = (internalUser[0].role === 'admin' || isAdminUser) ? 'admin' : internalUser[0].role;
                 // Update their info in case it changed in HOSxP
                 await trackerPool.query(
-                    'UPDATE users SET full_name = ?, department = ? WHERE username = ?',
-                    [fullName, department, username]
+                    'UPDATE users SET full_name = ?, department = ?, role = ? WHERE username = ?',
+                    [fullName, department, role, username]
                 );
             } else {
-                // First time login, insert them
+                // First time login, insert them with assigned role
                 await trackerPool.query(
                     'INSERT INTO users (username, full_name, department, role) VALUES (?, ?, ?, ?)',
                     [username, fullName, department, role]

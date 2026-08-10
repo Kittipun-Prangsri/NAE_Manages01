@@ -322,10 +322,10 @@ async function handleQuickSyncSubmit(e) {
         if (submitBtn) submitBtn.disabled = true;
         if (syncIcon) syncIcon.classList.add('animate-spin');
 
-        if (excelFileInput) {
+        if (domRefs.excelFileInput) {
             const dataTransfer = new DataTransfer();
             dataTransfer.items.add(file);
-            excelFileInput.files = dataTransfer.files;
+            domRefs.excelFileInput.files = dataTransfer.files;
         }
 
         await handleFileSelection(file);

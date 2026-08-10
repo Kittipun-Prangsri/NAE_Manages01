@@ -89,7 +89,7 @@ if (element) {
 ### 1. การรันสคริปต์ทดสอบ (Manual Test)
 สามารถทดสอบการรันผ่านคอนโซลได้โดยรันสคริปต์ทดสอบแบบแมนนวล:
 ```bash
-node test-capture.js
+node backend/scripts/test-capture.js
 ```
 
 ### 2. แนวทางแก้ปัญหาทั่วไป (Common Issues)

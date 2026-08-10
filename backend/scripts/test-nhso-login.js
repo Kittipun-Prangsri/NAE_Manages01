@@ -74,7 +74,7 @@ async function testLogin() {
         console.log(`📍 Post-login URL: ${landingUrl}`);
 
         // Take a screenshot of the dashboard
-        const dashboardScreenshotPath = path.join(__dirname, 'nhso_dashboard_test.png');
+        const dashboardScreenshotPath = path.join(__dirname, 'debug-output', 'nhso_dashboard_test.png');
         await page.screenshot({ path: dashboardScreenshotPath });
         console.log(`📸 Dashboard screenshot saved to: ${dashboardScreenshotPath}`);
 

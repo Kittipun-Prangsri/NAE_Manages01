@@ -62,7 +62,7 @@ async function testStealth() {
         console.log('📝 Page Text (first 1000 chars):\n', pageInfo.bodyText);
         
         // Take screenshot of the bypassed page
-        const screenshotPath = path.join(__dirname, 'nhso_login_stealth.png');
+        const screenshotPath = path.join(__dirname, 'debug-output', 'nhso_login_stealth.png');
         await page.screenshot({ path: screenshotPath });
         console.log(`📸 Screenshot saved to: ${screenshotPath}`);
         

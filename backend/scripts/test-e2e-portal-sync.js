@@ -1,8 +1,8 @@
-import { downloadNhsoReport, cleanOldDownloads } from './jobs/download-nhso.js';
-import { captureAndNotify } from './jobs/capture-grafana.js';
-import { getHosxpVisits, saveTrackingResults, runHosxpSync } from './backend/dataService.js';
-import { processCrossCheck } from './backend/crossCheckLogic.js';
-import { checkConnections } from './backend/db.js';
+import { downloadNhsoReport, cleanOldDownloads } from '../../jobs/download-nhso.js';
+import { captureAndNotify } from '../../jobs/capture-grafana.js';
+import { getHosxpVisits, saveTrackingResults, runHosxpSync } from '../dataService.js';
+import { processCrossCheck } from '../crossCheckLogic.js';
+import { checkConnections } from '../db.js';
 import * as xlsx from 'xlsx';
 import fs from 'fs';
 import path from 'path';
@@ -45,7 +45,7 @@ async function testE2ESyncAndCapture() {
         console.log('✅ Sync completed in Database.');
 
         console.log('🧹 Step 4: Cleaning up Excel downloads...');
-        cleanOldDownloads(path.join(__dirname, 'downloads'));
+        cleanOldDownloads(path.join(__dirname, '../../downloads'));
 
         console.log('📸 Step 5: Capturing Grafana and sending Telegram/LINE notifications...');
         const captureResult = await captureAndNotify();

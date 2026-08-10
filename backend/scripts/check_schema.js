@@ -1,4 +1,4 @@
-import { trackerPool } from './backend/db.js';
+import { trackerPool } from '../db.js';
 
 async function check() {
     try {

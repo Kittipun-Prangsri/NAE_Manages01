@@ -35,7 +35,7 @@ async function testThaiDFlow() {
     
     let browser;
     try {
-        const sessionPath = path.join(__dirname, 'puppeteer_session');
+        const sessionPath = path.join(__dirname, '../../puppeteer_session');
         
         // Terminate stale Chrome/Chromium processes under Linux to release lock handles
         if (process.platform === 'linux') {
@@ -70,7 +70,7 @@ async function testThaiDFlow() {
             ]
         });
         
-        const downloadsDir = path.join(__dirname, 'downloads');
+        const downloadsDir = path.join(__dirname, '../../downloads');
         if (!fs.existsSync(downloadsDir)) {
             fs.mkdirSync(downloadsDir, { recursive: true });
         }
@@ -141,7 +141,7 @@ async function testThaiDFlow() {
                 await new Promise(resolve => setTimeout(resolve, 1000));
 
                 // Capture QR Code page screenshot in screenshots directory
-                const screenshotsDir = path.join(__dirname, 'screenshots');
+                const screenshotsDir = path.join(__dirname, '../../screenshots');
                 if (!fs.existsSync(screenshotsDir)) {
                     fs.mkdirSync(screenshotsDir, { recursive: true });
                 }
@@ -240,7 +240,7 @@ async function testThaiDFlow() {
             }, date_be);
 
             // Capture initial state
-            const initialReportPath = path.join(__dirname, 'nhso_report_page_initial.png');
+            const initialReportPath = path.join(__dirname, 'debug-output', 'nhso_report_page_initial.png');
             await page.screenshot({ path: initialReportPath });
             console.log(`📸 Saved initial report page screenshot to: ${initialReportPath}`);
             
@@ -285,7 +285,7 @@ async function testThaiDFlow() {
             await new Promise(resolve => setTimeout(resolve, 3000));
             
             // Capture loaded names state
-            const loadedReportPath = path.join(__dirname, 'nhso_report_page_loaded.png');
+            const loadedReportPath = path.join(__dirname, 'debug-output', 'nhso_report_page_loaded.png');
             await page.screenshot({ path: loadedReportPath });
             console.log(`📸 Saved searched report page screenshot to: ${loadedReportPath}`);
             

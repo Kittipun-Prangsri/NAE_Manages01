@@ -108,6 +108,10 @@
                     <span id="clock-time" class="text-xs font-bold font-mono">00:00:00</span>
                     <span id="clock-date" class="text-[9px] font-medium opacity-80 uppercase tracking-tighter">01 JAN 2024</span>
                 </div>
+                <!-- Quick Sync Modal Trigger -->
+                <button id="quick-sync-trigger-btn" type="button" title="นำเข้าและ Sync ข้อมูลด่วน" class="w-9 h-9 flex items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition cursor-pointer border border-blue-200/50 dark:border-blue-800/40">
+                    <i class="fas fa-file-import text-sm"></i>
+                </button>
                 <!-- Theme Toggle Button -->
                 <button id="theme-toggle" type="button" aria-label="ธีม" aria-pressed="false" class="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer">
                     <i class="fas fa-desktop text-sm" id="theme-icon" aria-hidden="true"></i>
@@ -125,6 +129,9 @@
                 <nav class="sidebar-nav">
                     <button id="tab-tracker" type="button" class="sidebar-nav-item is-active" aria-current="page">
                         <i class="fas fa-tasks" aria-hidden="true"></i><span>ระบบตรวจสอบ</span>
+                    </button>
+                    <button id="quick-sync-sidebar-btn" type="button" class="sidebar-nav-item">
+                        <i class="fas fa-bolt text-amber-400" aria-hidden="true"></i><span>Quick Sync</span>
                     </button>
                     <a
                         class="sidebar-nav-item sidebar-nav-item-external"
@@ -1298,6 +1305,51 @@
                     ปิดหน้าต่างนี้
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- Quick Sync & Import Modal -->
+    <div id="quick-sync-modal" class="fixed inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 hidden transition-opacity duration-300">
+        <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-2xl flex flex-col max-w-md w-full border border-slate-100 dark:border-slate-800/50 text-slate-800 dark:text-slate-100 relative">
+            
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-4 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <h3 class="font-bold text-base flex items-center space-x-2 text-slate-900 dark:text-white">
+                    <i class="fas fa-file-import text-blue-500"></i>
+                    <span>นำเข้าและ Sync ข้อมูล</span>
+                </h3>
+                <div class="flex items-center space-x-2">
+                    <button id="open-standalone-popup-btn" type="button" title="เปิดเป็นป๊อบอัพแยกต่างหาก (Standalone Window)" class="text-slate-400 hover:text-blue-500 transition focus:outline-none cursor-pointer p-1">
+                        <i class="fas fa-up-right-from-square text-sm"></i>
+                    </button>
+                    <button id="close-quick-sync-modal" type="button" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition focus:outline-none cursor-pointer p-1">
+                        <i class="fas fa-times text-lg"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Import Field & Form Body -->
+            <form id="quick-sync-form" class="space-y-4">
+                <!-- File Import Field -->
+                <div class="space-y-1.5">
+                    <label for="quick-import-file" class="block text-xs font-semibold text-slate-500 dark:text-slate-400">เลือกไฟล์ข้อมูล (.xlsx, .xls, .csv)</label>
+                    <div class="relative flex items-center">
+                        <input type="file" id="quick-import-file" accept=".xlsx, .xls, .csv" required
+                            class="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 dark:file:bg-slate-800 dark:file:text-blue-400 hover:file:bg-blue-100 dark:hover:file:bg-slate-700 transition cursor-pointer border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-850 p-1">
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                    <button type="button" id="cancel-quick-sync-btn" class="px-4 py-2 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition text-xs font-bold cursor-pointer">
+                        ยกเลิก
+                    </button>
+                    <button type="submit" id="quick-sync-submit-btn" class="btn-primary-glow bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold px-5 py-2 rounded-xl transition text-xs flex items-center space-x-2 shadow-md shadow-blue-500/20 cursor-pointer">
+                        <i class="fas fa-sync-alt" id="quick-sync-icon"></i>
+                        <span>เริ่ม Sync ข้อมูล</span>
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 

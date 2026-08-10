@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="th" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NAE Quick Sync - ระบบนำเข้าข้อมูลด่วน</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex items-center justify-center p-4 font-sans antialiased selection:bg-blue-500 selection:text-white">
+    
+    <div class="w-full max-w-md bg-slate-900/90 backdrop-blur-md p-6 rounded-2xl shadow-2xl border border-slate-800/80 space-y-5 relative overflow-hidden">
+        
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/30">
+                    <i class="fas fa-bolt text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-base tracking-wide text-white">NAE Quick Sync</h1>
+                    <p class="text-[11px] text-slate-400 font-medium">นำเข้าและ Sync ข้อมูลสิทธิ์ สปสช. อิสระ</p>
+                </div>
+            </div>
+            <span id="session-badge" class="px-2.5 py-1 text-[10px] font-bold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                Ready
+            </span>
+        </div>
+
+        <!-- Main Sync Form -->
+        <form id="quick-sync-form" class="space-y-4">
+            
+            <!-- Date Picker -->
+            <div class="space-y-1">
+                <label for="visit-date" class="block text-xs font-bold text-slate-400 uppercase tracking-wider">วันที่รับบริการ</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                        <i class="fas fa-calendar-alt text-xs"></i>
+                    </span>
+                    <input type="date" id="visit-date" required
+                        class="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700/80 rounded-xl text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition cursor-pointer">
+                </div>
+            </div>
+
+            <!-- Excel Dropzone File Picker -->
+            <div class="space-y-1">
+                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">ไฟล์รายงาน Excel / CSV</label>
+                <div id="dropzone" class="border-2 border-dashed border-slate-700 hover:border-blue-500/60 bg-slate-800/40 hover:bg-blue-500/5 rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 group relative">
+                    <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" required class="hidden">
+                    <div class="flex flex-col items-center space-y-2 pointer-events-none" id="dropzone-content">
+                        <div class="w-12 h-12 rounded-full bg-slate-800 group-hover:bg-blue-600/20 text-slate-400 group-hover:text-blue-400 flex items-center justify-center transition-colors">
+                            <i class="fas fa-cloud-upload-alt text-xl"></i>
+                        </div>
+                        <div>
+                            <p id="file-name-text" class="text-xs font-bold text-slate-200 truncate max-w-[280px]">ลากวางไฟล์ที่นี่ หรือ คลิกเพื่อเลือก</p>
+                            <p id="file-sub-text" class="text-[10px] text-slate-500 mt-0.5">รองรับไฟล์ .xlsx, .xls, .csv จากระบบ สปสช.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Terminal Box -->
+            <div id="status-terminal" class="hidden bg-slate-950 p-3 rounded-xl border border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-start space-x-2">
+                <i class="fas fa-terminal text-emerald-400 mt-0.5 text-[10px]"></i>
+                <span id="status-text" class="flex-1 break-all">พร้อมทำงาน</span>
+            </div>
+
+            <!-- Action Sync Button -->
+            <button type="submit" id="submit-btn" 
+                class="w-full py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold rounded-xl text-xs flex items-center justify-center space-x-2 transition-all shadow-lg shadow-blue-600/25 active:scale-[0.98] cursor-pointer">
+                <i class="fas fa-sync-alt" id="sync-icon"></i>
+                <span id="submit-text">เริ่ม Sync ข้อมูล</span>
+            </button>
+        </form>
+
+        <!-- Footer -->
+        <div class="text-center pt-2 border-t border-slate-800/60 text-[10px] text-slate-500">
+            NAE_Manages01 Standalone Tool &copy; 2026
+        </div>
+    </div>
+
+    <script type="module">
+        import { api } from './api.js';
+
+        const visitDateInput = document.getElementById('visit-date');
+        const excelFileInput = document.getElementById('excel-file');
+        const dropzone = document.getElementById('dropzone');
+        const fileNameText = document.getElementById('file-name-text');
+        const fileSubText = document.getElementById('file-sub-text');
+        const statusTerminal = document.getElementById('status-terminal');
+        const statusText = document.getElementById('status-text');
+        const submitBtn = document.getElementById('submit-btn');
+        const submitText = document.getElementById('submit-text');
+        const syncIcon = document.getElementById('sync-icon');
+        const sessionBadge = document.getElementById('session-badge');
+
+        let appToken = localStorage.getItem('nhso_token') || '';
+        let detectedMapping = null;
+
+        // Set default date to today
+        visitDateInput.valueAsDate = new Date();
+
+        if (!appToken) {
+            sessionBadge.textContent = 'Unauthenticated';
+            sessionBadge.className = 'px-2.5 py-1 text-[10px] font-bold rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20';
+            updateStatus('คำเตือน: ยังไม่ได้เข้าสู่ระบบหลัก กรุณาล็อกอินที่หน้าหลักก่อนใช้งาน', 'warn');
+        }
+
+        // Dropzone interaction
+        dropzone.addEventListener('click', () => excelFileInput.click());
+
+        excelFileInput.addEventListener('change', (e) => {
+            handleFileSelect(e.target.files[0]);
+        });
+
+        ['dragenter', 'dragover'].forEach(evt => {
+            dropzone.addEventListener(evt, e => {
+                e.preventDefault();
+                dropzone.classList.add('border-blue-500', 'bg-blue-500/10');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(evt => {
+            dropzone.addEventListener(evt, e => {
+                e.preventDefault();
+                dropzone.classList.remove('border-blue-500', 'bg-blue-500/10');
+            });
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            const file = e.dataTransfer.files[0];
+            if (file) {
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                excelFileInput.files = dt.files;
+                handleFileSelect(file);
+            }
+        });
+
+        async function handleFileSelect(file) {
+            if (!file) return;
+            fileNameText.textContent = file.name;
+            fileSubText.textContent = `ขนาด: ${(file.size / 1024).toFixed(1)} KB`;
+            updateStatus(`เลือกไฟล์ ${file.name} เรียบร้อยแล้ว`, 'info');
+
+            // Probe date automatically
+            if (appToken) {
+                try {
+                    updateStatus('กำลังตรวจสอบรูปแบบคอลัมน์และวันที่ในไฟล์...', 'info');
+                    const response = await api.probeDate(file, appToken);
+                    if (response.ok && response.data) {
+                        detectedMapping = response.data.mapping || null;
+                        if (response.data.detected_date) {
+                            visitDateInput.value = response.data.detected_date;
+                            updateStatus(`ตรวจพบวันที่ในไฟล์: ${response.data.detected_date}`, 'success');
+                        }
+                    }
+                } catch (err) {
+                    console.warn('Probe date error:', err);
+                }
+            }
+        }
+
+        function updateStatus(msg, type = 'info') {
+            statusTerminal.classList.remove('hidden');
+            statusText.textContent = msg;
+            if (type === 'error') {
+                statusText.className = 'flex-1 break-all text-red-400 font-bold';
+            } else if (type === 'success') {
+                statusText.className = 'flex-1 break-all text-emerald-400 font-bold';
+            } else if (type === 'warn') {
+                statusText.className = 'flex-1 break-all text-amber-400 font-bold';
+            } else {
+                statusText.className = 'flex-1 break-all text-slate-300';
+            }
+        }
+
+        document.getElementById('quick-sync-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const file = excelFileInput.files[0];
+            const visitDate = visitDateInput.value;
+
+            if (!file) return alert('กรุณาเลือกไฟล์ Excel');
+            if (!visitDate) return alert('กรุณาเลือกวันที่');
+            if (!appToken) {
+                appToken = localStorage.getItem('nhso_token') || '';
+                if (!appToken) return alert('ไม่พบ Token เซสชันเข้าสู่ระบบ กรุณาล็อกอินระบบหลักก่อน');
+            }
+
+            try {
+                submitBtn.disabled = true;
+                syncIcon.classList.add('animate-spin');
+                submitText.textContent = 'กำลัง Sync...';
+                updateStatus('กำลังส่งข้อมูลประมวลผลไปยังเซิร์ฟเวอร์...', 'info');
+
+                const response = await api.processSync(visitDate, file, appToken, detectedMapping);
+                if (response.ok) {
+                    updateStatus(response.data?.message || 'Sync ข้อมูลสำเร็จเรียบร้อยแล้ว!', 'success');
+                    alert('Sync ข้อมูลสำเร็จ!');
+                } else {
+                    updateStatus(response.data?.message || 'เกิดข้อผิดพลาดในการ Sync ข้อมูล', 'error');
+                    alert('เกิดข้อผิดพลาด: ' + (response.data?.message || 'ไม่สามารถ Sync ได้'));
+                }
+            } catch (err) {
+                console.error('Standalone Sync error:', err);
+                updateStatus('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้', 'error');
+                alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+            } finally {
+                submitBtn.disabled = false;
+                syncIcon.classList.remove('animate-spin');
+                submitText.textContent = 'เริ่ม Sync ข้อมูล';
+            }
+        });
+    </script>
+</body>
+</html>

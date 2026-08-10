@@ -248,6 +248,39 @@ function setupEventListeners() {
     document.getElementById('cancel-admin-login-modal')?.addEventListener('click', closeAdminLoginModal);
     document.getElementById('admin-login-form')?.addEventListener('submit', handleAdminQuickLogin);
 
+    // Quick Sync Modal listeners & keyboard shortcuts
+    document.getElementById('quick-sync-trigger-btn')?.addEventListener('click', openQuickSyncModal);
+    document.getElementById('quick-sync-sidebar-btn')?.addEventListener('click', openQuickSyncModal);
+    document.getElementById('close-quick-sync-modal')?.addEventListener('click', closeQuickSyncModal);
+    document.getElementById('cancel-quick-sync-btn')?.addEventListener('click', closeQuickSyncModal);
+    document.getElementById('open-standalone-popup-btn')?.addEventListener('click', () => {
+        closeQuickSyncModal();
+        window.open('quick-sync.html', 'NAE_QuickSync_Popup', 'width=460,height=560,resizable=yes,scrollbars=yes');
+    });
+    document.getElementById('quick-sync-form')?.addEventListener('submit', handleQuickSyncSubmit);
+    document.getElementById('quick-sync-modal')?.addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeQuickSyncModal();
+    });
+
+    // Keyboard shortcuts (Alt+S to open, Escape to close)
+    document.addEventListener('keydown', (e) => {
+        if ((e.altKey && e.key.toLowerCase() === 's') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's')) {
+            e.preventDefault();
+            const modal = document.getElementById('quick-sync-modal');
+            if (modal?.classList.contains('hidden')) {
+                openQuickSyncModal();
+            } else {
+                closeQuickSyncModal();
+            }
+        }
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('quick-sync-modal');
+            if (modal && !modal.classList.contains('hidden')) {
+                closeQuickSyncModal();
+            }
+        }
+    });
+
     // Grafana SQL Panel Action Events
     document.getElementById('query-template-select')?.addEventListener('change', handleQueryTemplateSelect);
     document.getElementById('run-query-btn')?.addEventListener('click', handleRunQuery);
@@ -997,6 +1030,53 @@ async function handleSyncProcess() {
         alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
     } finally {
         ui.setLoading(false);
+    }
+}
+
+function openQuickSyncModal() {
+    const modal = document.getElementById('quick-sync-modal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closeQuickSyncModal() {
+    const modal = document.getElementById('quick-sync-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        document.getElementById('quick-sync-form')?.reset();
+    }
+}
+
+async function handleQuickSyncSubmit(e) {
+    e.preventDefault();
+    const fileInput = document.getElementById('quick-import-file');
+    const file = fileInput?.files?.[0];
+    if (!file) {
+        alert('กรุณาเลือกไฟล์ก่อนทำการ Sync');
+        return;
+    }
+
+    const submitBtn = document.getElementById('quick-sync-submit-btn');
+    const syncIcon = document.getElementById('quick-sync-icon');
+
+    try {
+        if (submitBtn) submitBtn.disabled = true;
+        if (syncIcon) syncIcon.classList.add('animate-spin');
+
+        if (excelFileInput) {
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(file);
+            excelFileInput.files = dataTransfer.files;
+        }
+
+        await handleFileSelection(file);
+        closeQuickSyncModal();
+        await handleSyncProcess();
+    } catch (error) {
+        console.error('Quick Sync Error:', error);
+        alert('เกิดข้อผิดพลาดในการประมวลผล Sync');
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
+        if (syncIcon) syncIcon.classList.remove('animate-spin');
     }
 }
 

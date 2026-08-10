@@ -12,7 +12,7 @@ module.exports = {
             // process so a frontend restart cannot interrupt API or worker jobs.
             name: 'nae-frontend',
             script: './node_modules/vite/bin/vite.js',
-            args: '--host 0.0.0.0 --port 5174',
+            args: 'preview --host 0.0.0.0 --port 5174',
             cwd: __dirname,
             interpreter: 'node',
             instances: 1,

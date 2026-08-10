@@ -22,9 +22,12 @@ module.exports = {
             exp_backoff_restart_delay: 100,
             max_memory_restart: '400M',
             time: true,
+            env: {
+                PORT: 5174,
+                NODE_ENV: 'development'
+            },
             env_production: {
-                // This is intentionally Vite's development server; the API
-                // server and worker remain in production mode below.
+                PORT: 5174,
                 NODE_ENV: 'development'
             }
         },
@@ -40,7 +43,13 @@ module.exports = {
             exp_backoff_restart_delay: 100,
             max_memory_restart: '700M',
             time: true,
+            env: {
+                PORT: 3005,
+                NODE_ENV: 'development',
+                ENABLE_SERVER_BACKGROUND_JOBS: 'false'
+            },
             env_production: {
+                PORT: 3005,
                 NODE_ENV: 'production',
                 ENABLE_SERVER_BACKGROUND_JOBS: 'false'
             }
@@ -57,6 +66,10 @@ module.exports = {
             exp_backoff_restart_delay: 100,
             max_memory_restart: '700M',
             time: true,
+            env: {
+                NODE_ENV: 'development',
+                ENABLE_SERVER_BACKGROUND_JOBS: 'false'
+            },
             env_production: {
                 NODE_ENV: 'production',
                 ENABLE_SERVER_BACKGROUND_JOBS: 'false'

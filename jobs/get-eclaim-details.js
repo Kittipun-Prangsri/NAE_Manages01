@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import logger from '../backend/logger.js';
 
 dotenv.config();
 
@@ -18,7 +19,7 @@ async function extractEclaimDetails() {
     const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
     const telegramChatId = process.env.TELEGRAM_CHAT_ID;
 
-    console.log('🕵️‍♂️ Starting ThaiD Login Flow to extract Eclaim report elements...');
+    logger.info('🕵️‍♂️ Starting ThaiD Login Flow to extract Eclaim report elements...');
     
     let browser;
     try {
@@ -53,7 +54,7 @@ async function extractEclaimDetails() {
 
         // Send QR Code to Telegram
         await sendToTelegram(thaidQrPath, 'thaid_qr_extract.png', telegramToken, telegramChatId, '📲 กรุณาสแกนเพื่อเข้าดึงข้อมูล Element ของหน้ารายงาน Eclaim (เวลา 2 นาที)');
-        console.log('📲 QR Code sent to Telegram. Please scan now...');
+        logger.info('📲 QR Code sent to Telegram. Please scan now...');
 
         // Wait for scan
         let authenticated = false;
@@ -70,7 +71,7 @@ async function extractEclaimDetails() {
         }
 
         if (authenticated) {
-            console.log('✅ Auth success. Navigating to eclaim report page...');
+            logger.info('✅ Auth success. Navigating to eclaim report page...');
             await page.goto('https://authenservice.nhso.go.th/authencode/report/eclaim', { waitUntil: 'networkidle2', timeout: 60000 });
             
             // Wait for AJAX / Angular elements
@@ -102,24 +103,24 @@ async function extractEclaimDetails() {
                 };
             });
             
-            console.log('--- Page Details ---');
-            console.log('Title:', elements.title);
-            console.log('URL:', elements.url);
-            console.log('\n--- Form Elements ---');
-            console.log(JSON.stringify(elements.elements, null, 2));
-            console.log('\n--- Form Controls HTML ---');
-            elements.formControls.forEach((html, i) => console.log(`[${i}] ${html}`));
+            logger.info('--- Page Details ---');
+            logger.info('Title:', elements.title);
+            logger.info('URL:', elements.url);
+            logger.info('\n--- Form Elements ---');
+            logger.info(JSON.stringify(elements.elements, null, 2));
+            logger.info('\n--- Form Controls HTML ---');
+            elements.formControls.forEach((html, i) => logger.info(`[${i}] ${html}`));
             
         } else {
-            console.error('❌ Timeout waiting for scan.');
+            logger.error('❌ Timeout waiting for scan.');
         }
 
     } catch (error) {
-        console.error('❌ Error during extraction:', error);
+        logger.error('❌ Error during extraction:', error);
     } finally {
         if (browser) {
             await browser.close();
-            console.log('🔒 Browser closed.');
+            logger.info('🔒 Browser closed.');
         }
     }
 }
@@ -139,7 +140,7 @@ async function sendToTelegram(filepath, filename, token, chatId, text = '') {
             body: formData
         });
     } catch (error) {
-        console.error('❌ Error sending QR to Telegram:', error);
+        logger.error('❌ Error sending QR to Telegram:', error);
     }
 }
 

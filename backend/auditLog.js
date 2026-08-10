@@ -1,4 +1,5 @@
 import { trackerPool } from './db.js';
+import logger from './logger.js';
 
 export async function writeAuditLog(req, action, entityType, entityId = null, details = null) {
     try {
@@ -14,6 +15,6 @@ export async function writeAuditLog(req, action, entityType, entityId = null, de
             [username, role, action, entityType, entityId ? String(entityId) : null, payload, ipAddress, userAgent]
         );
     } catch (error) {
-        console.warn('⚠️ Failed to write audit log:', error.message);
+        logger.warn('⚠️ Failed to write audit log:', error.message);
     }
 }

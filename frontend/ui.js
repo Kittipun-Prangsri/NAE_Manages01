@@ -193,6 +193,12 @@ function showTrackingDetails(item = {}) {
         ['เลขบัตรประชาชน', item.cid],
         ['PTType', item.pttype],
         ['HIPDATA / PCode', item.pcode || item.hipdata_code],
+        ['UC Money', (() => {
+            const uc = Number(item.uc_money) || 0;
+            const im = Number(item.item_money) || 0;
+            const val = uc === 0 ? im : uc;
+            return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        })()],
         ['Auth Code (HOS)', item.authCode || item.Auth_Code || item.auth_code],
         ['Claim Code (HOS)', item.claim_code],
         ['Claim Code (NHSO)', item.nhso_claim_code || item.claimcode],
@@ -200,7 +206,6 @@ function showTrackingDetails(item = {}) {
         ['PTType Note', item.pttype_note],
         ['เจ้าหน้าที่', item.staff],
         ['สาเหตุที่ต้องแก้', item.issue_reason || getIssueReason(item)],
-        ['UC Money', item.uc_money != null && !isNaN(item.uc_money) ? Number(item.uc_money).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'],
         ['Department', item.department]
     ];
 
@@ -292,7 +297,7 @@ export const ui = {
         const content = document.getElementById('patient-list-content');
         const icon = document.getElementById('toggle-list-icon');
         if (!content || !icon) return;
-        
+
         const isCollapsed = content.classList.toggle('hidden');
         if (isCollapsed) {
             icon.style.transform = 'rotate(180deg)';
@@ -320,22 +325,22 @@ export const ui = {
 
     startClock() {
         if (typeof document === 'undefined') return;
-        
+
         const timeEl = document.getElementById('clock-time');
         const dateEl = document.getElementById('clock-date');
         if (!timeEl || !dateEl) return;
-        
+
         const update = () => {
             const now = new Date();
-            
+
             // Time: HH:mm:ss
-            timeEl.textContent = now.toLocaleTimeString('th-TH', { 
-                hour12: false, 
-                hour: '2-digit', 
-                minute: '2-digit', 
-                second: '2-digit' 
+            timeEl.textContent = now.toLocaleTimeString('th-TH', {
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
             });
-            
+
             // Date: DD MMM YYYY (Thai)
             dateEl.textContent = now.toLocaleDateString('en-GB', {
                 day: '2-digit',
@@ -343,7 +348,7 @@ export const ui = {
                 year: 'numeric'
             }).toUpperCase();
         };
-        
+
         update();
         setInterval(update, 1000);
     },
@@ -376,14 +381,13 @@ export const ui = {
         }
     },
 
-    renderTable(data, sortBy = '', sortDesc = false, visibleRows = 50) {
+    renderTable(data, sortBy = '', sortDesc = false, currentPage = 1, pageSize = 20) {
         if (typeof document === 'undefined') return;
         const els = getEls();
         if (!els.tableBody) return;
         const resultCount = document.getElementById('tracker-table-result-count');
-        const loadMoreButton = document.getElementById('load-more-tracker-rows');
-        const showLessButton = document.getElementById('show-less-tracker-rows');
-        
+        const paginationControls = document.getElementById('tracker-pagination-controls');
+
         // Update table headers to show sorting indicators
         const headers = document.querySelectorAll('#tracking-table-thead th[data-sort]');
         headers.forEach(th => {
@@ -397,7 +401,7 @@ export const ui = {
                 sortIndicator.setAttribute('aria-hidden', 'true');
                 th.appendChild(sortIndicator);
             }
-            
+
             if (field === sortBy) {
                 sortIndicator.textContent = sortDesc ? '▼' : '▲';
                 th.classList.add('text-blue-600', 'dark:text-blue-400');
@@ -411,32 +415,89 @@ export const ui = {
         els.tableBody.innerHTML = '';
         if (!data || data.length === 0) {
             if (els.noDataMsg) els.noDataMsg.classList.remove('hidden');
-            if (els.exportBtn) els.exportBtn.classList.add('hidden'); // ซ่อนปุ่ม Export หากไม่มีข้อมูล
+            if (els.exportBtn) els.exportBtn.classList.add('hidden');
             if (resultCount) resultCount.textContent = 'ไม่พบรายการ';
-            if (loadMoreButton) loadMoreButton.classList.add('hidden');
-            if (showLessButton) showLessButton.classList.add('hidden');
+            if (paginationControls) paginationControls.classList.add('hidden');
             return;
         }
-        
+
         if (els.noDataMsg) els.noDataMsg.classList.add('hidden');
-        
+
         // เช็คว่ามีรายการที่ผิดพลาดไหม เพื่อแสดง/ซ่อนปุ่ม Export
         const hasErrors = data.some(item => item.color_status === 'RED' || item.color_status === 'YELLOW');
         if (els.exportBtn) {
-            if(hasErrors) els.exportBtn.classList.remove('hidden');
+            if (hasErrors) els.exportBtn.classList.remove('hidden');
             else els.exportBtn.classList.add('hidden');
         }
 
-        const safeVisibleRows = Math.max(50, Number(visibleRows) || 50);
-        const displayData = data.slice(0, safeVisibleRows);
-        if (resultCount) resultCount.textContent = `แสดง ${displayData.length.toLocaleString()} จาก ${data.length.toLocaleString()} รายการ`;
-        if (loadMoreButton) {
-            const remaining = Math.max(0, data.length - displayData.length);
-            loadMoreButton.classList.toggle('hidden', remaining === 0);
-            loadMoreButton.textContent = `แสดงเพิ่ม (${Math.min(50, remaining).toLocaleString()} รายการ)`;
+        const totalItems = data.length;
+        const totalPages = Math.ceil(totalItems / pageSize);
+        const safeCurrentPage = Math.max(1, Math.min(currentPage, totalPages));
+        const startIndex = (safeCurrentPage - 1) * pageSize;
+        const endIndex = Math.min(startIndex + pageSize, totalItems);
+        const displayData = data.slice(startIndex, endIndex);
+
+        if (resultCount) {
+            resultCount.textContent = `แสดง ${startIndex + 1} ถึง ${endIndex} จากทั้งหมด ${totalItems.toLocaleString()} รายการ`;
         }
-        if (showLessButton) {
-            showLessButton.classList.toggle('hidden', safeVisibleRows <= 50 || data.length <= 50);
+
+        // Render Pagination
+        if (paginationControls) {
+            paginationControls.innerHTML = '';
+            if (totalPages > 1) {
+                paginationControls.classList.remove('hidden');
+                
+                // Pagination info
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'text-xs text-slate-500 dark:text-slate-400 font-medium hidden sm:block';
+                infoDiv.textContent = `หน้า ${safeCurrentPage} จาก ${totalPages}`;
+                paginationControls.appendChild(infoDiv);
+
+                // Buttons container
+                const btnContainer = document.createElement('div');
+                btnContainer.className = 'flex items-center space-x-1.5';
+
+                // Previous Button
+                const prevBtn = document.createElement('button');
+                prevBtn.className = `px-3 py-1.5 rounded-lg text-xs font-semibold transition ${safeCurrentPage === 1 ? 'text-slate-400 bg-slate-100/50 cursor-not-allowed dark:bg-slate-800/50 dark:text-slate-600' : 'text-slate-600 hover:bg-slate-100 hover:text-blue-600 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer'}`;
+                prevBtn.textContent = 'ก่อนหน้า';
+                prevBtn.disabled = safeCurrentPage === 1;
+                prevBtn.onclick = () => {
+                    document.dispatchEvent(new CustomEvent('tracker-page-change', { detail: { page: safeCurrentPage - 1 } }));
+                };
+                btnContainer.appendChild(prevBtn);
+
+                // Page Numbers (Simple version: show limited pages)
+                let startPage = Math.max(1, safeCurrentPage - 2);
+                let endPage = Math.min(totalPages, startPage + 4);
+                if (endPage - startPage < 4) startPage = Math.max(1, endPage - 4);
+
+                for (let i = startPage; i <= endPage; i++) {
+                    const pageBtn = document.createElement('button');
+                    pageBtn.className = `w-7 h-7 rounded-lg text-xs font-semibold flex items-center justify-center transition cursor-pointer ${i === safeCurrentPage ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`;
+                    pageBtn.textContent = i;
+                    if (i !== safeCurrentPage) {
+                        pageBtn.onclick = () => {
+                            document.dispatchEvent(new CustomEvent('tracker-page-change', { detail: { page: i } }));
+                        };
+                    }
+                    btnContainer.appendChild(pageBtn);
+                }
+
+                // Next Button
+                const nextBtn = document.createElement('button');
+                nextBtn.className = `px-3 py-1.5 rounded-lg text-xs font-semibold transition ${safeCurrentPage === totalPages ? 'text-slate-400 bg-slate-100/50 cursor-not-allowed dark:bg-slate-800/50 dark:text-slate-600' : 'text-slate-600 hover:bg-slate-100 hover:text-blue-600 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer'}`;
+                nextBtn.textContent = 'ถัดไป';
+                nextBtn.disabled = safeCurrentPage === totalPages;
+                nextBtn.onclick = () => {
+                    document.dispatchEvent(new CustomEvent('tracker-page-change', { detail: { page: safeCurrentPage + 1 } }));
+                };
+                btnContainer.appendChild(nextBtn);
+
+                paginationControls.appendChild(btnContainer);
+            } else {
+                paginationControls.classList.add('hidden');
+            }
         }
 
         displayData.forEach(item => {
@@ -458,17 +519,24 @@ export const ui = {
                 <td class="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-medium tracking-wide">${item.cid}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400">${item.pttype || '-'}</td>
                 <td class="py-3.5 px-4 text-xs font-medium text-slate-500 dark:text-slate-400">${item.pcode || '-'}</td>
-                <td class="py-3.5 px-4 font-mono text-xs text-slate-600">
-                    ${item.authCode ? `<span class="bg-slate-100 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 px-2 py-0.5 rounded font-medium dark:text-slate-300">${item.authCode}</span>` : '-'}
+                <td class="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 text-right">${(() => {
+                    const uc = Number(item.uc_money) || 0;
+                    const im = Number(item.item_money) || 0;
+                    const val = uc === 0 ? im : uc;
+                    return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                })()}</td>
+                <td class="py-3.5 px-4 font-mono text-xs">
+                    <div class="flex flex-col gap-1 items-start">
+                        ${item.authCode ? `<span class="bg-slate-100 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 px-2 py-0.5 rounded font-medium dark:text-slate-300">${item.authCode}</span>` : '<span class="text-slate-400">-</span>'}
+                        <span class="text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">${item.claim_code || '-'}</span>
+                    </div>
                 </td>
-                <td class="py-3.5 px-4 text-xs text-emerald-600 dark:text-emerald-400 font-bold">${item.claim_code || '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-blue-600 dark:text-blue-400 font-bold">${item.nhso_claim_code || '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-indigo-500 dark:text-indigo-400 font-semibold">${item.authen_code_type || '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]" title="${item.pttype_note || ''}">${item.pttype_note || '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${item.staff || '-'}</td>
                 <td class="tracker-sticky-status py-3.5 px-4 text-center">${statusBadgeHtml(checkClaimPresentation)}</td>
                 <td class="py-3.5 px-4 text-xs font-semibold ${issueClass}">${issueReason}</td>
-                <td class="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 text-right">${(item.uc_money != null && !isNaN(item.uc_money)) ? Number(item.uc_money).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${item.department || '-'}</td>
             `;
             tr.querySelector('.mobile-row-details-btn')?.addEventListener('click', () => showTrackingDetails(item));
@@ -511,14 +579,23 @@ export const ui = {
                 <td class="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-medium tracking-wide">${escapeHtml(item.cid || '-')}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400">${escapeHtml(item.pttype || '-')}</td>
                 <td class="py-3.5 px-4 text-xs font-medium text-slate-500 dark:text-slate-400">${escapeHtml(item.pcode || '-')}</td>
-                <td class="py-3.5 px-4 font-mono text-xs text-slate-600">${item.authCode ? `<span class="bg-slate-100 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 px-2 py-0.5 rounded font-medium dark:text-slate-300">${escapeHtml(item.authCode)}</span>` : '-'}</td>
-                <td class="py-3.5 px-4 text-xs text-emerald-600 dark:text-emerald-400 font-bold">${escapeHtml(item.claim_code || '-')}</td>
+                <td class="py-3.5 px-4 font-mono text-xs">
+                    <div class="flex flex-col gap-1 items-start">
+                        ${item.authCode ? `<span class="bg-slate-100 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 px-2 py-0.5 rounded font-medium dark:text-slate-300">${escapeHtml(item.authCode)}</span>` : '<span class="text-slate-400">-</span>'}
+                        <span class="text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">${escapeHtml(item.claim_code || '-')}</span>
+                    </div>
+                </td>
                 <td class="py-3.5 px-4 text-xs text-blue-600 dark:text-blue-400 font-bold">${escapeHtml(item.nhso_claim_code || '-')}</td>
                 <td class="py-3.5 px-4 text-xs text-indigo-500 dark:text-indigo-400 font-semibold">${escapeHtml(item.authen_code_type || '-')}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]" title="${escapeHtml(item.pttype_note || '')}">${escapeHtml(item.pttype_note || '-')}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${escapeHtml(item.staff || '-')}</td>
                 <td class="tracker-sticky-status py-3.5 px-4 text-center">${statusBadgeHtml(checkClaimPresentation)}</td>
-                <td class="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 text-right">${(item.uc_money != null && !isNaN(item.uc_money)) ? Number(item.uc_money).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                <td class="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 text-right">${(() => {
+                    const uc = Number(item.uc_money) || 0;
+                    const im = Number(item.item_money) || 0;
+                    const val = uc === 0 ? im : uc;
+                    return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                })()}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${escapeHtml(item.department || '-')}</td>
             `;
             tr.querySelector('.mobile-row-details-btn')?.addEventListener('click', () => showTrackingDetails(item));
@@ -566,7 +643,7 @@ export const ui = {
         if (!data) return;
         const els = getEls();
         if (!els.statTotal || !els.statRed || !els.statYellow || !els.statGreen || !els.statUcMoney || !els.statUcCount) return;
-        
+
         // Calculate NHSO specific stats from data array
         const red = data.filter(i => i.color_status === 'RED').length;
         const yellow = data.filter(i => i.color_status === 'YELLOW').length;
@@ -591,7 +668,7 @@ export const ui = {
         }
 
         els.statUcCount.textContent = ucPendingCount;
-        els.statUcMoney.textContent = outstandingUcMoney.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        els.statUcMoney.textContent = outstandingUcMoney.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         els.statRed.textContent = red;
         els.statYellow.textContent = yellow;
         els.statGreen.textContent = green;
@@ -801,11 +878,11 @@ export const ui = {
             const date = new Date(day.visit_date);
             const dateStr = day.visit_date.split('T')[0];
             const displayDate = date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
-            
+
             // เลือกสีหลักของการ์ดตามความสำคัญ (แดง > เหลือง > เขียว)
-            const mainColor = day.red > 0 ? 'border-red-500 bg-red-50/30 dark:bg-red-900/10' : 
-                             day.yellow > 0 ? 'border-amber-500 bg-amber-50/30 dark:bg-amber-900/10' : 
-                             'border-emerald-500 bg-emerald-50/30 dark:bg-emerald-900/10';
+            const mainColor = day.red > 0 ? 'border-red-500 bg-red-50/30 dark:bg-red-900/10' :
+                day.yellow > 0 ? 'border-amber-500 bg-amber-50/30 dark:bg-amber-900/10' :
+                    'border-emerald-500 bg-emerald-50/30 dark:bg-emerald-900/10';
 
             const card = document.createElement('div');
             card.className = `p-3 rounded-xl border ${mainColor} cursor-pointer transition transform hover:-translate-y-1 hover:shadow-md text-center`;
@@ -830,7 +907,7 @@ export const ui = {
         const tabGrafana = document.getElementById('tab-grafana');
         const tabEmbedGrafana = document.getElementById('tab-embed-grafana');
         const tabAdmin = document.getElementById('tab-admin');
-        
+
         const trackerView = document.getElementById('tracker-view-container');
         const liveDashboardView = document.getElementById('live-dashboard-view-container');
         const grafanaView = document.getElementById('grafana-view-container');
@@ -898,30 +975,30 @@ export const ui = {
             tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200 bg-transparent';
 
             const roleClass = user.role === 'admin' ? 'bg-purple-100 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400' :
-                              user.role === 'viewer' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' :
-                              'bg-blue-100 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400';
+                user.role === 'viewer' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' :
+                    'bg-blue-100 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400';
 
             const roleText = user.role === 'admin' ? 'Admin' :
-                             user.role === 'viewer' ? 'Viewer' : 'User';
+                user.role === 'viewer' ? 'Viewer' : 'User';
 
             // Check details for Line and Telegram config
             const hasLine = user.has_line_token && user.line_group_id;
-            const lineStatus = hasLine ? 
-                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ตั้งค่าแล้ว</span>` : 
+            const lineStatus = hasLine ?
+                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ตั้งค่าแล้ว</span>` :
                 `<span class="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/10">ยังไม่ได้ตั้งค่า</span>`;
 
             const hasTelegram = user.has_telegram_token && user.telegram_chat_id;
-            const telegramStatus = hasTelegram ? 
-                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ตั้งค่าแล้ว</span>` : 
+            const telegramStatus = hasTelegram ?
+                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ตั้งค่าแล้ว</span>` :
                 `<span class="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/10">ยังไม่ได้ตั้งค่า</span>`;
 
             // Action Test buttons
-            const testLineBtn = hasLine ? 
-                `<button class="test-line-btn px-2 py-1 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 font-bold rounded-lg transition text-[10px] cursor-pointer" data-id="${user.id}">Test LINE</button>` : 
+            const testLineBtn = hasLine ?
+                `<button class="test-line-btn px-2 py-1 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 font-bold rounded-lg transition text-[10px] cursor-pointer" data-id="${user.id}">Test LINE</button>` :
                 `<button class="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 font-bold rounded-lg text-[10px] cursor-not-allowed" disabled>Test LINE</button>`;
 
-            const testTelegramBtn = hasTelegram ? 
-                `<button class="test-telegram-btn px-2 py-1 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-lg transition text-[10px] cursor-pointer" data-id="${user.id}">Test TG</button>` : 
+            const testTelegramBtn = hasTelegram ?
+                `<button class="test-telegram-btn px-2 py-1 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-lg transition text-[10px] cursor-pointer" data-id="${user.id}">Test TG</button>` :
                 `<button class="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 font-bold rounded-lg text-[10px] cursor-not-allowed" disabled>Test TG</button>`;
 
             tr.innerHTML = `
@@ -990,8 +1067,8 @@ export const ui = {
             tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200 bg-transparent';
 
             const enabledChecked = sched.is_enabled ? 'checked' : '';
-            const statusLabel = sched.is_enabled ? 
-                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ทำงาน</span>` : 
+            const statusLabel = sched.is_enabled ?
+                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ทำงาน</span>` :
                 `<span class="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/10">ปิดใช้งาน</span>`;
 
             tr.innerHTML = `
@@ -1183,9 +1260,9 @@ export const ui = {
     renderSavedQueriesDropdown(queries, selectedId = '') {
         const select = document.getElementById('query-template-select');
         if (!select) return;
-        
+
         select.innerHTML = '<option value="" disabled selected>-- โหลดคำสั่ง SQL --</option>';
-        
+
         queries.forEach(q => {
             const opt = document.createElement('option');
             opt.value = q.id;
@@ -1257,32 +1334,32 @@ export const ui = {
         const thead = document.getElementById('query-table-head');
         const tbody = document.getElementById('query-table-body');
         const noData = document.getElementById('query-no-data');
-        
+
         thead.innerHTML = '';
         tbody.innerHTML = '';
-        
+
         if (!rows || rows.length === 0) {
             noData.classList.remove('hidden');
             return;
         }
-        
+
         // 1. กรองข้อมูลในฝั่งไคลเอนต์ตาม Search Box
         let filteredRows = [...rows];
         if (searchFilter) {
             const query = searchFilter.toLowerCase();
             filteredRows = filteredRows.filter(row => {
-                return Object.values(row).some(val => 
+                return Object.values(row).some(val =>
                     String(val || '').toLowerCase().includes(query)
                 );
             });
         }
-        
+
         // 2. จัดเรียงข้อมูลในฝั่งไคลเอนต์ตามคอลัมน์ที่เลือก
         if (sortBy) {
             filteredRows.sort((a, b) => {
                 let valA = a[sortBy];
                 let valB = b[sortBy];
-                
+
                 // ตรวจสอบว่าเป็นตัวเลขหรือไม่
                 if (valA !== null && valB !== null && !isNaN(valA) && !isNaN(valB) && String(valA).trim() !== '' && String(valB).trim() !== '') {
                     valA = Number(valA);
@@ -1291,52 +1368,52 @@ export const ui = {
                     valA = String(valA || '').toLowerCase();
                     valB = String(valB || '').toLowerCase();
                 }
-                
+
                 if (valA < valB) return sortDesc ? 1 : -1;
                 if (valA > valB) return sortDesc ? -1 : 1;
                 return 0;
             });
         }
-        
+
         if (filteredRows.length === 0) {
             noData.classList.remove('hidden');
             return;
         }
-        
+
         noData.classList.add('hidden');
-        
+
         // 3. วาดหัวข้อคอลัมน์ (Headers)
         const firstRow = filteredRows[0];
         const headers = Object.keys(firstRow);
-        
+
         const trHead = document.createElement('tr');
         headers.forEach(header => {
             const th = document.createElement('th');
             th.className = 'py-3 px-4 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none text-[11px] font-bold tracking-wider';
             th.onclick = () => onHeaderClick(header);
-            
+
             let displayName = header;
             if (header === sortBy) {
                 displayName += sortDesc ? '  ▼' : '  ▲';
                 th.classList.add('text-blue-600', 'dark:text-blue-400');
             }
-            
+
             th.textContent = displayName;
             trHead.appendChild(th);
         });
         thead.appendChild(trHead);
-        
+
         // 4. วาดข้อมูล (Rows)
         filteredRows.forEach((row, idx) => {
             const tr = document.createElement('tr');
             tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200';
-            
+
             headers.forEach(header => {
                 const td = document.createElement('td');
                 td.className = 'py-3 px-4 text-xs font-medium truncate max-w-[200px]';
-                
+
                 let val = row[header];
-                
+
                 // ตกแต่งรูปแบบการแสดงผลคอลัมน์พิเศษ
                 if (val === null || val === undefined) {
                     td.innerHTML = '<span class="text-slate-400 dark:text-slate-600">-</span>';
@@ -1352,7 +1429,7 @@ export const ui = {
                     td.textContent = val;
                 } else if (header.toLowerCase() === 'uc_money' && !isNaN(val)) {
                     td.className = 'py-3 px-4 text-xs font-semibold text-right';
-                    td.textContent = Number(val).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    td.textContent = Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 } else if (typeof val === 'object' && val.type === 'Buffer' && Array.isArray(val.data)) {
                     // ดีโค้ดข้อมูล Binary (CAST CONVERT USING utf8) กลับเป็นภาษาไทย
                     try {
@@ -1407,7 +1484,7 @@ export const ui = {
         const nextEl = document.getElementById('live-next-refresh');
         const toggleBtn = document.getElementById('live-auto-toggle-btn');
         const toggleText = document.getElementById('live-auto-toggle-text');
-        
+
         if (toggleText) {
             toggleText.textContent = isActive ? 'ปิดรีเฟรชอัตโนมัติ' : 'เปิดรีเฟรชอัตโนมัติ';
         }
@@ -1589,13 +1666,13 @@ export const ui = {
                 mapSvg.dataset.eventsSet = 'true';
                 const paths = mapSvg.querySelectorAll('.tambon');
                 paths.forEach(p => {
-                    p.addEventListener('click', function() {
+                    p.addEventListener('click', function () {
                         const name = this.dataset.tambon;
                         if (name && typeof window.filterDashboardByTambon === 'function') {
                             window.filterDashboardByTambon(name);
                         }
                     });
-                    p.addEventListener('mouseenter', function() {
+                    p.addEventListener('mouseenter', function () {
                         const name = this.dataset.tambon;
                         const countVal = this.dataset.count || 0;
                         if (tooltipEl) {
@@ -1607,7 +1684,7 @@ export const ui = {
                             tooltipEl.classList.add('show');
                         }
                     });
-                    p.addEventListener('mousemove', function(e) {
+                    p.addEventListener('mousemove', function (e) {
                         if (tooltipEl) {
                             const parentRect = mapSvg.parentElement.getBoundingClientRect();
                             const x = Math.max(16, Math.min(parentRect.width - 16, e.clientX - parentRect.left));
@@ -1616,7 +1693,7 @@ export const ui = {
                             tooltipEl.style.top = `${y}px`;
                         }
                     });
-                    p.addEventListener('mouseleave', function() {
+                    p.addEventListener('mouseleave', function () {
                         if (tooltipEl) {
                             tooltipEl.setAttribute('aria-hidden', 'true');
                             tooltipEl.classList.remove('show');

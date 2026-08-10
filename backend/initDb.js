@@ -1,4 +1,5 @@
 import { trackerPool } from './db.js';
+import logger from './logger.js';
 
 export async function initInternalDb() {
     const schema = `
@@ -12,6 +13,7 @@ export async function initInternalDb() {
             pttype VARCHAR(10),
             pcode VARCHAR(10),
             uc_money DOUBLE(15,3),
+            item_money DOUBLE(15,3),
             claim_code VARCHAR(50),
             authen_code_type VARCHAR(100),
             pttype_note TEXT,
@@ -27,7 +29,8 @@ export async function initInternalDb() {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             INDEX idx_cid_date (cid, visit_date),
-            INDEX idx_color (color_status)
+            INDEX idx_color (color_status),
+            INDEX idx_visit_date_status (visit_date, color_status)
         );
     `;
 
@@ -132,13 +135,13 @@ export async function initInternalDb() {
 
     try {
         await trackerPool.query(usersSchema);
-        console.log('✅ Internal database table "users" is ready.');
+        logger.info('✅ Internal database table "users" is ready.');
 
         // Check if role column exists in users table (in case table existed without it)
         const [userCols] = await trackerPool.query('SHOW COLUMNS FROM users LIKE "role"');
         if (userCols.length === 0) {
             await trackerPool.query("ALTER TABLE users ADD COLUMN role ENUM('admin', 'user', 'viewer') DEFAULT 'user' AFTER full_name");
-            console.log('✅ Added "role" column to "users" table.');
+            logger.info('✅ Added "role" column to "users" table.');
         }
 
         // Check if line_token column exists in users table (in case table existed without it)
@@ -151,12 +154,20 @@ export async function initInternalDb() {
                 ADD COLUMN telegram_token VARCHAR(255) DEFAULT NULL AFTER line_group_id,
                 ADD COLUMN telegram_chat_id VARCHAR(150) DEFAULT NULL AFTER telegram_token
             `);
-            console.log('✅ Added Line and Telegram notification columns to "users" table.');
+            logger.info('✅ Added Line and Telegram notification columns to "users" table.');
         }
         await trackerPool.query('ALTER TABLE users MODIFY COLUMN line_token VARCHAR(512) DEFAULT NULL, MODIFY COLUMN telegram_token VARCHAR(512) DEFAULT NULL');
 
         await trackerPool.query(schema);
-        console.log('✅ Internal database table "visit_tracking" is ready.');
+        logger.info('✅ Internal database table "visit_tracking" is ready.');
+
+        // Older installations predate the indexes used by the dashboard's
+        // daily filters.  Add them conditionally so upgrades stay online-safe.
+        const [trackingIndexes] = await trackerPool.query("SHOW INDEX FROM visit_tracking WHERE Key_name = 'idx_visit_date_status'");
+        if (trackingIndexes.length === 0) {
+            await trackerPool.query('ALTER TABLE visit_tracking ADD INDEX idx_visit_date_status (visit_date, color_status)');
+            logger.info('✅ Added visit_tracking index "idx_visit_date_status".');
+        }
 
         const [subdistrictCodeCols] = await trackerPool.query('SHOW COLUMNS FROM visit_tracking LIKE "subdistrict_code"');
         if (subdistrictCodeCols.length === 0) {
@@ -165,38 +176,38 @@ export async function initInternalDb() {
                 ADD COLUMN subdistrict_code VARCHAR(10) DEFAULT NULL AFTER department,
                 ADD COLUMN subdistrict_name VARCHAR(150) DEFAULT NULL AFTER subdistrict_code
             `);
-            console.log('✅ Added subdistrict columns to "visit_tracking" table.');
+            logger.info('✅ Added subdistrict columns to "visit_tracking" table.');
         }
 
         await trackerPool.query(savedQueriesSchema);
-        console.log('✅ Internal database table "saved_queries" is ready.');
+        logger.info('✅ Internal database table "saved_queries" is ready.');
 
         await trackerPool.query(queryHistorySchema);
-        console.log('✅ Internal database table "query_history" is ready.');
+        logger.info('✅ Internal database table "query_history" is ready.');
 
         await trackerPool.query(cronSchedulesSchema);
-        console.log('✅ Internal database table "cron_schedules" is ready.');
+        logger.info('✅ Internal database table "cron_schedules" is ready.');
 
         await trackerPool.query(schedulerLocksSchema);
-        console.log('✅ Internal database table "scheduler_locks" is ready.');
+        logger.info('✅ Internal database table "scheduler_locks" is ready.');
 
         await trackerPool.query(syncRunsSchema);
-        console.log('✅ Internal database table "sync_runs" is ready.');
+        logger.info('✅ Internal database table "sync_runs" is ready.');
 
         await trackerPool.query(auditLogsSchema);
-        console.log('✅ Internal database table "audit_logs" is ready.');
+        logger.info('✅ Internal database table "audit_logs" is ready.');
 
         const [auditDetailCols] = await trackerPool.query('SHOW COLUMNS FROM audit_logs LIKE "details"');
         if (auditDetailCols.length > 0 && !String(auditDetailCols[0].Type || '').toLowerCase().includes('text')) {
             await trackerPool.query('ALTER TABLE audit_logs MODIFY COLUMN details LONGTEXT DEFAULT NULL');
-            console.log('✅ Updated "audit_logs.details" column to LONGTEXT.');
+            logger.info('✅ Updated "audit_logs.details" column to LONGTEXT.');
         }
 
         // Prepopulate default cron schedules if empty
         const [schedRows] = await trackerPool.query('SELECT COUNT(*) as count FROM cron_schedules');
         if (schedRows[0].count === 0) {
             await trackerPool.query("INSERT INTO cron_schedules (schedule_time) VALUES ('15:00:00'), ('20:29:00')");
-            console.log('✅ Prepopulated default cron schedules.');
+            logger.info('✅ Prepopulated default cron schedules.');
         }
 
         // Prepopulate default queries if empty
@@ -272,10 +283,10 @@ ORDER BY color_status ASC;`
                     [q.name, q.query_text, q.db_type]
                 );
             }
-            console.log('✅ Prepopulated default SQL templates.');
+            logger.info('✅ Prepopulated default SQL templates.');
         }
 
     } catch (error) {
-        console.error('❌ Failed to initialize internal database:', error);
+        logger.error('❌ Failed to initialize internal database:', error);
     }
 }

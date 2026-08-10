@@ -1,96 +1,82 @@
 // app.js
 import { api } from './api.js';
 import { ui } from './ui.js';
-import { exportToCsv, isTokenExpired } from './utils.js';
+import { isTokenExpired } from './utils.js';
 
-// App State
-let isLoggingOut = false;
-const LIVE_DASHBOARD_REFRESH_MS = 30000;
-const TRACKER_PAGE_SIZE = 50;
+import {
+    appState,
+    domRefs,
+    LIVE_DASHBOARD_REFRESH_MS,
+    TRACKER_PAGE_SIZE
+} from './state.js';
 
-const getInitialState = () => {
-    if (typeof localStorage === 'undefined') {
-        return {
-            token: null,
-            user: null,
-            rawTableData: [],
-            lgoTableData: [],
-            savedQueries: [],
-            queryHistory: [],
-            currentQueryResults: [],
-            hosxpStats: null,
-            querySortBy: '',
-            querySortDesc: false,
-            trackerSortBy: '',
-            trackerSortDesc: false,
-            trackerSearchFilter: '',
-            trackerColumnFilters: {},
-            trackerDashboardFilter: null,
-            trackerVisibleRows: TRACKER_PAGE_SIZE,
-            // liveDashboardInterval: null,
-            // liveDashboardCountdownInterval: null,
-            // liveDashboardNextRefreshAt: null,
-            isTvMode: false,
-            groupInsightsBy: 'department',
-            excelMapping: null,
-            excelHeaders: [],
-            excelMappingFields: [],
-            pendingExcelMappingResolve: null,
-            hipdataCodes: []
-        };
-    }
-    return {
-        token: localStorage.getItem('nhso_token'),
-        user: JSON.parse(localStorage.getItem('nhso_user')),
-        rawTableData: [],
-        lgoTableData: [],
-        savedQueries: [],
-        queryHistory: [],
-        currentQueryResults: [],
-        hosxpStats: null,
-        querySortBy: '',
-        querySortDesc: false,
-        trackerSortBy: '',
-        trackerSortDesc: false,
-        trackerSearchFilter: '',
-        trackerColumnFilters: {},
-        trackerDashboardFilter: null,
-        trackerVisibleRows: TRACKER_PAGE_SIZE,
-        liveDashboardInterval: null,
-        liveDashboardCountdownInterval: null,
-        liveDashboardNextRefreshAt: null,
-        isTvMode: localStorage.getItem('live_tv_mode') === 'true',
-        groupInsightsBy: localStorage.getItem('group_insights_by') || 'department',
-        excelMapping: null,
-        excelHeaders: [],
-        excelMappingFields: [],
-        pendingExcelMappingResolve: null,
-        hipdataCodes: []
-    };
+import {
+    handleLogin,
+    handleLogout,
+    handleAdminQuickLogin,
+    updateAdminLoginBtnVisibility,
+    openAdminLoginModal,
+    closeAdminLoginModal,
+    handleApiResponse
+} from './auth.js';
+
+import {
+    setupFileUpload,
+    handleFileSelection,
+    closeExcelMappingModal,
+    saveExcelMappingFromModal
+} from './uploader.js';
+
+import {
+    handleApiSync,
+    handleAutoPortalSync,
+    handlePasteSync,
+    handleSyncProcess
+} from './sync.js';
+
+import {
+    setupTrackerColumnFilters,
+    closeTrackerColumnFilterMenu,
+    renderTrackerTable,
+    clearTrackerDashboardFilter,
+    handleExportErrors,
+    openUcPendingListModal,
+    handleGroupInsightDepartmentClick,
+    applyTrackerDashboardFilter
+} from './tracker.js';
+
+import {
+    loadSavedQueries,
+    loadQueryHistory,
+    loadHipdataCodes,
+    handleQueryHistorySelect,
+    handleClearQueryHistory,
+    handleQueryTemplateSelect,
+    handleRunQuery,
+    handleQueryExport,
+    handleSaveQuery,
+    handleDeleteQuery,
+    handleQuerySearch
+} from './query.js';
+
+import {
+    loadAdminUsers,
+    closeUserModal,
+    handleUserFormSubmit,
+    handleAdminSubtabSwitch,
+    loadAdminSyncRuns,
+    loadAdminAuditLogs,
+    handleAddSchedule
+} from './admin.js';
+
+// Callbacks container to avoid circular dependencies
+const callbacks = {
+    loadDashboardData,
+    loadHipdataCodes,
+    loadWeeklySummary,
+    stopLiveDashboardAutoRefresh,
+    handleTabSwitch
 };
-
-let appState = getInitialState();
-let activeColumnFilterField = null;
-
-const TRACKER_COLUMN_FILTERS = [
-    { field: 'vn', label: 'VN' },
-    { field: 'cid', label: 'เลขบัตรประชาชน' },
-    { field: 'pttype', label: 'PTType', help: 'ประเภทสิทธิการรักษา' },
-    { field: 'pcode', label: 'HIPDATA', help: 'รหัสกลุ่มสิทธิที่ใช้ตรวจสอบข้อมูล' },
-    { field: 'authCode', label: 'Auth Code (HOS)', help: 'รหัสยืนยันตัวตนจาก HOSxP' },
-    { field: 'claim_code', label: 'Claim Code (HOS)', help: 'รหัสเคลมที่บันทึกใน HOSxP' },
-    { field: 'nhso_claim_code', label: 'Claim Code (Temp Authen)', help: 'รหัสเคลมจากข้อมูล Temp Authen ของ สปสช.' },
-    { field: 'authen_code_type', label: 'Authen Type', help: 'ประเภทการยืนยันตัวตน' },
-    { field: 'pttype_note', label: 'PTType Note' },
-    { field: 'staff', label: 'เจ้าหน้าที่' },
-    { field: 'check_claimcode', label: 'ผลการเช็ค' },
-    { field: 'issue_reason', label: 'สาเหตุที่ต้องแก้' },
-    { field: 'department', label: 'Department' }
-];
-
-// Form Elements
-let visitDateInput;
-let excelFileInput;
 
 // Initialize Application
 function init() {
@@ -100,14 +86,14 @@ function init() {
     ui.initSidebar();
     applyLiveTvMode(appState.isTvMode);
 
-    // Fetch elements safely
-    visitDateInput = document.getElementById('visit-date');
-    excelFileInput = document.getElementById('excel-file');
+    // Fetch elements safely and assign to shared state DOM references
+    domRefs.visitDateInput = document.getElementById('visit-date');
+    domRefs.excelFileInput = document.getElementById('excel-file');
 
     if (appState.token && appState.user) {
         if (isTokenExpired(appState.token)) {
             console.warn('Session expired (checked locally). Logging out.');
-            handleLogout();
+            handleLogout(callbacks);
             return;
         }
         ui.showDashboard(appState.user.full_name || appState.user.name);
@@ -115,7 +101,7 @@ function init() {
         if (appState.user.role === 'admin') {
             document.getElementById('tab-admin')?.classList.remove('hidden');
         }
-        if (visitDateInput) visitDateInput.valueAsDate = new Date();
+        if (domRefs.visitDateInput) domRefs.visitDateInput.valueAsDate = new Date();
         loadDashboardData();
         loadHipdataCodes();
         loadSavedQueries();
@@ -144,16 +130,18 @@ function setupEventListeners() {
     setupBackToTop();
 
     // Authentication
-    document.getElementById('login-form')?.addEventListener('submit', handleLogin);
-    document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
+    document.getElementById('login-form')?.addEventListener('submit', (e) => handleLogin(e, callbacks));
+    document.getElementById('logout-btn')?.addEventListener('click', () => handleLogout(callbacks));
 
     // Main Actions
-    document.getElementById('sync-btn')?.addEventListener('click', handleSyncProcess);
-    document.getElementById('paste-sync-btn')?.addEventListener('click', handlePasteSync);
-    document.getElementById('api-sync-btn')?.addEventListener('click', handleApiSync);
-    document.getElementById('auto-portal-btn')?.addEventListener('click', handleAutoPortalSync);
-    document.getElementById('refresh-btn')?.addEventListener('click', loadDashboardData);
-    visitDateInput?.addEventListener('change', loadDashboardData);
+    document.getElementById('sync-btn')?.addEventListener('click', () => handleSyncProcess(callbacks));
+    document.getElementById('paste-sync-btn')?.addEventListener('click', () => handlePasteSync(callbacks));
+    document.getElementById('api-sync-btn')?.addEventListener('click', () => handleApiSync(callbacks));
+    document.getElementById('auto-portal-btn')?.addEventListener('click', () => handleAutoPortalSync(callbacks));
+    document.getElementById('refresh-btn')?.addEventListener('click', () => loadDashboardData());
+    document.getElementById('uc-pending-total-count-card')?.addEventListener('click', openUcPendingListModal);
+    document.getElementById('uc-insight-refresh-btn')?.addEventListener('click', refreshGroupInsights);
+    domRefs.visitDateInput?.addEventListener('change', () => loadDashboardData());
 
     // Homepage table sorting
     document.querySelectorAll('#tracking-table-thead th[data-sort]').forEach(th => {
@@ -179,21 +167,24 @@ function setupEventListeners() {
 
     setupTrackerColumnFilters();
 
-    // Homepage table search input
+    // Homepage table search input (with debounce to prevent table flickering while typing)
+    let trackerSearchTimeout = null;
     document.getElementById('tracker-search-input')?.addEventListener('input', (e) => {
-        appState.trackerSearchFilter = e.target.value;
-        appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
-        renderTrackerTable();
+        const val = e.target.value;
+        clearTimeout(trackerSearchTimeout);
+        trackerSearchTimeout = setTimeout(() => {
+            appState.trackerSearchFilter = val;
+            appState.trackerCurrentPage = 1;
+            renderTrackerTable();
+        }, 200);
     });
     document.getElementById('clear-tracker-dashboard-filter')?.addEventListener('click', clearTrackerDashboardFilter);
-    document.getElementById('load-more-tracker-rows')?.addEventListener('click', () => {
-        appState.trackerVisibleRows += TRACKER_PAGE_SIZE;
-        renderTrackerTable();
-    });
-    document.getElementById('show-less-tracker-rows')?.addEventListener('click', () => {
-        appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
-        renderTrackerTable();
-        document.getElementById('tracker-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+    document.addEventListener('tracker-page-change', (e) => {
+        if (e.detail && e.detail.page) {
+            appState.trackerCurrentPage = e.detail.page;
+            renderTrackerTable();
+        }
     });
     document.querySelectorAll('[data-tracker-status-filter]').forEach(button => {
         button.addEventListener('click', () => {
@@ -207,7 +198,7 @@ function setupEventListeners() {
                 RED: 'ยังไม่เปิด Authen',
                 YELLOW: 'รอปิด Endpoint'
             };
-            applyTrackerDashboardFilter('status', status, labels[status] || status);
+            applyTrackerDashboardFilter('status', status, labels[status] || status, {}, callbacks);
         });
     });
 
@@ -215,7 +206,7 @@ function setupEventListeners() {
     document.getElementById('export-error-btn')?.addEventListener('click', handleExportErrors);
 
     // File Upload & Drag-Drop (with Auto-Date Detection)
-    setupFileUpload();
+    setupFileUpload(callbacks);
 
     // Tab Switcher Events
     document.getElementById('tab-tracker')?.addEventListener('click', () => handleTabSwitch('tab-tracker'));
@@ -246,7 +237,7 @@ function setupEventListeners() {
     document.getElementById('admin-login-btn')?.addEventListener('click', openAdminLoginModal);
     document.getElementById('close-admin-login-modal')?.addEventListener('click', closeAdminLoginModal);
     document.getElementById('cancel-admin-login-modal')?.addEventListener('click', closeAdminLoginModal);
-    document.getElementById('admin-login-form')?.addEventListener('submit', handleAdminQuickLogin);
+    document.getElementById('admin-login-form')?.addEventListener('submit', (e) => handleAdminQuickLogin(e, callbacks));
 
     // Quick Sync Modal listeners & keyboard shortcuts
     document.getElementById('quick-sync-trigger-btn')?.addEventListener('click', openQuickSyncModal);
@@ -1085,7 +1076,7 @@ async function loadWeeklySummary() {
         const response = await api.fetchSummary(appState.token);
         if (handleApiResponse(response)) {
             ui.renderWeeklySummary(response.data, (selectedDate) => {
-                visitDateInput.value = selectedDate;
+                if (domRefs.visitDateInput) domRefs.visitDateInput.value = selectedDate;
                 loadDashboardData();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             });
@@ -1095,34 +1086,60 @@ async function loadWeeklySummary() {
     }
 }
 
-async function loadDashboardData() {
-    const date = visitDateInput.value;
+async function loadDashboardData(isSilent = false) {
+    const date = domRefs.visitDateInput?.value;
     if (!date) return;
 
-    ui.setLoading(true);
+    if (!isSilent) {
+        ui.setLoading(true);
+    }
     try {
-        const response = await api.fetchDashboard(date, appState.token);
-        if (handleApiResponse(response)) {
-            const data = response.data;
+        const [dashboardRes, rightsRes] = await Promise.all([
+            api.fetchDashboard(date, appState.token),
+            api.fetchRightsTrackingTable(date, appState.token).catch(err => {
+                console.error('Failed to load rights tracking table:', err);
+                return null;
+            })
+        ]);
+
+        if (handleApiResponse(dashboardRes)) {
+            const data = dashboardRes.data;
             appState.disableNotifications = data.disableNotifications;
 
-            // data now contains { trackingData: [], hosxpStats: { totalPersons: X, totalVisits: Y } }
             appState.rawTableData = data.trackingData || [];
             appState.hosxpStats = data.hosxpStats || null;
-            appState.lgoTableData = [];
-            appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
+
+            if (rightsRes && rightsRes.ok && rightsRes.data?.rows) {
+                appState.lgoTableData = (rightsRes.data.rows || []).map(row => ({
+                    ...row,
+                    issue_reason: getTrackingIssueReason(row),
+                    color_status: row.check_claimcode === 'ตรง'
+                        ? 'GREEN'
+                        : row.check_claimcode === 'ตรวจสอบ'
+                            ? 'YELLOW'
+                            : 'RED'
+                }));
+            } else {
+                appState.lgoTableData = [];
+            }
+
+            appState.trackerCurrentPage = 1;
             renderTrackerTable();
-            await loadRightsTrackingTable(date);
+            if (appState.lgoTableData.length > 0) {
+                ui.renderLgoTrackingTable(appState.lgoTableData);
+            }
             await loadGroupInsights(date);
         }
     } catch (error) {
         console.error('Fetch error:', error);
     } finally {
-        ui.setLoading(false);
+        if (!isSilent) {
+            ui.setLoading(false);
+        }
     }
 }
 
-async function loadRightsTrackingTable(date = visitDateInput.value) {
+async function loadRightsTrackingTable(date = domRefs.visitDateInput?.value) {
     if (!date || !appState.token) return;
 
     try {
@@ -1148,17 +1165,67 @@ async function loadRightsTrackingTable(date = visitDateInput.value) {
     }
 }
 
-async function loadGroupInsights(date = visitDateInput.value) {
+// Inline fallback for tracking issue logic to avoid circular dependency
+function getTrackerStatusKey(item = {}) {
+    const status = String(item.check_claimcode || '').trim();
+    if (status === 'ยังไม่ได้นำเข้า') return 'not_imported';
+    if (status === 'ยังไม่เปิด Authen') return 'no_auth';
+    if (status === 'ไม่ตรง') return 'mismatch';
+    if (status === 'ตรวจสอบ') return 'duplicate';
+    if (status === 'ตรง') return 'matched';
+    if (item.color_status === 'GREEN') return 'matched';
+    if (item.color_status === 'YELLOW') return 'duplicate';
+    return 'not_imported';
+}
+
+function getTrackingIssueReason(item = {}) {
+    switch (getTrackerStatusKey(item)) {
+        case 'not_imported':
+            return 'ไม่มีข้อมูลนำเข้าใน Temp Authen';
+        case 'no_auth':
+            return 'มีข้อมูลนำเข้าแล้ว แต่ Auth Code (HOS) ว่าง';
+        case 'mismatch':
+            return 'Claim Code HOS ไม่ตรงกับ Temp Authen';
+        case 'duplicate':
+            return 'CID เดียวมีหลาย VN ในวันเดียวกัน';
+        case 'matched':
+            return 'ข้อมูลตรง ไม่ต้องแก้ไข';
+        default:
+            return 'รอตรวจสอบข้อมูล';
+    }
+}
+
+async function loadGroupInsights(date = domRefs.visitDateInput?.value) {
     if (!date || !appState.token) return;
 
     try {
         const hipdataCode = document.getElementById('query-hipdata')?.value || "'OFC','UCS','OTH','BMT','XXX','LGO','STP','SSS','SSI','A2','BKK','PTY','A9'";
         const response = await api.fetchGroupInsights(date, appState.token, appState.groupInsightsBy, hipdataCode);
         if (handleApiResponse(response)) {
-            ui.renderGroupInsights(response.data, handleGroupInsightDepartmentClick);
+            ui.renderGroupInsights(response.data, (item) => handleGroupInsightDepartmentClick(item, callbacks));
         }
     } catch (error) {
         console.error('Failed to load group insights:', error);
+    }
+}
+
+async function refreshGroupInsights() {
+    const refreshBtn = document.getElementById('uc-insight-refresh-btn');
+    const refreshIcon = document.getElementById('uc-insight-refresh-icon');
+    if (!refreshBtn || !refreshIcon) return;
+    
+    refreshIcon.classList.add('fa-spin');
+    refreshBtn.disabled = true;
+    
+    try {
+        await loadGroupInsights();
+    } catch (err) {
+        console.error('Failed to refresh group insights:', err);
+    } finally {
+        setTimeout(() => {
+            refreshIcon.classList.remove('fa-spin');
+            refreshBtn.disabled = false;
+        }, 600);
     }
 }
 
@@ -1170,14 +1237,13 @@ function handleGroupInsightsToggle(groupBy) {
 }
 
 async function loadLiveDashboardData() {
-    const date = visitDateInput.value || new Date().toISOString().split('T')[0];
+    const date = domRefs.visitDateInput?.value || new Date().toISOString().split('T')[0];
     if (!appState.token) return;
 
     try {
         ui.updateLiveRefreshState('syncing');
         const response = await api.fetchLiveDashboardData(date, appState.token);
         if (handleApiResponse(response)) {
-            // Fetch today's tambon counts from the new Controllers/Services/Repositories endpoint
             const tambonRes = await api.fetchVisitsTodayByTambon(appState.token);
             if (tambonRes.ok) {
                 response.data.tambonVisits = tambonRes.data;
@@ -1234,282 +1300,6 @@ function handleLiveAutoToggle() {
     } else {
         startLiveDashboardAutoRefresh();
     }
-}
-
-function getFilteredAndSortedTrackerData() {
-    let data = [...appState.rawTableData];
-
-    const dashboardFilter = appState.trackerDashboardFilter;
-    if (dashboardFilter?.value) {
-        const query = dashboardFilter.value.toLowerCase();
-        if (dashboardFilter.type === 'status') {
-            data = data.filter(item => String(item.color_status || '').toLowerCase() === query);
-        } else {
-            const fields = dashboardFilter.type === 'department'
-                ? ['department']
-                : dashboardFilter.type === 'right'
-                    ? ['pttype_note', 'pttype', 'pcode']
-                    : ['subdistrict_name', 'tambon_name', 'subdistrict_code', 'tambon_code'];
-
-            data = data.filter(item => fields.some(field => {
-                const value = String(item[field] || '').toLowerCase();
-                if (!value) return false;
-                return value === query || value.includes(query) || query.includes(value);
-            }));
-        }
-
-        if (dashboardFilter.mode === 'uc-pending') {
-            data = data.filter(item =>
-                String(item.pcode || '').toUpperCase() === 'UC'
-                && ['RED', 'YELLOW'].includes(String(item.color_status || '').toUpperCase())
-            );
-        } else if (dashboardFilter.mode === 'uc-debtor') {
-            data = data.filter(item =>
-                String(item.pcode || '').toUpperCase() === 'UC'
-                && Number(item.uc_money || 0) > 0
-            );
-        }
-    }
-
-    // Search filter
-    const searchFilter = appState.trackerSearchFilter;
-    if (searchFilter) {
-        const query = searchFilter.toLowerCase();
-        data = data.filter(item => {
-            return Object.values(item).some(val =>
-                String(val || '').toLowerCase().includes(query)
-            );
-        });
-    }
-
-    // Sorting
-    const sortBy = appState.trackerSortBy;
-    const sortDesc = appState.trackerSortDesc;
-    if (sortBy) {
-        data.sort((a, b) => {
-            let valA = a[sortBy];
-            let valB = b[sortBy];
-
-            if (valA !== null && valB !== null && !isNaN(valA) && !isNaN(valB) && String(valA).trim() !== '' && String(valB).trim() !== '') {
-                valA = Number(valA);
-                valB = Number(valB);
-            } else {
-                valA = String(valA || '').toLowerCase();
-                valB = String(valB || '').toLowerCase();
-            }
-
-            if (valA < valB) return sortDesc ? 1 : -1;
-            if (valA > valB) return sortDesc ? -1 : 1;
-            return 0;
-        });
-    }
-    return data;
-}
-
-function getSortedLgoTableData() {
-    const data = [...appState.lgoTableData];
-    const sortBy = appState.trackerSortBy;
-    const sortDesc = appState.trackerSortDesc;
-
-    if (sortBy) {
-        data.sort((a, b) => {
-            let valA = a[sortBy];
-            let valB = b[sortBy];
-
-            if (valA !== null && valB !== null && !isNaN(valA) && !isNaN(valB) && String(valA).trim() !== '' && String(valB).trim() !== '') {
-                valA = Number(valA);
-                valB = Number(valB);
-            } else {
-                valA = String(valA || '').toLowerCase();
-                valB = String(valB || '').toLowerCase();
-            }
-
-            if (valA < valB) return sortDesc ? 1 : -1;
-            if (valA > valB) return sortDesc ? -1 : 1;
-            return 0;
-        });
-    }
-
-    return data;
-}
-
-function getTrackerStatusKey(item = {}) {
-    const status = String(item.check_claimcode || '').trim();
-    if (status === 'ยังไม่ได้นำเข้า') return 'not_imported';
-    if (status === 'ยังไม่เปิด Authen') return 'no_auth';
-    if (status === 'ไม่ตรง') return 'mismatch';
-    if (status === 'ตรวจสอบ') return 'duplicate';
-    if (status === 'ตรง') return 'matched';
-    if (item.color_status === 'GREEN') return 'matched';
-    if (item.color_status === 'YELLOW') return 'duplicate';
-    return 'not_imported';
-}
-
-function getTrackingIssueReason(item = {}) {
-    switch (getTrackerStatusKey(item)) {
-        case 'not_imported':
-            return 'ไม่มีข้อมูลนำเข้าใน Temp Authen';
-        case 'no_auth':
-            return 'มีข้อมูลนำเข้าแล้ว แต่ Auth Code (HOS) ว่าง';
-        case 'mismatch':
-            return 'Claim Code HOS ไม่ตรงกับ Temp Authen';
-        case 'duplicate':
-            return 'CID เดียวมีหลาย VN ในวันเดียวกัน';
-        case 'matched':
-            return 'ข้อมูลตรง ไม่ต้องแก้ไข';
-        default:
-            return 'รอตรวจสอบข้อมูล';
-    }
-}
-
-function normalizeTrackerColumnValue(value) {
-    if (value === null || value === undefined) return '';
-    return String(value).trim();
-}
-
-function getTrackerColumnValue(item = {}, field) {
-    if (field === 'issue_reason') return item.issue_reason || getTrackingIssueReason(item);
-    if (field === 'pcode') return item.pcode || item.hipdata_code || item.hipdata || '';
-    if (field === 'authCode') return item.authCode || item.Auth_Code || item.auth_code || '';
-    if (field === 'nhso_claim_code') return item.nhso_claim_code || item.claimcode || '';
-    return item[field];
-}
-
-function getTrackerColumnFilterValues(data = [], field) {
-    const valueMap = new Map();
-    data.forEach(item => {
-        const value = normalizeTrackerColumnValue(getTrackerColumnValue(item, field));
-        const label = value || '(ว่าง)';
-        valueMap.set(value, label);
-    });
-
-    return Array.from(valueMap, ([value, label]) => ({ value, label }))
-        .sort((a, b) => {
-            if (a.value === '') return -1;
-            if (b.value === '') return 1;
-            return a.label.localeCompare(b.label, 'th');
-        });
-}
-
-function applyTrackerColumnFilters(data = []) {
-    const filters = Object.entries(appState.trackerColumnFilters || {})
-        .filter(([, values]) => Array.isArray(values));
-    if (!filters.length) return data;
-
-    return data.filter(item => filters.every(([field, values]) => {
-        const value = normalizeTrackerColumnValue(getTrackerColumnValue(item, field));
-        return values.includes(value);
-    }));
-}
-
-function updateTrackerColumnFilterHeaders() {
-    if (typeof document === 'undefined') return;
-    document.querySelectorAll('.tracker-column-filter-btn').forEach(button => {
-        const field = button.dataset.columnFilter;
-        const isActive = Array.isArray(appState.trackerColumnFilters?.[field]);
-        button.className = isActive
-            ? 'tracker-column-filter-btn shrink-0 text-blue-600 dark:text-blue-300 transition cursor-pointer'
-            : 'tracker-column-filter-btn shrink-0 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition cursor-pointer';
-    });
-}
-
-function renderTrackerTable() {
-    const data = getFilteredAndSortedTrackerData();
-    const baseTableData = appState.lgoTableData.length > 0 ? getSortedLgoTableData() : data;
-    const columnFilteredData = applyTrackerColumnFilters(baseTableData);
-    const tableData = columnFilteredData;
-    const hasColumnFilters = Object.values(appState.trackerColumnFilters || {}).some(values => Array.isArray(values));
-    const hasFilters = Boolean(appState.trackerDashboardFilter?.value || appState.trackerSearchFilter || hasColumnFilters);
-    ui.renderTable(tableData, appState.trackerSortBy, appState.trackerSortDesc, appState.trackerVisibleRows);
-    ui.renderTrackerDashboardFilter(appState.trackerDashboardFilter, data.length);
-    updateTrackerColumnFilterHeaders();
-    ui.updateStats(data, hasFilters ? null : appState.hosxpStats);
-    ui.initTiltEffect();
-}
-
-function revealTrackerResults() {
-    if (typeof document === 'undefined') return;
-    const table = document.getElementById('tracker-results');
-    if (!table) return;
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    table.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
-}
-
-function announceTrackerFilterResult() {
-    if (typeof document === 'undefined') return;
-    const announcement = document.getElementById('tracker-filter-result-announcement');
-    if (!announcement) return;
-    const count = getFilteredAndSortedTrackerData().length;
-    const filter = appState.trackerDashboardFilter;
-    announcement.textContent = filter?.value
-        ? `กรอง ${filter.label || filter.value} พบ ${count.toLocaleString()} รายการ`
-        : `แสดงข้อมูลทั้งหมด ${count.toLocaleString()} รายการ`;
-}
-
-async function applyTrackerDashboardFilter(type, value, label = value, options = {}) {
-    if (!value) return;
-    appState.trackerDashboardFilter = { type, value, label, ...options };
-    appState.trackerSearchFilter = '';
-    appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
-
-    const searchInput = document.getElementById('tracker-search-input');
-    if (searchInput) searchInput.value = '';
-
-    handleTabSwitch('tab-tracker');
-    if (appState.rawTableData.length === 0) {
-        await loadDashboardData();
-    } else {
-        renderTrackerTable();
-    }
-    announceTrackerFilterResult();
-    requestAnimationFrame(revealTrackerResults);
-}
-
-function handleGroupInsightDepartmentClick(item) {
-    if (!item?.groupKey && !item?.rightName) return;
-    const mode = item.mode === 'debtor' ? 'uc-debtor' : 'uc-pending';
-    if (item.rightName) {
-        applyTrackerDashboardFilter('right', item.rightName, item.label || `สิทธิ ${item.rightName}`, { mode });
-        return;
-    }
-    const type = item.groupBy === 'subdistrict' ? 'tambon' : 'department';
-    applyTrackerDashboardFilter(type, item.groupKey, item.label || `${item.groupLabel || 'กลุ่ม'} ${item.groupKey}`, { mode });
-}
-
-function clearTrackerDashboardFilter() {
-    appState.trackerDashboardFilter = null;
-    appState.trackerVisibleRows = TRACKER_PAGE_SIZE;
-    renderTrackerTable();
-    announceTrackerFilterResult();
-    requestAnimationFrame(revealTrackerResults);
-}
-
-function handleExportErrors() {
-    if (!appState.rawTableData || appState.rawTableData.length === 0) return;
-
-    // กรองเอาเฉพาะสีแดง (รอ Authen) และ สีเหลือง (รอปิด Endpoint)
-    const errorData = appState.rawTableData.filter(item =>
-        item.color_status === 'RED' || item.color_status === 'YELLOW'
-    );
-
-    if (errorData.length === 0) {
-        alert("ไม่มีรายการที่ต้องแก้ไข (ทุกรายการเป็นสีเขียว)");
-        return;
-    }
-
-    // จัดรูปแบบข้อมูลสำหรับ Excel/CSV
-    const exportData = errorData.map(item => ({
-        'วันที่รับบริการ': item.visit_date.split('T')[0],
-        'VN': item.vn,
-        'เลขบัตรประชาชน': item.cid,
-        'ชื่อ-สกุล': item.full_name,
-        'สิทธิ (HOSxP)': item.pttype,
-        'Authen Code': item.nhso_authen_code || 'ไม่มี',
-        'สถานะ': item.color_status === 'RED' ? 'ยังไม่เปิด Authen' : 'รอปิด Endpoint'
-    }));
-
-    const dateStr = visitDateInput.value;
-    exportToCsv(`NHSO_Error_Report_${dateStr}.csv`, exportData);
 }
 
 function setupBackToTop() {
@@ -1576,10 +1366,8 @@ async function handleLiveFullscreen() {
     }
 }
 
-// --- Grafana SQL Dashboard Handlers ---
-
-// จัดการสลับหน้าจอ Tab
 function handleTabSwitch(tabId) {
+    if (tabId === 'tab-live-dashboard') return;
     stopLiveDashboardAutoRefresh();
 
     const doSwitch = () => {
@@ -1591,7 +1379,7 @@ function handleTabSwitch(tabId) {
         } else if (tabId === 'tab-grafana') {
             const dateInput = document.getElementById('query-visit-date');
             if (!dateInput.value) {
-                dateInput.value = visitDateInput.value || new Date().toISOString().split('T')[0];
+                dateInput.value = domRefs.visitDateInput?.value || new Date().toISOString().split('T')[0];
             }
             loadSavedQueries();
             loadQueryHistory();
@@ -1601,676 +1389,9 @@ function handleTabSwitch(tabId) {
         }
     };
 
-    // Use a direct DOM update here. The experimental View Transition API can
-    // abort when a previous transition is still active, leaving tab changes
-    // unreliable on deployed browsers.
     doSwitch();
 }
 
-// --- Admin User Management Handlers ---
-
-async function loadAdminUsers() {
-    if (!appState.token || appState.user.role !== 'admin') return;
-    ui.setLoading(true);
-    try {
-        const { ok, data } = await api.fetchUsers(appState.token);
-        if (ok) {
-            ui.renderAdminUsers(data, openUserModal, handleDeleteUser, handleTestNotification);
-        } else {
-            console.error('Failed to fetch users:', data.message);
-        }
-    } catch (error) {
-        console.error('Error loading admin users:', error);
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-function openUserModal(user = null) {
-    const modal = document.getElementById('user-modal');
-    const title = document.getElementById('user-modal-title');
-    const form = document.getElementById('user-form');
-
-    if (!modal) return;
-
-    form.reset();
-
-    if (user) {
-        title.textContent = 'แก้ไขข้อมูลผู้ใช้งาน';
-        document.getElementById('modal-user-id').value = user.id;
-        document.getElementById('modal-username').value = user.username;
-        document.getElementById('modal-username').disabled = true; // Don't allow changing username
-        document.getElementById('modal-fullname').value = user.full_name || '';
-        document.getElementById('modal-role').value = user.role || 'user';
-        document.getElementById('modal-department').value = user.department || '';
-        document.getElementById('modal-line-token').value = '';
-        document.getElementById('modal-line-token').placeholder = user.has_line_token ? 'เก็บค่าเดิมไว้ (กรอกเมื่อต้องการเปลี่ยน)' : '';
-        document.getElementById('modal-line-group-id').value = user.line_group_id || '';
-        document.getElementById('modal-telegram-token').value = '';
-        document.getElementById('modal-telegram-token').placeholder = user.has_telegram_token ? 'เก็บค่าเดิมไว้ (กรอกเมื่อต้องการเปลี่ยน)' : '';
-        document.getElementById('modal-telegram-chat-id').value = user.telegram_chat_id || '';
-    } else {
-        title.textContent = 'เพิ่มผู้ใช้งานใหม่';
-        document.getElementById('modal-user-id').value = '';
-        document.getElementById('modal-username').disabled = false;
-    }
-
-    modal.classList.remove('hidden');
-}
-
-function closeUserModal() {
-    const modal = document.getElementById('user-modal');
-    if (modal) modal.classList.add('hidden');
-}
-
-async function handleUserFormSubmit(e) {
-    e.preventDefault();
-    const id = document.getElementById('modal-user-id').value;
-    const userData = {
-        username: document.getElementById('modal-username').value,
-        full_name: document.getElementById('modal-fullname').value,
-        role: document.getElementById('modal-role').value,
-        department: document.getElementById('modal-department').value,
-        line_token: document.getElementById('modal-line-token').value || null,
-        line_group_id: document.getElementById('modal-line-group-id').value || null,
-        telegram_token: document.getElementById('modal-telegram-token').value || null,
-        telegram_chat_id: document.getElementById('modal-telegram-chat-id').value || null
-    };
-
-    ui.setLoading(true);
-    try {
-        let response;
-        if (id) {
-            response = await api.updateUser(id, userData, appState.token);
-        } else {
-            response = await api.createUser(userData, appState.token);
-        }
-
-        if (response.ok) {
-            alert(response.data.message || 'บันทึกสำเร็จ');
-            closeUserModal();
-            loadAdminUsers();
-        } else {
-            alert(response.data.message || 'เกิดข้อผิดพลาดในการบันทึก');
-        }
-    } catch (error) {
-        console.error('Error saving user:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-async function handleDeleteUser(id) {
-    if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการลบผู้ใช้นี้ออกจากระบบ?')) return;
-
-    ui.setLoading(true);
-    try {
-        const { ok, data } = await api.deleteUser(id, appState.token);
-        if (ok) {
-            alert(data.message || 'ลบผู้ใช้สำเร็จ');
-            loadAdminUsers();
-        } else {
-            alert(data.message || 'ลบผู้ใช้ไม่สำเร็จ');
-        }
-    } catch (error) {
-        console.error('Error deleting user:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-async function handleTestNotification(type, user) {
-    const hasToken = type === 'line' ? user.has_line_token : user.has_telegram_token;
-    const targetVal = type === 'line' ? user.line_group_id : user.telegram_chat_id;
-    if (!hasToken || !targetVal) {
-        alert('กรุณากรอกข้อมูล Token และ ID ปลายทางให้ครบถ้วนก่อนทดสอบ');
-        return;
-    }
-
-    ui.setLoading(true);
-    try {
-        const { ok, data } = await api.testStoredNotification(user.id, type, appState.token);
-        if (ok) {
-            alert(data.message || 'ส่งข้อความทดสอบสำเร็จ!');
-        } else {
-            alert(data.message || 'ส่งข้อความทดสอบล้มเหลว');
-        }
-    } catch (error) {
-        console.error('Error testing notification:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + error.message);
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-// --- Admin Schedules Management Handlers ---
-
-function handleAdminSubtabSwitch(subtab) {
-    const btnUsers = document.getElementById('admin-subtab-users');
-    const btnSchedules = document.getElementById('admin-subtab-schedules');
-    const btnSyncRuns = document.getElementById('admin-subtab-sync-runs');
-    const btnAuditLogs = document.getElementById('admin-subtab-audit-logs');
-    const viewUsers = document.getElementById('admin-subview-users');
-    const viewSchedules = document.getElementById('admin-subview-schedules');
-    const viewSyncRuns = document.getElementById('admin-subview-sync-runs');
-    const viewAuditLogs = document.getElementById('admin-subview-audit-logs');
-
-    if (!btnUsers || !btnSchedules || !btnSyncRuns || !btnAuditLogs || !viewUsers || !viewSchedules || !viewSyncRuns || !viewAuditLogs) return;
-
-    const activeClass = 'flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center bg-white dark:bg-slate-800 shadow-sm text-blue-600 dark:text-blue-400';
-    const inactiveClass = 'flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200';
-
-    if (subtab === 'users') {
-        btnUsers.className = activeClass;
-        btnSchedules.className = inactiveClass;
-        btnSyncRuns.className = inactiveClass;
-        btnAuditLogs.className = inactiveClass;
-        viewUsers.classList.remove('hidden');
-        viewSchedules.classList.add('hidden');
-        viewSyncRuns.classList.add('hidden');
-        viewAuditLogs.classList.add('hidden');
-        loadAdminUsers();
-    } else if (subtab === 'schedules') {
-        btnUsers.className = inactiveClass;
-        btnSchedules.className = activeClass;
-        btnSyncRuns.className = inactiveClass;
-        btnAuditLogs.className = inactiveClass;
-        viewUsers.classList.add('hidden');
-        viewSchedules.classList.remove('hidden');
-        viewSyncRuns.classList.add('hidden');
-        viewAuditLogs.classList.add('hidden');
-        loadAdminSchedules();
-    } else if (subtab === 'sync-runs') {
-        btnUsers.className = inactiveClass;
-        btnSchedules.className = inactiveClass;
-        btnSyncRuns.className = activeClass;
-        btnAuditLogs.className = inactiveClass;
-        viewUsers.classList.add('hidden');
-        viewSchedules.classList.add('hidden');
-        viewSyncRuns.classList.remove('hidden');
-        viewAuditLogs.classList.add('hidden');
-        loadAdminSyncRuns();
-    } else if (subtab === 'audit-logs') {
-        btnUsers.className = inactiveClass;
-        btnSchedules.className = inactiveClass;
-        btnSyncRuns.className = inactiveClass;
-        btnAuditLogs.className = activeClass;
-        viewUsers.classList.add('hidden');
-        viewSchedules.classList.add('hidden');
-        viewSyncRuns.classList.add('hidden');
-        viewAuditLogs.classList.remove('hidden');
-        loadAdminAuditLogs();
-    }
-}
-
-async function loadAdminSyncRuns() {
-    if (!appState.token || appState.user.role !== 'admin') return;
-    ui.setLoading(true);
-    try {
-        const { ok, data } = await api.fetchSyncRuns(appState.token);
-        if (ok) {
-            ui.renderAdminSyncRuns(data.runs || [], data.summary || null);
-        } else {
-            console.error('Failed to fetch sync runs:', data.message);
-        }
-    } catch (error) {
-        console.error('Error loading sync runs:', error);
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-async function loadAdminAuditLogs() {
-    if (!appState.token || appState.user.role !== 'admin') return;
-    ui.setLoading(true);
-    try {
-        const { ok, data } = await api.fetchAuditLogs(appState.token);
-        if (ok) {
-            ui.renderAdminAuditLogs(data.logs || []);
-        } else {
-            console.error('Failed to fetch audit logs:', data.message);
-        }
-    } catch (error) {
-        console.error('Error loading audit logs:', error);
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-async function loadAdminSchedules() {
-    if (!appState.token || appState.user.role !== 'admin') return;
-    ui.setLoading(true);
-    try {
-        const { ok, data } = await api.fetchSchedules(appState.token);
-        if (ok) {
-            ui.renderAdminSchedules(data.schedules, handleToggleSchedule, handleDeleteSchedule);
-        } else {
-            console.error('Failed to fetch schedules:', data.message);
-        }
-    } catch (error) {
-        console.error('Error loading admin schedules:', error);
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-async function handleAddSchedule(e) {
-    e.preventDefault();
-    const timeInput = document.getElementById('new-schedule-time');
-    if (!timeInput || !timeInput.value) return;
-
-    ui.setLoading(true);
-    try {
-        const { ok, data } = await api.createSchedule(timeInput.value, appState.token);
-        if (ok) {
-            alert(data.message || 'เพิ่มเวลาทำงานสำเร็จ');
-            timeInput.value = '';
-            loadAdminSchedules();
-        } else {
-            alert(data.message || 'เพิ่มเวลาทำงานไม่สำเร็จ');
-        }
-    } catch (error) {
-        console.error('Error adding schedule:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-async function handleToggleSchedule(id, enabled) {
-    try {
-        const { ok, data } = await api.updateSchedule(id, { is_enabled: enabled }, appState.token);
-        if (ok) {
-            loadAdminSchedules();
-        } else {
-            alert(data.message || 'อัปเดตสถานะไม่สำเร็จ');
-            loadAdminSchedules();
-        }
-    } catch (error) {
-        console.error('Error toggling schedule:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
-        loadAdminSchedules();
-    }
-}
-
-async function handleDeleteSchedule(id, timeStr) {
-    if (!confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบเวลาทำงาน ${timeStr} น. ออกจากระบบ?`)) return;
-
-    ui.setLoading(true);
-    try {
-        const { ok, data } = await api.deleteSchedule(id, appState.token);
-        if (ok) {
-            alert(data.message || 'ลบเวลาทำงานสำเร็จ');
-            loadAdminSchedules();
-        } else {
-            alert(data.message || 'ลบไม่สำเร็จ');
-        }
-    } catch (error) {
-        console.error('Error deleting schedule:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-// โหลดรายการ SQL Queries ที่บันทึกไว้ในระบบ
-async function loadSavedQueries(selectedId = '') {
-    if (!appState.token) return;
-    try {
-        const response = await api.fetchSavedQueries(appState.token);
-        if (handleApiResponse(response)) {
-            appState.savedQueries = response.data;
-            ui.renderSavedQueriesDropdown(response.data, selectedId);
-        }
-    } catch (e) {
-        console.error('Error loading saved queries:', e);
-    }
-}
-
-async function loadQueryHistory() {
-    if (!appState.token) return;
-    try {
-        const response = await api.fetchQueryHistory(appState.token);
-        if (handleApiResponse(response)) {
-            appState.queryHistory = response.data.history || [];
-            ui.renderQueryHistory(appState.queryHistory, handleQueryHistorySelect);
-        }
-    } catch (error) {
-        console.error('Error loading query history:', error);
-    }
-}
-
-async function loadHipdataCodes() {
-    if (!appState.token) return;
-    try {
-        const response = await api.fetchHipdata(appState.token);
-        if (!handleApiResponse(response)) return;
-
-        const codes = response.data.selected_codes || response.data.codes || [];
-        const sqlList = response.data.sql_list || codes.map(code => `'${code}'`).join(',');
-        appState.hipdataCodes = codes;
-
-        const hipdataInput = document.getElementById('query-hipdata');
-        const datalist = document.getElementById('hipdata-code-options');
-        if (hipdataInput && sqlList) {
-            hipdataInput.value = sqlList;
-        }
-        if (datalist) {
-            datalist.innerHTML = '';
-            codes.forEach(code => {
-                const option = document.createElement('option');
-                option.value = `'${code}'`;
-                datalist.appendChild(option);
-            });
-            if (sqlList) {
-                const allOption = document.createElement('option');
-                allOption.value = sqlList;
-                datalist.prepend(allOption);
-            }
-        }
-    } catch (error) {
-        console.error('Error loading hipdata codes:', error);
-    }
-}
-
-function handleQueryHistorySelect(item) {
-    if (!item) return;
-    const editor = document.getElementById('sql-editor');
-    const dbType = document.getElementById('query-db-type');
-    const dateInput = document.getElementById('query-visit-date');
-    const hipdataInput = document.getElementById('query-hipdata');
-    const templateSelect = document.getElementById('query-template-select');
-    const queryName = document.getElementById('new-query-name');
-
-    if (editor) editor.value = item.query_text || '';
-    if (dbType) dbType.value = item.db_type || 'hosxp';
-    if (dateInput && item.visit_date) dateInput.value = String(item.visit_date).split('T')[0];
-    if (hipdataInput && item.hipdata_code) hipdataInput.value = item.hipdata_code;
-    if (templateSelect) templateSelect.value = '';
-    if (queryName) queryName.value = '';
-    document.getElementById('query-info-msg').textContent = 'โหลดคำสั่งจากประวัติแล้ว พร้อมรันหรือบันทึกเป็น Template ใหม่';
-}
-
-async function handleClearQueryHistory() {
-    if (!confirm('ต้องการล้างประวัติคำสั่ง SQL ล่าสุดของผู้ใช้นี้ทั้งหมดหรือไม่?')) return;
-
-    ui.setLoading(true);
-    try {
-        const response = await api.clearQueryHistory(appState.token);
-        if (handleApiResponse(response)) {
-            appState.queryHistory = [];
-            ui.renderQueryHistory([], handleQueryHistorySelect);
-            document.getElementById('query-info-msg').textContent = response.data.message || 'ล้างประวัติคำสั่ง SQL แล้ว';
-        } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'ไม่สามารถล้างประวัติ SQL ได้');
-        }
-    } catch (error) {
-        console.error('Error clearing query history:', error);
-        alert('เกิดข้อผิดพลาดในการล้างประวัติ SQL');
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-// เมื่อเลือกคำสั่งใน Dropdown ให้โหลดใส่ Editor
-function handleQueryTemplateSelect(e) {
-    const queryId = e.target.value;
-    const selected = appState.savedQueries.find(q => String(q.id) === String(queryId));
-    if (selected) {
-        document.getElementById('sql-editor').value = selected.query_text;
-        document.getElementById('query-db-type').value = selected.db_type;
-        document.getElementById('new-query-name').value = selected.name;
-    }
-}
-
-// รันคำสั่ง SQL
-async function handleRunQuery() {
-    const query = document.getElementById('sql-editor').value;
-    const dbType = document.getElementById('query-db-type').value;
-    const date = document.getElementById('query-visit-date').value;
-    const hipdataCode = document.getElementById('query-hipdata').value;
-
-    if (!query) {
-        alert('กรุณากรอกคำสั่ง SQL');
-        return;
-    }
-
-    ui.setLoading(true);
-    try {
-        const response = await api.runCustomQuery(query, dbType, date, hipdataCode, appState.token);
-        if (handleApiResponse(response) && response.data.success) {
-            appState.currentQueryResults = response.data.rows;
-            appState.querySortBy = '';
-            appState.querySortDesc = false;
-
-            const searchVal = document.getElementById('query-search-input').value;
-            ui.renderGrafanaTable(response.data.rows, '', false, searchVal, handleQueryHeaderClick);
-
-            document.getElementById('query-info-msg').textContent =
-                `พบผลลัพธ์ ${response.data.rows.length.toLocaleString()} แถว | ใช้เวลาประมวลผล ${response.data.executionTimeMs} ms`;
-            loadQueryHistory();
-        } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'เกิดข้อผิดพลาดในการรัน SQL');
-            document.getElementById('query-info-msg').textContent = response.data.message || 'การเรียกใช้ SQL ล้มเหลว';
-            ui.renderGrafanaTable([], '', false, '', null);
-        }
-    } catch (err) {
-        console.error(err);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์: ' + err.message);
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-// จัดการคัดกรองการเรียงลำดับหัวข้อคอลัมน์
-function handleQueryHeaderClick(column) {
-    if (appState.querySortBy === column) {
-        appState.querySortDesc = !appState.querySortDesc;
-    } else {
-        appState.querySortBy = column;
-        appState.querySortDesc = false;
-    }
-
-    const searchVal = document.getElementById('query-search-input').value;
-    ui.renderGrafanaTable(
-        appState.currentQueryResults,
-        appState.querySortBy,
-        appState.querySortDesc,
-        searchVal,
-        handleQueryHeaderClick
-    );
-}
-
-// ส่งออกผลลัพธ์เป็นไฟล์ CSV
-function handleQueryExport() {
-    if (!appState.currentQueryResults || appState.currentQueryResults.length === 0) {
-        alert('ไม่มีข้อมูลให้ส่งออก');
-        return;
-    }
-
-    const dbType = document.getElementById('query-db-type').value;
-    const date = document.getElementById('query-visit-date').value;
-
-    const exportData = appState.currentQueryResults.map(row => {
-        const formatted = {};
-        for (const [key, value] of Object.entries(row)) {
-            // จัดการ Binary buffer ใน JavaScript
-            if (value && typeof value === 'object' && value.type === 'Buffer' && Array.isArray(value.data)) {
-                try {
-                    const decoder = new TextDecoder('utf-8');
-                    const bytes = new Uint8Array(value.data);
-                    formatted[key] = decoder.decode(bytes);
-                } catch (e) {
-                    formatted[key] = '[Binary]';
-                }
-            } else {
-                formatted[key] = value;
-            }
-        }
-        return formatted;
-    });
-
-    exportToCsv(`SQL_Report_${dbType}_${date}.csv`, exportData);
-}
-
-// บันทึกคำสั่ง SQL ปัจจุบัน
-async function handleSaveQuery() {
-    const name = document.getElementById('new-query-name').value.trim();
-    const queryText = document.getElementById('sql-editor').value;
-    const dbType = document.getElementById('query-db-type').value;
-
-    if (!name || !queryText) {
-        alert('กรุณากรอกชื่อและคำสั่ง SQL ก่อนกดบันทึก');
-        return;
-    }
-
-    ui.setLoading(true);
-    try {
-        const response = await api.saveQuery(name, queryText, dbType, appState.token);
-        if (handleApiResponse(response)) {
-            alert('บันทึกคำสั่งสำเร็จ');
-            await loadSavedQueries();
-            const newlySaved = appState.savedQueries.find(q => q.name === name);
-            if (newlySaved) {
-                document.getElementById('query-template-select').value = newlySaved.id;
-            }
-        } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'บันทึกล้มเหลว');
-        }
-    } catch (err) {
-        alert('เกิดข้อผิดพลาด: ' + err.message);
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-// ลบคำสั่ง SQL ปัจจุบัน
-async function handleDeleteQuery() {
-    const select = document.getElementById('query-template-select');
-    const queryId = select.value;
-
-    if (!queryId) {
-        alert('กรุณาเลือกคำสั่งที่ต้องการลบใน Dropdown ก่อน');
-        return;
-    }
-
-    const selected = appState.savedQueries.find(q => String(q.id) === String(queryId));
-    if (!selected) return;
-
-    if (!confirm(`คุณต้องการลบคำสั่ง "${selected.name}" หรือไม่?`)) return;
-
-    ui.setLoading(true);
-    try {
-        const response = await api.deleteSavedQuery(queryId, appState.token);
-        if (handleApiResponse(response)) {
-            alert('ลบสำเร็จ');
-            document.getElementById('sql-editor').value = '';
-            document.getElementById('new-query-name').value = '';
-            await loadSavedQueries();
-        } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'ลบล้มเหลว');
-        }
-    } catch (err) {
-        alert('เกิดข้อผิดพลาด: ' + err.message);
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-// ค้นหาและกรองตารางแบบ Dynamic
-function handleQuerySearch(e) {
-    const query = e.target.value;
-    if (!appState.currentQueryResults) return;
-
-    ui.renderGrafanaTable(
-        appState.currentQueryResults,
-        appState.querySortBy,
-        appState.querySortDesc,
-        query,
-        handleQueryHeaderClick
-    );
-}
-
-// --- Admin Quick Login Logic & Functions ---
-
-function updateAdminLoginBtnVisibility() {
-    const btn = document.getElementById('admin-login-btn');
-    const roleEl = document.getElementById('user-role');
-    if (appState.user) {
-        if (roleEl) {
-            roleEl.textContent = appState.user.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' :
-                appState.user.role === 'viewer' ? 'ผู้เข้าชม (Viewer)' : 'ผู้ใช้งาน (User)';
-        }
-        if (btn) {
-            if (appState.user.role === 'admin') {
-                btn.classList.add('hidden');
-            } else {
-                btn.classList.remove('hidden');
-            }
-        }
-    }
-}
-
-function openAdminLoginModal() {
-    const modal = document.getElementById('admin-login-modal');
-    if (modal) {
-        document.getElementById('admin-login-password').value = '';
-        modal.classList.remove('hidden');
-        document.getElementById('admin-login-password').focus();
-    }
-}
-
-function closeAdminLoginModal() {
-    const modal = document.getElementById('admin-login-modal');
-    if (modal) modal.classList.add('hidden');
-}
-
-async function handleAdminQuickLogin(e) {
-    e.preventDefault();
-    const password = document.getElementById('admin-login-password').value;
-
-    ui.setLoading(true);
-    try {
-        const { ok, data } = await api.login('admin', password);
-        if (ok) {
-            appState.token = data.token;
-            appState.user = data.user;
-
-            // Save to LocalStorage
-            localStorage.setItem('nhso_token', data.token);
-            localStorage.setItem('nhso_user', JSON.stringify(data.user));
-            localStorage.setItem('username', data.user.username);
-            localStorage.setItem('fullname', data.user.full_name);
-            localStorage.setItem('department', data.user.department || '');
-            localStorage.setItem('role', data.user.role);
-
-            // Show Admin Panel tab
-            document.getElementById('tab-admin')?.classList.remove('hidden');
-
-            closeAdminLoginModal();
-            updateAdminLoginBtnVisibility();
-
-            alert('เข้าสู่ระบบสิทธิ์ Admin สำเร็จ!');
-
-            // Render the dashboard header name and refresh data
-            ui.showDashboard(data.user.full_name);
-
-            // Load admin tab automatically or refresh dashboard data
-            handleTabSwitch('tab-admin');
-        } else {
-            alert(data.message || 'รหัสผ่าน Admin ไม่ถูกต้อง');
-        }
-    } catch (err) {
-        console.error('Admin quick login error:', err);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
-    } finally {
-        ui.setLoading(false);
-    }
-}
-
-// Filter tracker table from live dashboard clicks
 window.filterDashboardByTambon = function (codeOrName) {
     const tambonNames = {
         'T01': 'ไทรเดี่ยว',
@@ -2290,13 +1411,13 @@ window.filterDashboardByTambon = function (codeOrName) {
     };
     const name = tambonNames[codeOrName] || codeOrName;
     if (!name) return;
-    applyTrackerDashboardFilter('tambon', name, `ตำบล ${name}`);
+    applyTrackerDashboardFilter('tambon', name, `ตำบล ${name}`, {}, callbacks);
 };
 
 window.filterTrackerByDepartment = function (departmentName) {
     if (!departmentName) return;
-    applyTrackerDashboardFilter('department', departmentName, `แผนก ${departmentName}`);
+    applyTrackerDashboardFilter('department', departmentName, `แผนก ${departmentName}`, {}, callbacks);
 };
 
-// Start App
+// Boot Application
 init();

@@ -31,6 +31,7 @@ import { captureAndNotify } from './capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
 import { keepAliveNhsoSession } from './keep-alive-nhso.js';
 import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
+import logger from '../backend/logger.js';
 
 dotenv.config();
 
@@ -66,23 +67,23 @@ async function runScheduledSyncAndCaptureWithLock() {
     try {
         const acquired = await acquireSchedulerLock(trackerPool, lockKey, schedulerHolderId);
         if (!acquired) {
-            console.warn('ℹ️ [Worker-Scheduler] Another process is already running the scheduled sync; skipping this trigger.');
+            logger.warn('ℹ️ [Worker-Scheduler] Another process is already running the scheduled sync; skipping this trigger.');
             return;
         }
         await handleScheduledSyncAndCapture();
     } catch (error) {
-        console.error('❌ [Worker-Scheduler] Could not acquire scheduled-job lock:', error.message);
+        logger.error('❌ [Worker-Scheduler] Could not acquire scheduled-job lock:', error.message);
     } finally {
         try {
             await releaseSchedulerLock(trackerPool, lockKey, schedulerHolderId);
         } catch (error) {
-            console.error('❌ [Worker-Scheduler] Could not release scheduled-job lock:', error.message);
+            logger.error('❌ [Worker-Scheduler] Could not release scheduled-job lock:', error.message);
         }
     }
 }
 
 async function handleScheduledSyncAndCapture() {
-    console.log('⏰ [Worker-Scheduler] เริ่มต้นกระบวนการดาวน์โหลดข้อมูลและบันทึกหน้าจออัตโนมัติ...');
+    logger.info('⏰ [Worker-Scheduler] เริ่มต้นกระบวนการดาวน์โหลดข้อมูลและบันทึกหน้าจออัตโนมัติ...');
     const visit_date = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
     let syncRunId = null;
     await sendLineMessage(`⏰ [Scheduler] เริ่มต้นการทำรายงานและประมวลผลข้อมูลอัตโนมัติ ประจำวันที่ ${visit_date}...`);
@@ -91,12 +92,12 @@ async function handleScheduledSyncAndCapture() {
         syncRunId = await createScheduledSyncRun(visit_date);
         const dlResult = await downloadNhsoReport();
         if (!dlResult.success || !dlResult.filePath) {
-            console.warn(`⚠️ [Worker-Scheduler] การดาวน์โหลดข้อมูลอัตโนมัติไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
+            logger.warn(`⚠️ [Worker-Scheduler] การดาวน์โหลดข้อมูลอัตโนมัติไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
             await finishScheduledSyncRun(syncRunId, 'failed', 0, 'Scheduled NHSO portal download failed', dlResult.error || 'Download failed');
             return;
         }
 
-        console.log(`📥 [Worker-Scheduler] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
+        logger.info(`📥 [Worker-Scheduler] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
         const fileBuffer = fs.readFileSync(dlResult.filePath);
         const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
         const sheetName = workbook.SheetNames[0];
@@ -106,14 +107,14 @@ async function handleScheduledSyncAndCapture() {
         const processedData = processCrossCheck(hosxpData, excelData);
         await saveTrackingResults(processedData);
         cleanOldDownloads(downloadsDir);
-        console.log('✅ [Worker-Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+        logger.info('✅ [Worker-Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
 
         if (!SYNC_REPORTS_ENABLED) {
             await finishScheduledSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync completed; sync report disabled');
             return;
         }
 
-        console.log('📸 [Worker-Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
+        logger.info('📸 [Worker-Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
         const captureResult = await captureAndNotify(visit_date);
         if (captureResult?.success === false) {
             await finishScheduledSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync completed; dashboard capture failed', captureResult.error || 'Dashboard capture failed');
@@ -121,7 +122,7 @@ async function handleScheduledSyncAndCapture() {
             await finishScheduledSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync and dashboard capture completed');
         }
     } catch (err) {
-        console.error('❌ [Worker-Scheduler] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
+        logger.error('❌ [Worker-Scheduler] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
         if (syncRunId) await finishScheduledSyncRun(syncRunId, 'failed', 0, 'Scheduled sync crashed', err.message);
     }
 }
@@ -136,7 +137,7 @@ async function reloadSchedules(rows) {
         });
         activeCronTasks = [];
 
-        console.log(`⏰ [Worker-Scheduler] Registering ${rows.length} active schedule(s)...`);
+        logger.info(`⏰ [Worker-Scheduler] Registering ${rows.length} active schedule(s)...`);
         
         for (const row of rows) {
             const timeStr = row.schedule_time; // format 'HH:MM:SS' or 'HH:MM'
@@ -145,10 +146,10 @@ async function reloadSchedules(rows) {
             // Build standard cron pattern: 'mm hh * * *'
             const cronPattern = `${parseInt(mm, 10)} ${parseInt(hh, 10)} * * *`;
             
-            console.log(`⏰ [Worker-Scheduler] Scheduling job at ${hh}:${mm} (Cron pattern: "${cronPattern}")`);
+            logger.info(`⏰ [Worker-Scheduler] Scheduling job at ${hh}:${mm} (Cron pattern: "${cronPattern}")`);
             
             const task = cron.schedule(cronPattern, () => {
-                console.log(`⏰ [Worker-Cron] Automatically triggering sync and capture task for time: ${timeStr}...`);
+                logger.info(`⏰ [Worker-Cron] Automatically triggering sync and capture task for time: ${timeStr}...`);
                 runScheduledSyncAndCaptureWithLock();
             }, {
                 scheduled: true,
@@ -157,9 +158,9 @@ async function reloadSchedules(rows) {
             
             activeCronTasks.push(task);
         }
-        console.log('✅ [Worker-Scheduler] Schedules reloaded and registered successfully.');
+        logger.info('✅ [Worker-Scheduler] Schedules reloaded and registered successfully.');
     } catch (error) {
-        console.error('❌ [Worker-Scheduler] Error loading cron schedules:', error);
+        logger.error('❌ [Worker-Scheduler] Error loading cron schedules:', error);
     }
 }
 
@@ -172,7 +173,7 @@ async function checkAndReloadSchedules() {
             await reloadSchedules(rows);
         }
     } catch (error) {
-        console.error('❌ [Worker] Error fetching schedules from DB:', error);
+        logger.error('❌ [Worker] Error fetching schedules from DB:', error);
     }
 }
 
@@ -181,22 +182,26 @@ let lastUpdateId = 0;
 
 async function sendTelegramMessage(token, chatId, text) {
     if (process.env.DISABLE_NOTIFICATIONS === 'true') {
-        console.log('ℹ️ Telegram message is globally disabled via DISABLE_NOTIFICATIONS=true.');
+        logger.info('ℹ️ Telegram message is globally disabled via DISABLE_NOTIFICATIONS=true.');
         return;
     }
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: text })
+            body: JSON.stringify({ chat_id: chatId, text: text }),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
     } catch (err) {
-        console.error('Error sending message:', err);
+        logger.error('Error sending message:', err);
     }
 }
 
 async function sendLineMessage(text) {
-    console.log('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
+    logger.info('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
 }
 
 async function runE2EPortalSyncAndCapture(targetChatId) {
@@ -205,7 +210,7 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
     try {
         const dlResult = await downloadNhsoReport();
         if (dlResult.success && dlResult.filePath) {
-            console.log(`📥 [Telegram Trigger] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
+            logger.info(`📥 [Telegram Trigger] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
             
             // อ่าน Excel
             const fileBuffer = fs.readFileSync(dlResult.filePath);
@@ -221,7 +226,7 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             const hosxpData = await getHosxpVisits(visit_date);
             const processedData = processCrossCheck(hosxpData, excelData);
             await saveTrackingResults(processedData);
-            console.log('✅ [Telegram Trigger] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+            logger.info('✅ [Telegram Trigger] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
             
             // เคลียร์ไฟล์ดาวน์โหลด
             cleanOldDownloads(downloadsDir);
@@ -230,20 +235,20 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             await sendTelegramMessage(token, targetChatId, '✅ ซิงก์ข้อมูลฐานข้อมูลสำเร็จแล้ว! กำลังเตรียมบันทึกหน้าจอ Grafana...');
             await sendLineMessage(`✅ ดึงข้อมูลรายงานและประมวลผลข้อมูลประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังเตรียมส่งรายงาน Flex...`);
         } else {
-            console.warn(`⚠️ [Telegram Trigger] การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
+            logger.warn(`⚠️ [Telegram Trigger] การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
             await sendTelegramMessage(token, targetChatId, `❌ ดึงข้อมูลรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
             await sendLineMessage(`❌ ดึงข้อมูลรายงานของวันที่ ${visit_date} ไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
             return;
         }
     } catch (err) {
-        console.error('❌ [Telegram Trigger] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
+        logger.error('❌ [Telegram Trigger] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
         await sendTelegramMessage(token, targetChatId, `❌ ข้อผิดพลาดภายในเซิร์ฟเวอร์: ${err.message}`);
         await sendLineMessage(`❌ เกิดข้อผิดพลาดในเซิร์ฟเวอร์: ${err.message}`);
         return;
     }
     
     // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
-    console.log('📸 [Telegram Trigger] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
+    logger.info('📸 [Telegram Trigger] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
     try {
         const telegramChatIdEnv = process.env.TELEGRAM_CHAT_ID || '';
         const chatIds = new Set([
@@ -256,12 +261,12 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             await sendTelegramMessage(token, targetChatId, `⚠️ ซิงก์ข้อมูลสำเร็จ แต่บันทึกภาพ Dashboard ไม่สำเร็จ: ${captureResult.error || 'ไม่ทราบสาเหตุ'}`);
         }
     } catch (err) {
-        console.error('❌ [Telegram Trigger] ข้อผิดพลาดในการบันทึกแดชบอร์ด/ส่งแจ้งเตือน:', err);
+        logger.error('❌ [Telegram Trigger] ข้อผิดพลาดในการบันทึกแดชบอร์ด/ส่งแจ้งเตือน:', err);
     }
 }
 
 async function startTelegramBotListener() {
-    console.log('🤖 Telegram Bot message listener started (Long Polling)...');
+    logger.info('🤖 Telegram Bot message listener started (Long Polling)...');
     
     let isPolling = false;
     
@@ -293,7 +298,7 @@ async function startTelegramBotListener() {
                 clearTimeout(timeoutId);
                 
                 if (!response.ok) {
-                    console.warn(`⚠️ [Telegram Bot] Polling response not OK: ${response.status} ${response.statusText}`);
+                    logger.warn(`⚠️ [Telegram Bot] Polling response not OK: ${response.status} ${response.statusText}`);
                     isPolling = false;
                     setTimeout(poll, 5000);
                     return;
@@ -315,7 +320,7 @@ async function startTelegramBotListener() {
                         
                         if (allowedChatIds.includes(fromChatId)) {
                             if (text === 'เข้าระบบ' || text === 'ดึงข้อมูล' || text.toLowerCase() === '/login' || text.toLowerCase() === '/sync') {
-                                console.log(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
+                                logger.info(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
                                 
                                 // Send initial acknowledgment
                                 await sendTelegramMessage(token, fromChatId, '⏳ กำลังเตรียมการเข้าสู่ระบบ สปสช. และดึง QR Code ของ ThaiD...');
@@ -323,7 +328,7 @@ async function startTelegramBotListener() {
                                 
                                 // Run the end-to-end sync and capture in the background
                                 runE2EPortalSyncAndCapture(fromChatId).catch(err => {
-                                    console.error('Error running E2E portal sync via telegram command:', err);
+                                    logger.error('Error running E2E portal sync via telegram command:', err);
                                 });
                             }
                         }
@@ -376,10 +381,10 @@ async function startTelegramBotListener() {
                         details += ` [${error.cause.errors.map(e => e.message || e.code).join(', ')}]`;
                     }
                 }
-                console.warn(`⚠️ [Telegram Bot] Network connection/timeout while polling updates: ${details}. Retrying in 30s...`);
+                logger.warn(`⚠️ [Telegram Bot] Network connection/timeout while polling updates: ${details}. Retrying in 30s...`);
                 setTimeout(poll, 30000);
             } else {
-                console.error('❌ [Telegram Bot] Error polling Telegram updates:', error);
+                logger.error('❌ [Telegram Bot] Error polling Telegram updates:', error);
                 setTimeout(poll, 10000);
             }
         }
@@ -390,10 +395,10 @@ async function startTelegramBotListener() {
 
 // Start Worker Service
 async function startWorker() {
-    console.log('🚀 [Notification Worker] Starting background service...');
+    logger.info('🚀 [Notification Worker] Starting background service...');
     try {
         await checkConnections();
-        console.log('✅ Database connections verified successfully.');
+        logger.info('✅ Database connections verified successfully.');
         
         // Initial schedule loading
         await checkAndReloadSchedules();
@@ -406,9 +411,9 @@ async function startWorker() {
 
         // Setup recurring keep-alive task (every 30 minutes: '*/30 * * * *')
         cron.schedule('*/30 * * * *', () => {
-            console.log('⏰ [Worker-Cron] Automatically triggering NHSO session keep-alive refresh...');
+            logger.info('⏰ [Worker-Cron] Automatically triggering NHSO session keep-alive refresh...');
             keepAliveNhsoSession().catch(err => {
-                console.error('❌ [Worker-Cron] NHSO session keep-alive error:', err);
+                logger.error('❌ [Worker-Cron] NHSO session keep-alive error:', err);
             });
         }, {
             scheduled: true,
@@ -417,12 +422,12 @@ async function startWorker() {
 
         // Trigger session keep-alive once immediately on startup
         keepAliveNhsoSession().catch(err => {
-            console.error('❌ [Worker-Cron] Initial NHSO session keep-alive error:', err);
+            logger.error('❌ [Worker-Cron] Initial NHSO session keep-alive error:', err);
         });
         
-        console.log('✅ Background Cron Scheduler, Session Keep-Alive, and Telegram Polling are fully active.');
+        logger.info('✅ Background Cron Scheduler, Session Keep-Alive, and Telegram Polling are fully active.');
     } catch (err) {
-        console.error('❌ Failed to start Worker Service:', err);
+        logger.error('❌ Failed to start Worker Service:', err);
         process.exit(1);
     }
 }

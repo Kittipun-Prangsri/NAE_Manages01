@@ -6,3 +6,5 @@ package-lock.json
 puppeteer_session/
 **/screenshots/
 downloads/
+.npm_cache/
+

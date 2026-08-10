@@ -1,4 +1,5 @@
 import * as visitRepository from '../repositories/visitRepository.js';
+import logger from '../logger.js';
 
 let cache = { data: null, expiresAt: 0 };
 const CACHE_TTL_MS = 20000; // สั้นกว่ารอบ poll ฝั่ง client (30s) เล็กน้อย
@@ -13,7 +14,7 @@ export async function getTodayVisitSummary(ampCode) {
   try {
     rows = await visitRepository.getTodayVisitCountByTambon(ampCode);
   } catch (err) {
-    console.error('[visitService] Failed to fetch visits from repository, using mock fallback:', err);
+    logger.error('[visitService] Failed to fetch visits from repository, using mock fallback:', err);
   }
 
   let data;

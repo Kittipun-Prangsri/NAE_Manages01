@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
+import logger from './logger.js';
 
 dotenv.config();
 
@@ -79,18 +80,18 @@ export const trackerPool = mysql.createPool({
 export async function checkConnections() {
     try {
         const hosxpConn = await hosxpPool.getConnection();
-        console.log('✅ Connected to HOSxP Database');
+        logger.info('✅ Connected to HOSxP Database');
         hosxpConn.release();
 
         const trackerConn = await trackerPool.getConnection();
-        console.log('✅ Connected to Internal Tracker Database');
+        logger.info('✅ Connected to Internal Tracker Database');
         trackerConn.release();
 
         if (!hosxpWritePool) {
-            console.warn('ℹ️ HOSxP write pool is not configured; sync operations that modify HOSxP are disabled.');
+            logger.warn('ℹ️ HOSxP write pool is not configured; sync operations that modify HOSxP are disabled.');
         }
     } catch (error) {
-        console.error('❌ Database Connection Error:', error);
+        logger.error('❌ Database Connection Error:', error);
         // We don't exit here because the internal DB might not exist yet
     }
 }

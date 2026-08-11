@@ -389,7 +389,9 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                     hosxpPool.query(
                         `SELECT COUNT(DISTINCT v.vn) as service_total 
                          FROM vn_stat v
-                         WHERE v.vstdate = ?`,
+                         LEFT JOIN pttype py ON py.pttype = v.pttype
+                         WHERE v.vstdate = ?
+                           AND UPPER(py.hipdata_code) = 'UCS'`,
                         [queryDate]
                     ),
                     hosxpPool.query(
@@ -402,7 +404,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                             AND td.flag = 'D'
                          LEFT JOIN pttype py ON py.pttype = v.pttype
                          WHERE v.vstdate = ?
-                           AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                           AND UPPER(py.hipdata_code) = 'UCS'
                            AND COALESCE(ov.pt_subtype, '') <> '1'
                            AND ov.an IS NULL
                            AND td.claimcode IS NULL`,
@@ -417,7 +419,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                             AND td.flag = 'D'
                          LEFT JOIN pttype py ON py.pttype = v.pttype
                          WHERE v.vstdate = ?
-                           AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                           AND UPPER(py.hipdata_code) = 'UCS'
                            AND td.claimcode IS NOT NULL`,
                         [queryDate]
                     ),
@@ -491,7 +493,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
         if (service_total_count === 0) {
             try {
                 const [[sRows]] = await queryWithTimeout(trackerPool.query(
-                    `SELECT COUNT(*) as service_total FROM visit_tracking WHERE visit_date = ?`,
+                    `SELECT COUNT(*) as service_total FROM visit_tracking WHERE visit_date = ? AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')`,
                     [queryDate]
                 ), 3000);
                 service_total_count = sRows?.service_total || 0;
@@ -514,11 +516,11 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                             [queryDate]
                         ),
                         trackerPool.query(
-                            `SELECT COUNT(*) AS not_imported_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'RED'`,
+                            `SELECT COUNT(*) AS not_imported_count FROM visit_tracking WHERE visit_date = ? AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status = 'RED'`,
                             [queryDate]
                         ),
                         trackerPool.query(
-                            `SELECT COUNT(*) AS authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'`,
+                            `SELECT COUNT(*) AS authen_count FROM visit_tracking WHERE visit_date = ? AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status = 'GREEN'`,
                             [queryDate]
                         ),
                         trackerPool.query(

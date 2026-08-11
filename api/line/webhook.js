@@ -94,12 +94,12 @@ async function fetchSummaryData(queryDate) {
     // 1. Try querying internal visit_tracking table (synced data) first
     try {
         const [summaryRows] = await queryWithTimeout(trackerPool.query(
-            `SELECT COUNT(*) AS service_total_count,
+            `SELECT SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') THEN 1 ELSE 0 END) AS service_total_count,
                     SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0 THEN 1 ELSE 0 END) AS total_visits,
                     COALESCE(SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0 THEN uc_money ELSE 0 END), 0) AS total_money,
-                    SUM(CASE WHEN color_status = 'YELLOW' THEN 1 ELSE 0 END) AS endpoint_count,
-                    SUM(CASE WHEN check_claimcode = 'ยังไม่ได้นำเข้า' THEN 1 ELSE 0 END) AS not_imported_count,
-                    SUM(CASE WHEN color_status = 'GREEN' THEN 1 ELSE 0 END) AS authen_count,
+                    SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status = 'YELLOW' THEN 1 ELSE 0 END) AS endpoint_count,
+                    SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND check_claimcode = 'ยังไม่ได้นำเข้า' THEN 1 ELSE 0 END) AS not_imported_count,
+                    SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status = 'GREEN' THEN 1 ELSE 0 END) AS authen_count,
                     SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0 THEN 1 ELSE 0 END) AS ucs_total
              FROM visit_tracking
              WHERE visit_date = ?`,
@@ -117,9 +117,17 @@ async function fetchSummaryData(queryDate) {
             ucs_total = summary.ucs_total || 0;
 
             const [rightsRows] = await queryWithTimeout(trackerPool.query(
-                `SELECT COALESCE(NULLIF(TRIM(pttype_note), ''), NULLIF(TRIM(pttype), ''), 'ไม่ระบุสิทธิ') as right_name, COUNT(*) as cnt 
-                 FROM visit_tracking 
-                 WHERE visit_date = ? 
+                `SELECT 
+                    CASE 
+                        WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') THEN 'บัตรทอง (UCS)'
+                        WHEN UPPER(COALESCE(pcode, '')) = 'OFC' THEN 'เบิกจ่ายตรงกรมบัญชีกลาง (OFC)'
+                        WHEN UPPER(COALESCE(pcode, '')) = 'LGO' THEN 'เบิกจ่ายตรง อปท. (LGO)'
+                        WHEN UPPER(COALESCE(pcode, '')) = 'SSS' THEN 'บัตรประกันสังคม (SSS)'
+                        ELSE COALESCE(NULLIF(TRIM(pttype), ''), 'อื่นๆ / ไม่ระบุสิทธิ')
+                    END as right_name,
+                    COUNT(*) as cnt
+                 FROM visit_tracking
+                 WHERE visit_date = ?
                  GROUP BY right_name ORDER BY cnt DESC LIMIT 3`,
                 [queryDate]
             ));
@@ -142,8 +150,6 @@ async function fetchSummaryData(queryDate) {
     // 2. If tracker DB had no records for queryDate, fallback to HOSxP Live DB
     if (dataSource === 'No Data' && hosxpPool) {
         try {
-            const DEFAULT_HIPDATA_SQL_LIST = "'OFC','UCS','OTH','BMT','XXX','LGO','STP','SSS','SSI','A2','BKK','PTY','A9'";
-
             const [[vRows]] = await queryWithTimeout(hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) as total_visits, COALESCE(SUM(v.uc_money), 0) AS total_money
                  FROM vn_stat v
@@ -168,9 +174,9 @@ async function fetchSummaryData(queryDate) {
             const [[sRows]] = await hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) as service_total 
                  FROM vn_stat v
-                 LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+                 LEFT JOIN pttype py ON py.pttype = v.pttype
                  WHERE v.vstdate = ?
-                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})`,
+                   AND UPPER(py.hipdata_code) = 'UCS'`,
                 [queryDate]
             );
             service_total_count = sRows?.service_total || 0;
@@ -181,7 +187,7 @@ async function fetchSummaryData(queryDate) {
                  LEFT JOIN visit_pttype vp ON vp.vn = v.vn
                  LEFT JOIN pttype py ON py.pttype = v.pttype
                  WHERE v.vstdate = ?
-                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                   AND UPPER(py.hipdata_code) = 'UCS'
                    AND UPPER(vp.pttype_note) = 'ENDPOINT'`,
                 [queryDate]
             );
@@ -197,7 +203,7 @@ async function fetchSummaryData(queryDate) {
                     AND td.flag = 'D'
                  LEFT JOIN pttype py ON py.pttype = v.pttype
                  WHERE v.vstdate = ?
-                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                   AND UPPER(py.hipdata_code) = 'UCS'
                    AND COALESCE(ov.pt_subtype, '') <> '1'
                    AND ov.an IS NULL
                    AND td.claimcode IS NULL`,
@@ -214,7 +220,7 @@ async function fetchSummaryData(queryDate) {
                     AND td.flag = 'D'
                  LEFT JOIN pttype py ON py.pttype = v.pttype
                  WHERE v.vstdate = ?
-                   AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                   AND UPPER(py.hipdata_code) = 'UCS'
                    AND td.claimcode IS NOT NULL`,
                 [queryDate]
             );

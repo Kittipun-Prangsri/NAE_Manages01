@@ -358,63 +358,8 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
             ]);
         };
 
-        // 1. Try querying internal visit_tracking table (synced data) first
-        try {
-            const [[sRows]] = await queryWithTimeout(trackerPool.query(
-                `SELECT COUNT(*) as service_total FROM visit_tracking WHERE visit_date = ?`,
-                [queryDate]
-            ), 3000);
-            service_total_count = sRows?.service_total || 0;
-
-            if (service_total_count > 0) {
-                const [
-                    [[vRows]],
-                    [[mRows]],
-                    [[nRows]],
-                    [[aRows]],
-                    [rRows],
-                    [dRows]
-                ] = await queryWithTimeout(Promise.all([
-                    trackerPool.query(
-                        `SELECT COUNT(*) as total_visits FROM visit_tracking WHERE visit_date = ? AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0`,
-                        [queryDate]
-                    ),
-                    trackerPool.query(
-                        `SELECT COALESCE(SUM(uc_money), 0) AS total_money FROM visit_tracking WHERE visit_date = ? AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0`,
-                        [queryDate]
-                    ),
-                    trackerPool.query(
-                        `SELECT COUNT(*) AS not_imported_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'RED'`,
-                        [queryDate]
-                    ),
-                    trackerPool.query(
-                        `SELECT COUNT(*) AS authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'`,
-                        [queryDate]
-                    ),
-                    trackerPool.query(
-                        `SELECT COALESCE(NULLIF(TRIM(pttype_note), ''), NULLIF(TRIM(pttype), ''), 'ไม่ระบุสิทธิ') as right_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? GROUP BY right_name ORDER BY cnt DESC LIMIT 3`,
-                        [queryDate]
-                    ),
-                    trackerPool.query(
-                        `SELECT COALESCE(NULLIF(TRIM(department), ''), 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0 GROUP BY dept_name ORDER BY cnt DESC LIMIT 3`,
-                        [queryDate]
-                    )
-                ]), 4000);
-
-                total_visits = vRows?.total_visits || 0;
-                ucs_total = total_visits;
-                total_money = Number(mRows?.total_money || 0);
-                not_imported_count = nRows?.not_imported_count || 0;
-                authen_count = aRows?.authen_count || 0;
-                rights = rRows || [];
-                ucs_departments = dRows || [];
-            }
-        } catch (dbErr) {
-            logger.warn(`⚠️ Tracker DB query failed in sendLineReplyFlexSummary: ${dbErr.stack || dbErr.message}`);
-        }
-
-        // 2. If tracker DB had no records for queryDate, fallback to live HOSxP DB (Smart Groupinsights)
-        if (service_total_count === 0 && hosxpPool) {
+        // 1. Try live HOSxP DB (Smart Groupinsights) first for real-time up-to-the-minute current data
+        if (hosxpPool) {
             try {
                 const [
                     [[vRows]],
@@ -488,7 +433,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                 WHEN py.pttype_spp_id = 2 THEN 'บัตรประกันสังคม'
                                 WHEN py.pttype_spp_id = 9 THEN 'พรบ.ผู้ประสบภัยจากรถ'
                                 WHEN py.pttype_spp_id = 6 THEN 'อื่นๆ (ชำระเงินเอง)'
-                                ELSE 'ไม่ระบุสิทธิ'
+                                ELSE COALESCE(NULLIF(TRIM(CONVERT(py.name USING utf8)), ''), 'ไม่ระบุสิทธิ')
                             END as right_name,
                             COUNT(DISTINCT v.vn) as cnt
                          FROM vn_stat v
@@ -525,17 +470,91 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                     )
                 ]), 5000);
 
-                total_visits = vRows?.total_visits || 0;
-                total_money = Number(vRows?.total_money || 0);
-                ucs_total = total_visits;
                 service_total_count = sRows?.service_total || 0;
-                not_imported_count = nRows?.not_imported_count || 0;
-                authen_count = aRows?.authen_count || 0;
-                rights = rRows || [];
-                ucs_departments = dRows || [];
-                dataSourceLabel = 'HOSxP Live DB (Smart Groupinsights)';
+                if (service_total_count > 0 || vRows?.total_visits > 0) {
+                    total_visits = vRows?.total_visits || 0;
+                    total_money = Number(vRows?.total_money || 0);
+                    ucs_total = total_visits;
+                    not_imported_count = nRows?.not_imported_count || 0;
+                    authen_count = aRows?.authen_count || 0;
+                    rights = rRows || [];
+                    ucs_departments = dRows || [];
+                    dataSourceLabel = 'HOSxP Live DB (Smart Groupinsights)';
+                }
             } catch (hosxpErr) {
-                logger.error(`❌ HOSxP Live DB query failed in sendLineReplyFlexSummary: ${hosxpErr.stack || hosxpErr.message}`);
+                logger.warn(`⚠️ HOSxP Live DB query failed in sendLineReplyFlexSummary: ${hosxpErr.stack || hosxpErr.message}`);
+                dbErrorOccurred = true;
+            }
+        }
+
+        // 2. If HOSxP returned no records or failed, fallback to internal visit_tracking table (synced data)
+        if (service_total_count === 0) {
+            try {
+                const [[sRows]] = await queryWithTimeout(trackerPool.query(
+                    `SELECT COUNT(*) as service_total FROM visit_tracking WHERE visit_date = ?`,
+                    [queryDate]
+                ), 3000);
+                service_total_count = sRows?.service_total || 0;
+
+                if (service_total_count > 0) {
+                    const [
+                        [[vRows]],
+                        [[mRows]],
+                        [[nRows]],
+                        [[aRows]],
+                        [rRows],
+                        [dRows]
+                    ] = await queryWithTimeout(Promise.all([
+                        trackerPool.query(
+                            `SELECT COUNT(*) as total_visits FROM visit_tracking WHERE visit_date = ? AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0`,
+                            [queryDate]
+                        ),
+                        trackerPool.query(
+                            `SELECT COALESCE(SUM(uc_money), 0) AS total_money FROM visit_tracking WHERE visit_date = ? AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0`,
+                            [queryDate]
+                        ),
+                        trackerPool.query(
+                            `SELECT COUNT(*) AS not_imported_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'RED'`,
+                            [queryDate]
+                        ),
+                        trackerPool.query(
+                            `SELECT COUNT(*) AS authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'`,
+                            [queryDate]
+                        ),
+                        trackerPool.query(
+                            `SELECT 
+                                CASE 
+                                    WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') THEN 'บัตรทอง (UCS)'
+                                    WHEN UPPER(COALESCE(pcode, '')) = 'OFC' THEN 'เบิกจ่ายตรงกรมบัญชีกลาง (OFC)'
+                                    WHEN UPPER(COALESCE(pcode, '')) = 'LGO' THEN 'เบิกจ่ายตรง อปท. (LGO)'
+                                    WHEN UPPER(COALESCE(pcode, '')) = 'SSS' THEN 'บัตรประกันสังคม (SSS)'
+                                    ELSE COALESCE(NULLIF(TRIM(pttype), ''), 'อื่นๆ / ไม่ระบุสิทธิ')
+                                END as right_name,
+                                COUNT(*) as cnt
+                             FROM visit_tracking
+                             WHERE visit_date = ?
+                             GROUP BY right_name
+                             ORDER BY cnt DESC
+                             LIMIT 3`,
+                            [queryDate]
+                        ),
+                        trackerPool.query(
+                            `SELECT COALESCE(NULLIF(TRIM(department), ''), 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt FROM visit_tracking WHERE visit_date = ? AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0 GROUP BY dept_name ORDER BY cnt DESC LIMIT 3`,
+                            [queryDate]
+                        )
+                    ]), 4000);
+
+                    total_visits = vRows?.total_visits || 0;
+                    ucs_total = total_visits;
+                    total_money = Number(mRows?.total_money || 0);
+                    not_imported_count = nRows?.not_imported_count || 0;
+                    authen_count = aRows?.authen_count || 0;
+                    rights = rRows || [];
+                    ucs_departments = dRows || [];
+                    dataSourceLabel = 'Synced Tracking DB';
+                }
+            } catch (dbErr) {
+                logger.warn(`⚠️ Tracker DB query failed in sendLineReplyFlexSummary: ${dbErr.stack || dbErr.message}`);
                 dbErrorOccurred = true;
             }
         }

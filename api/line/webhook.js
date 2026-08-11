@@ -208,11 +208,14 @@ async function fetchSummaryData(queryDate) {
             const [[aRows]] = await hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) AS authen_count
                  FROM vn_stat v
-                 LEFT JOIN visit_pttype vp ON vp.vn = v.vn
+                 INNER JOIN temp_authen_code td ON td.cid = v.cid
+                    AND td.status_use <> 'C'
+                    AND td.dateser = v.vstdate
+                    AND td.flag = 'D'
                  LEFT JOIN pttype py ON py.pttype = v.pttype
                  WHERE v.vstdate = ?
                    AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
-                   AND UPPER(vp.pttype_note) = 'AUTHENCODE'`,
+                   AND td.claimcode IS NOT NULL`,
                 [queryDate]
             );
             authen_count = aRows?.authen_count || 0;
@@ -335,14 +338,14 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
             contents: [
                 {
                     type: "text",
-                    text: "📊 สรุปข้อมูลการให้บริการ",
+                    text: "📊 Smart Groupinsights",
                     weight: "bold",
                     color: "#ffffff",
                     size: "xl"
                 },
                 {
                     type: "text",
-                    text: `Dashboard Summary (${formattedDate}) • ${stats.dataSource}`,
+                    text: `รายงานข้อมูลวันที่ ${formattedDate} • ${stats.dataSource}`,
                     size: "xs",
                     color: "#8c8c8c",
                     margin: "sm"
@@ -355,10 +358,17 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                     spacing: "sm",
                     contents: [
                         {
+                            type: "text",
+                            text: "📌 ลูกหนี้ UC ค้างปิดสิทธิ์",
+                            color: "#52c41a",
+                            size: "xs",
+                            weight: "bold"
+                        },
+                        {
                             type: "box",
                             layout: "horizontal",
                             contents: [
-                                { type: "text", text: "จำนวนครั้ง (count)", color: "#ffffff", size: "sm", gravity: "center" },
+                                { type: "text", text: "ผู้รับบริการสิทธิ UC (ครั้ง)", color: "#ffffff", size: "sm", gravity: "center" },
                                 { type: "text", text: String(stats.total_visits), color: "#ff4d4d", size: "xl", align: "end", weight: "bold" }
                             ]
                         },
@@ -366,7 +376,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                             type: "box",
                             layout: "horizontal",
                             contents: [
-                                { type: "text", text: "ค่ารักษาลูกหนี้ (sum)", color: "#ffffff", size: "sm", gravity: "center" },
+                                { type: "text", text: "ค่ารักษาลูกหนี้ UC (บาท)", color: "#ffffff", size: "sm", gravity: "center" },
                                 { type: "text", text: Number(stats.total_money).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: "#ff4d4d", size: "xl", align: "end", weight: "bold" }
                             ]
                         }
@@ -379,7 +389,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                     margin: "md",
                     spacing: "sm",
                     contents: [
-                        { type: "text", text: "Visit Authen code", color: "#8c8c8c", size: "xs", weight: "bold" },
+                        { type: "text", text: "📋 ภาพรวมรับบริการ & Authen Code", color: "#8c8c8c", size: "xs", weight: "bold" },
                         {
                             type: "box",
                             layout: "horizontal",
@@ -388,15 +398,15 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                     type: "box",
                                     layout: "vertical",
                                     contents: [
-                                        { type: "text", text: "จำนวนผู้มารับบริการ(ครั้ง)", color: "#ffffff", size: "xs", align: "center" },
-                                        { type: "text", text: String(stats.service_total_count), color: "#ff4d4d", size: "md", align: "center", weight: "bold" }
+                                        { type: "text", text: "รับบริการทั้งหมด", color: "#ffffff", size: "xs", align: "center" },
+                                        { type: "text", text: String(stats.service_total_count), color: "#1890ff", size: "md", align: "center", weight: "bold" }
                                     ]
                                 },
                                 {
                                     type: "box",
                                     layout: "vertical",
                                     contents: [
-                                        { type: "text", text: "ยังไม่นำเข้า", color: "#ffffff", size: "xs", align: "center" },
+                                        { type: "text", text: "ยังไม่ขอ Authen", color: "#ffffff", size: "xs", align: "center" },
                                         { type: "text", text: String(stats.not_imported_count), color: "#ff4d4d", size: "md", align: "center", weight: "bold" }
                                     ]
                                 },
@@ -404,8 +414,8 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                     type: "box",
                                     layout: "vertical",
                                     contents: [
-                                        { type: "text", text: "AUTHENCODE", color: "#ffffff", size: "xs", align: "center" },
-                                        { type: "text", text: String(stats.authen_count), color: "#ff4d4d", size: "md", align: "center", weight: "bold" }
+                                        { type: "text", text: "ขอ Authen แล้ว", color: "#ffffff", size: "xs", align: "center" },
+                                        { type: "text", text: String(stats.authen_count), color: "#52c41a", size: "md", align: "center", weight: "bold" }
                                     ]
                                 }
                             ]
@@ -419,7 +429,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                     margin: "md",
                     spacing: "sm",
                     contents: [
-                        { type: "text", text: "สิทธิการรักษา (Top 3)", color: "#8c8c8c", size: "xs", weight: "bold" },
+                        { type: "text", text: "💳 กลุ่มสิทธิลูกหนี้ (Top 3)", color: "#8c8c8c", size: "xs", weight: "bold" },
                         ...rightsContents
                     ]
                 },

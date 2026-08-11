@@ -444,9 +444,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                     hosxpPool.query(
                         `SELECT COUNT(DISTINCT v.vn) as service_total 
                          FROM vn_stat v
-                         LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
-                         WHERE v.vstdate = ?
-                           AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})`,
+                         WHERE v.vstdate = ?`,
                         [queryDate]
                     ),
                     hosxpPool.query(
@@ -468,11 +466,14 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                     hosxpPool.query(
                         `SELECT COUNT(DISTINCT v.vn) AS authen_count
                          FROM vn_stat v
-                         LEFT JOIN visit_pttype vp ON vp.vn = v.vn
+                         INNER JOIN temp_authen_code td ON td.cid = v.cid
+                            AND td.status_use <> 'C'
+                            AND td.dateser = v.vstdate
+                            AND td.flag = 'D'
                          LEFT JOIN pttype py ON py.pttype = v.pttype
                          WHERE v.vstdate = ?
                            AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
-                           AND UPPER(vp.pttype_note) = 'AUTHENCODE'`,
+                           AND td.claimcode IS NOT NULL`,
                         [queryDate]
                     ),
                     hosxpPool.query(
@@ -623,14 +624,14 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                 "contents": [
                     {
                         "type": "text",
-                        "text": dbErrorOccurred ? "⚠️ สรุปข้อมูล (Mock - DB Offline)" : "📊 สรุปข้อมูลการให้บริการ",
+                        "text": dbErrorOccurred ? "⚠️ Smart Groupinsights (Mock DB)" : "📊 Smart Groupinsights",
                         "weight": "bold",
                         "color": dbErrorOccurred ? "#ffa940" : "#ffffff",
                         "size": "xl"
                     },
                     {
                         "type": "text",
-                        "text": `Dashboard Summary (${formattedDate}) • ${dataSourceLabel}`,
+                        "text": `รายงานข้อมูลวันที่ ${formattedDate} • ${dataSourceLabel}`,
                         "size": "xs",
                         "color": "#8c8c8c",
                         "margin": "sm"
@@ -647,12 +648,19 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                         "spacing": "sm",
                         "contents": [
                             {
+                                "type": "text",
+                                "text": "📌 ลูกหนี้ UC ค้างปิดสิทธิ์",
+                                "color": "#52c41a",
+                                "size": "xs",
+                                "weight": "bold"
+                            },
+                            {
                                 "type": "box",
                                 "layout": "horizontal",
                                 "contents": [
                                     {
                                         "type": "text",
-                                        "text": "จำนวนครั้ง (count)",
+                                        "text": "ผู้รับบริการสิทธิ UC (ครั้ง)",
                                         "color": "#ffffff",
                                         "size": "sm",
                                         "gravity": "center"
@@ -673,7 +681,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                 "contents": [
                                     {
                                         "type": "text",
-                                        "text": "ค่ารักษาลูกหนี้ (sum)",
+                                        "text": "ค่ารักษาลูกหนี้ UC (บาท)",
                                         "color": "#ffffff",
                                         "size": "sm",
                                         "gravity": "center"
@@ -703,7 +711,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                         "contents": [
                             {
                                 "type": "text",
-                                "text": "Visit Authen code",
+                                "text": "📋 ภาพรวมรับบริการ & Authen Code",
                                 "color": "#8c8c8c",
                                 "size": "xs",
                                 "weight": "bold"
@@ -718,7 +726,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                         "contents": [
                                             {
                                                 "type": "text",
-                                                "text": "จำนวนผู้มารับบริการ(ครั้ง)",
+                                                "text": "รับบริการทั้งหมด",
                                                 "color": "#ffffff",
                                                 "size": "xs",
                                                 "align": "center"
@@ -726,7 +734,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                             {
                                                 "type": "text",
                                                 "text": String(service_total_count),
-                                                "color": "#ff4d4d",
+                                                "color": "#1890ff",
                                                 "size": "md",
                                                 "align": "center",
                                                 "weight": "bold"
@@ -739,7 +747,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                         "contents": [
                                             {
                                                 "type": "text",
-                                                "text": "ยังไม่นำเข้า",
+                                                "text": "ยังไม่ขอ Authen",
                                                 "color": "#ffffff",
                                                 "size": "xs",
                                                 "align": "center"
@@ -760,7 +768,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                         "contents": [
                                             {
                                                 "type": "text",
-                                                "text": "AUTHENCODE",
+                                                "text": "ขอ Authen แล้ว",
                                                 "color": "#ffffff",
                                                 "size": "xs",
                                                 "align": "center"
@@ -768,7 +776,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                             {
                                                 "type": "text",
                                                 "text": String(authen_count),
-                                                "color": "#ff4d4d",
+                                                "color": "#52c41a",
                                                 "size": "md",
                                                 "align": "center",
                                                 "weight": "bold"
@@ -792,7 +800,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                         "contents": [
                             {
                                 "type": "text",
-                                "text": "สิทธิการรักษา (Top 3)",
+                                "text": "💳 กลุ่มสิทธิลูกหนี้ (Top 3)",
                                 "color": "#8c8c8c",
                                 "size": "xs",
                                 "weight": "bold"

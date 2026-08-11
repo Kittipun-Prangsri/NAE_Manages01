@@ -1,0 +1,16 @@
+{
+  "events": [
+    {
+      "type": "message",
+      "replyToken": "test_reply_token",
+      "source": {
+        "type": "user",
+        "userId": "Ucb1a03f4cb54294893787c33afe77d2b"
+      },
+      "message": {
+        "type": "text",
+        "text": "ติดต่อผู้ดูแล"
+      }
+    }
+  ]
+}

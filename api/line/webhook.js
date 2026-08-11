@@ -374,7 +374,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                             type: "box",
                             layout: "horizontal",
                             contents: [
-                                { type: "text", text: "ผู้รับบริการสิทธิ UC (ครั้ง)", color: "#ffffff", size: "sm", gravity: "center" },
+                                { type: "text", text: "จำนวนครั้ง (count)", color: "#ffffff", size: "sm", gravity: "center" },
                                 { type: "text", text: String(stats.total_visits), color: "#ff4d4d", size: "xl", align: "end", weight: "bold" }
                             ]
                         },
@@ -382,7 +382,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                             type: "box",
                             layout: "horizontal",
                             contents: [
-                                { type: "text", text: "ค่ารักษาลูกหนี้ UC (บาท)", color: "#ffffff", size: "sm", gravity: "center" },
+                                { type: "text", text: "ค่ารักษาลูกหนี้ (sum)", color: "#ffffff", size: "sm", gravity: "center" },
                                 { type: "text", text: Number(stats.total_money).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: "#ff4d4d", size: "xl", align: "end", weight: "bold" }
                             ]
                         }

@@ -532,32 +532,30 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
         }
 
         // Build right items contents dynamically
-        const rightsContents = [];
-        rights.forEach(r => {
-            const displayName = r.right_name || 'ไม่ระบุสิทธิ';
-            rightsContents.push({
-                "type": "box",
-                "layout": "horizontal",
-                "contents": [
-                    {
-                        "type": "text",
-                        "text": displayName,
-                        "color": "#ffffff",
-                        "size": "sm"
-                    },
-                    {
-                        "type": "text",
-                        "text": String(r.cnt),
-                        "color": "#52c41a",
-                        "size": "md",
-                        "align": "end",
-                        "weight": "bold"
-                    }
-                ]
-            });
-        });
+        // Build right items contents dynamically (Ensure non-empty for LINE Flex schema)
+        const safeRights = (Array.isArray(rights) && rights.length > 0) ? rights : [{ right_name: 'ไม่มีข้อมูล', cnt: 0 }];
+        const rightsContents = safeRights.map(r => ({
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": String(r.right_name || 'ไม่ระบุสิทธิ'),
+                    "color": "#ffffff",
+                    "size": "sm"
+                },
+                {
+                    "type": "text",
+                    "text": String(r.cnt ?? 0),
+                    "color": "#52c41a",
+                    "size": "md",
+                    "align": "end",
+                    "weight": "bold"
+                }
+            ]
+        }));
 
-        // Build UCS department items dynamically
+        // Build UCS department items dynamically (Ensure non-empty for LINE Flex schema)
         const ucsContents = [
             {
                 "type": "box",
@@ -582,20 +580,21 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
             }
         ];
 
-        ucs_departments.forEach(d => {
+        const safeDepts = (Array.isArray(ucs_departments) && ucs_departments.length > 0) ? ucs_departments : [{ dept_name: 'ไม่มีข้อมูลค้างสิทธิ์', cnt: 0 }];
+        safeDepts.forEach(d => {
             ucsContents.push({
                 "type": "box",
                 "layout": "horizontal",
                 "contents": [
                     {
                         "type": "text",
-                        "text": ` - ${d.dept_name}`,
+                        "text": ` - ${d.dept_name || 'ไม่ระบุจุดบริการ'}`,
                         "color": "#8c8c8c",
                         "size": "xs"
                     },
                     {
                         "type": "text",
-                        "text": String(d.cnt),
+                        "text": String(d.cnt ?? 0),
                         "color": "#ffffff",
                         "size": "xs",
                         "align": "end"

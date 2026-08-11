@@ -681,7 +681,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                 "contents": [
                                     {
                                         "type": "text",
-                                        "text": "ผู้รับบริการสิทธิ UC (ครั้ง)",
+                                        "text": "จำนวนครั้ง (count)",
                                         "color": "#ffffff",
                                         "size": "sm",
                                         "gravity": "center"
@@ -702,7 +702,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                 "contents": [
                                     {
                                         "type": "text",
-                                        "text": "ค่ารักษาลูกหนี้ UC (บาท)",
+                                        "text": "ค่ารักษาลูกหนี้ (sum)",
                                         "color": "#ffffff",
                                         "size": "sm",
                                         "gravity": "center"

@@ -520,16 +520,9 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                 total_money = Number(vRows?.total_money || 0);
                 ucs_total = total_visits;
                 service_total_count = sRows?.service_total || 0;
-                       AND UPPER(py.hipdata_code) = 'UCS'
-                       AND COALESCE(ov.pt_subtype, '') <> '1'
-                       AND ov.an IS NULL
-                       AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
-                       AND COALESCE(v.uc_money, 0) > 0
-                     GROUP BY dept_name
-                     ORDER BY cnt DESC
-                     LIMIT 3`,
-                    [queryDate]
-                ));
+                not_imported_count = nRows?.not_imported_count || 0;
+                authen_count = aRows?.authen_count || 0;
+                rights = rRows || [];
                 ucs_departments = dRows || [];
                 dataSourceLabel = 'HOSxP Live DB (Smart Groupinsights)';
             } catch (hosxpErr) {

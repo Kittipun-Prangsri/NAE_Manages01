@@ -410,7 +410,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                     type: "box",
                                     layout: "vertical",
                                     contents: [
-                                        { type: "text", text: "ยังไม่ขอ Authen", color: "#ffffff", size: "xs", align: "center" },
+                                        { type: "text", text: "ยังไม่นำเข้า", color: "#ffffff", size: "xs", align: "center" },
                                         { type: "text", text: String(stats.not_imported_count), color: "#ff4d4d", size: "md", align: "center", weight: "bold" }
                                     ]
                                 },

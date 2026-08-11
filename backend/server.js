@@ -389,9 +389,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                     hosxpPool.query(
                         `SELECT COUNT(DISTINCT v.vn) as service_total 
                          FROM vn_stat v
-                         LEFT JOIN pttype py ON py.pttype = v.pttype
-                         WHERE v.vstdate = ?
-                           AND UPPER(py.hipdata_code) = 'UCS'`,
+                         WHERE v.vstdate = ?`,
                         [queryDate]
                     ),
                     hosxpPool.query(

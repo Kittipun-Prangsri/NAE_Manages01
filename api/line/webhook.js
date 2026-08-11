@@ -94,7 +94,7 @@ async function fetchSummaryData(queryDate) {
     // 1. Try querying internal visit_tracking table (synced data) first
     try {
         const [summaryRows] = await queryWithTimeout(trackerPool.query(
-            `SELECT SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') THEN 1 ELSE 0 END) AS service_total_count,
+            `SELECT COUNT(*) AS service_total_count,
                     SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0 THEN 1 ELSE 0 END) AS total_visits,
                     COALESCE(SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0 THEN uc_money ELSE 0 END), 0) AS total_money,
                     SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status = 'YELLOW' THEN 1 ELSE 0 END) AS endpoint_count,
@@ -174,9 +174,7 @@ async function fetchSummaryData(queryDate) {
             const [[sRows]] = await hosxpPool.query(
                 `SELECT COUNT(DISTINCT v.vn) as service_total 
                  FROM vn_stat v
-                 LEFT JOIN pttype py ON py.pttype = v.pttype
-                 WHERE v.vstdate = ?
-                   AND UPPER(py.hipdata_code) = 'UCS'`,
+                 WHERE v.vstdate = ?`,
                 [queryDate]
             );
             service_total_count = sRows?.service_total || 0;

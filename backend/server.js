@@ -907,7 +907,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
     }
 }
 
-async function sendLineGenericPayload(replyToken, payload, targetId = null) {
+async function sendLineGenericPayload(replyToken, payload) {
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token || token === 'your_line_token_here') {
         logger.error('❌ LINE token not configured.');
@@ -916,10 +916,9 @@ async function sendLineGenericPayload(replyToken, payload, targetId = null) {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
-    let response = null;
 
     try {
-        response = await fetch('https://api.line.me/v2/bot/message/reply', {
+        const response = await fetch('https://api.line.me/v2/bot/message/reply', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -928,39 +927,17 @@ async function sendLineGenericPayload(replyToken, payload, targetId = null) {
             body: JSON.stringify(payload),
             signal: controller.signal
         });
+
+        const resData = await response.json().catch(() => ({}));
+        if (response.ok) {
+            logger.info('✅ Sent LINE Reply Message successfully.');
+        } else {
+            logger.error('❌ LINE Reply API returned error:', resData);
+        }
     } catch (fetchErr) {
         logger.warn(`⚠️ LINE Reply fetch error: ${fetchErr.message}`);
     } finally {
         clearTimeout(timeoutId);
-    }
-
-    const resData = response ? await response.json().catch(() => ({})) : {};
-    if (response && response.ok) {
-        logger.info('✅ Sent LINE Reply Message successfully.');
-    } else {
-        logger.error('❌ LINE Reply API returned error:', resData);
-
-        const fallbackTarget = targetId || process.env.LINE_GROUP_ID;
-        if (fallbackTarget) {
-            logger.info(`📲 Attempting fallback Push message to ${fallbackTarget}...`);
-            const pushRes = await fetch('https://api.line.me/v2/bot/message/push', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    to: fallbackTarget,
-                    messages: payload.messages
-                })
-            });
-            const pushData = await pushRes.json().catch(() => ({}));
-            if (pushRes.ok) {
-                logger.info('✅ Sent LINE Fallback Push Message successfully.');
-            } else {
-                logger.error(`❌ LINE Fallback Push API error: ${JSON.stringify(pushData)}`);
-            }
-        }
     }
 }
 

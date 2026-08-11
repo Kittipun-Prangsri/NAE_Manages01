@@ -787,7 +787,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                                         "contents": [
                                             {
                                                 "type": "text",
-                                                "text": "ขอ Authen แล้ว",
+                                                "text": "นำเข้าสำเร็จ",
                                                 "color": "#ffffff",
                                                 "size": "xs",
                                                 "align": "center"

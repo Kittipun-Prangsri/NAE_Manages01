@@ -941,10 +941,11 @@ async function sendLineGenericPayload(replyToken, payload) {
     }
 }
 
-async function sendLineReplyReportLinks(replyToken, targetId = null) {
-    const webUrl = process.env.SERVER_PUBLIC_URL || 'https://nhsoauthen.nhsotracker.site';
+async function sendLineReplyReportLinks(replyToken) {
+    const rawPublicUrl = process.env.SERVER_PUBLIC_URL || '';
+    const webUrl = (rawPublicUrl && !rawPublicUrl.includes('localhost')) ? rawPublicUrl : 'https://nhsoauthen.nhsotracker.site';
     const flexBubble = {
-        type: "bubble", size: "large",
+        type: "bubble", size: "giga",
         body: {
             type: "box", layout: "vertical", backgroundColor: "#0f172a",
             contents: [
@@ -973,10 +974,10 @@ async function sendLineReplyReportLinks(replyToken, targetId = null) {
         }
     };
 
-    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "📈 ระบบรายงาน Smart Groupinsights", contents: flexBubble }] }, targetId);
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "📈 ระบบรายงาน Smart Groupinsights", contents: flexBubble }] });
 }
 
-async function sendLineReplyDebtorSummary(replyToken, queryDate, targetId = null) {
+async function sendLineReplyDebtorSummary(replyToken, queryDate) {
     const formattedDate = new Date(queryDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
     let total_visits = 0;
     let total_money = 0;
@@ -1012,7 +1013,7 @@ async function sendLineReplyDebtorSummary(replyToken, queryDate, targetId = null
     }
 
     const flexBubble = {
-        type: "bubble", size: "large",
+        type: "bubble", size: "giga",
         body: {
             type: "box", layout: "vertical", backgroundColor: "#1e1b4b",
             contents: [
@@ -1056,10 +1057,10 @@ async function sendLineReplyDebtorSummary(replyToken, queryDate, targetId = null
         }
     };
 
-    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `📌 สรุปลูกหนี้ UC ประจำวันที่ ${queryDate}`, contents: flexBubble }] }, targetId);
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `📌 สรุปลูกหนี้ UC ประจำวันที่ ${queryDate}`, contents: flexBubble }] });
 }
 
-async function sendLineReplyAuthenSummary(replyToken, queryDate, targetId = null) {
+async function sendLineReplyAuthenSummary(replyToken, queryDate) {
     const formattedDate = new Date(queryDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
     let service_total_count = 0;
     let authen_count = 0;
@@ -1085,7 +1086,7 @@ async function sendLineReplyAuthenSummary(replyToken, queryDate, targetId = null
     }
 
     const flexBubble = {
-        type: "bubble", size: "large",
+        type: "bubble", size: "giga",
         body: {
             type: "box", layout: "vertical", backgroundColor: "#064e3b",
             contents: [
@@ -1122,13 +1123,14 @@ async function sendLineReplyAuthenSummary(replyToken, queryDate, targetId = null
         }
     };
 
-    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `🔑 สถานะ Authen Code ประจำวันที่ ${queryDate}`, contents: flexBubble }] }, targetId);
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `🔑 สถานะ Authen Code ประจำวันที่ ${queryDate}`, contents: flexBubble }] });
 }
 
-async function sendLineReplyUserManual(replyToken, targetId = null) {
-    const webUrl = process.env.SERVER_PUBLIC_URL || 'https://nhsoauthen.nhsotracker.site';
+async function sendLineReplyUserManual(replyToken) {
+    const rawPublicUrl = process.env.SERVER_PUBLIC_URL || '';
+    const webUrl = (rawPublicUrl && !rawPublicUrl.includes('localhost')) ? rawPublicUrl : 'https://nhsoauthen.nhsotracker.site';
     const flexBubble = {
-        type: "bubble", size: "large",
+        type: "bubble", size: "giga",
         body: {
             type: "box", layout: "vertical", backgroundColor: "#1e293b",
             contents: [
@@ -1156,12 +1158,12 @@ async function sendLineReplyUserManual(replyToken, targetId = null) {
         }
     };
 
-    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "📖 คู่มือการใช้งาน Smart Groupinsights", contents: flexBubble }] }, targetId);
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "📖 คู่มือการใช้งาน Smart Groupinsights", contents: flexBubble }] });
 }
 
-async function sendLineReplyAdminContact(replyToken, targetId = null) {
+async function sendLineReplyAdminContact(replyToken) {
     const flexBubble = {
-        type: "bubble", size: "large",
+        type: "bubble", size: "giga",
         body: {
             type: "box", layout: "vertical", backgroundColor: "#0f172a",
             contents: [
@@ -1179,7 +1181,7 @@ async function sendLineReplyAdminContact(replyToken, targetId = null) {
         }
     };
 
-    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "🎧 ติดต่อผู้ดูแลระบบ", contents: flexBubble }] }, targetId);
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "🎧 ติดต่อผู้ดูแลระบบ", contents: flexBubble }] });
 }
 
 // --- LINE Webhook for Group ID Discovery & Commands ---
@@ -1225,7 +1227,7 @@ app.post('/api/line/webhook', (req, res) => {
                 });
             } else if (/^(|\/)(ดูรายงาน|รายงาน|report)/i.test(text)) {
                 logger.info(`💬 [LINE Webhook] Command 'ดูรายงาน'`);
-                sendLineReplyReportLinks(replyToken, targetId).catch(err => {
+                sendLineReplyReportLinks(replyToken).catch(err => {
                     logger.error('❌ Error executing LINE reply handler:', err);
                 });
             } else if (/^(|\/)(ตรวจสอบลูกหนี้|ลูกหนี้|debtor)/i.test(text)) {
@@ -1234,7 +1236,7 @@ app.post('/api/line/webhook', (req, res) => {
                 if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) queryDate = parts[1];
 
                 logger.info(`💬 [LINE Webhook] Command 'ตรวจสอบลูกหนี้' for date: ${queryDate}`);
-                sendLineReplyDebtorSummary(replyToken, queryDate, targetId).catch(err => {
+                sendLineReplyDebtorSummary(replyToken, queryDate).catch(err => {
                     logger.error('❌ Error executing LINE reply handler:', err);
                 });
             } else if (/^(|\/)(authen code|authen|ออเธน)/i.test(text)) {
@@ -1243,51 +1245,18 @@ app.post('/api/line/webhook', (req, res) => {
                 if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) queryDate = parts[1];
 
                 logger.info(`💬 [LINE Webhook] Command 'Authen Code' for date: ${queryDate}`);
-                sendLineReplyAuthenSummary(replyToken, queryDate, targetId).catch(err => {
+                sendLineReplyAuthenSummary(replyToken, queryDate).catch(err => {
                     logger.error('❌ Error executing LINE reply handler:', err);
                 });
             } else if (/^(|\/)(คู่มือใช้งาน|คู่มือ|manual|help)/i.test(text)) {
                 logger.info(`💬 [LINE Webhook] Command 'คู่มือใช้งาน'`);
-                sendLineReplyUserManual(replyToken, targetId).catch(err => {
+                sendLineReplyUserManual(replyToken).catch(err => {
                     logger.error('❌ Error executing LINE reply handler:', err);
                 });
             } else if (/^(|\/)(ติดต่อผู้ดูแล|ผู้ดูแล|admin|contact)/i.test(text)) {
                 logger.info(`💬 [LINE Webhook] Command 'ติดต่อผู้ดูแล'`);
-                sendLineReplyAdminContact(replyToken, targetId).catch(err => {
+                sendLineReplyAdminContact(replyToken).catch(err => {
                     logger.error('❌ Error executing LINE reply handler:', err);
-                });
-            } else if (/^(|\/)(ดูรายงาน|รายงาน|report)/i.test(text)) {
-                console.log(`💬 [LINE Webhook] Command 'ดูรายงาน'`);
-                sendLineReplyReportLinks(replyToken, targetId).catch(err => {
-                    console.error('❌ Error executing LINE reply handler:', err);
-                });
-            } else if (/^(|\/)(ตรวจสอบลูกหนี้|ลูกหนี้|debtor)/i.test(text)) {
-                const parts = text.split(/\s+/);
-                let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
-                if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) queryDate = parts[1];
-
-                console.log(`💬 [LINE Webhook] Command 'ตรวจสอบลูกหนี้' for date: ${queryDate}`);
-                sendLineReplyDebtorSummary(replyToken, queryDate, targetId).catch(err => {
-                    console.error('❌ Error executing LINE reply handler:', err);
-                });
-            } else if (/^(|\/)(authen code|authen|ออเธน)/i.test(text)) {
-                const parts = text.split(/\s+/);
-                let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
-                if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) queryDate = parts[1];
-
-                console.log(`💬 [LINE Webhook] Command 'Authen Code' for date: ${queryDate}`);
-                sendLineReplyAuthenSummary(replyToken, queryDate, targetId).catch(err => {
-                    console.error('❌ Error executing LINE reply handler:', err);
-                });
-            } else if (/^(|\/)(คู่มือใช้งาน|คู่มือ|manual|help)/i.test(text)) {
-                console.log(`💬 [LINE Webhook] Command 'คู่มือใช้งาน'`);
-                sendLineReplyUserManual(replyToken, targetId).catch(err => {
-                    console.error('❌ Error executing LINE reply handler:', err);
-                });
-            } else if (/^(|\/)(ติดต่อผู้ดูแล|ผู้ดูแล|admin|contact)/i.test(text)) {
-                console.log(`💬 [LINE Webhook] Command 'ติดต่อผู้ดูแล'`);
-                sendLineReplyAdminContact(replyToken, targetId).catch(err => {
-                    console.error('❌ Error executing LINE reply handler:', err);
                 });
             }
         }

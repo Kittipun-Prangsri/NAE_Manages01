@@ -11,7 +11,25 @@ const rootDir = path.resolve(__dirname, '..');
 
 const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const configPath = path.join(__dirname, 'line-rich-menu-config.json');
-const imagePath = path.join(rootDir, 'smart-groupinsights-line-rich-menu-2500x1686.png');
+
+// Prefer PNG if under 1MB, otherwise fallback to JPG
+const pngImagePath = path.join(rootDir, 'smart-groupinsights-line-rich-menu-2500x1686.png');
+const jpgImagePath = path.join(rootDir, 'smart-groupinsights-line-rich-menu-2500x1686.jpg');
+
+let targetImagePath = null;
+let contentType = 'image/png';
+
+if (fs.existsSync(pngImagePath) && fs.statSync(pngImagePath).size < 1048576) {
+    targetImagePath = pngImagePath;
+    contentType = 'image/png';
+} else if (fs.existsSync(jpgImagePath) && fs.statSync(jpgImagePath).size < 1048576) {
+    targetImagePath = jpgImagePath;
+    contentType = 'image/jpeg';
+} else if (fs.existsSync(pngImagePath)) {
+    console.warn(`⚠️ Warning: ${pngImagePath} exceeds LINE 1MB limit (${(fs.statSync(pngImagePath).size / 1024 / 1024).toFixed(2)} MB). Using JPG fallback.`);
+    targetImagePath = jpgImagePath;
+    contentType = 'image/jpeg';
+}
 
 if (!token || token === 'change_me') {
     console.error('❌ Error: LINE_CHANNEL_ACCESS_TOKEN is not configured in .env file.');
@@ -23,13 +41,14 @@ if (!fs.existsSync(configPath)) {
     process.exit(1);
 }
 
-if (!fs.existsSync(imagePath)) {
-    console.error(`❌ Error: Image file not found at ${imagePath}`);
+if (!targetImagePath || !fs.existsSync(targetImagePath)) {
+    console.error(`❌ Error: Rich menu image file not found or exceeds 1MB limit.`);
     process.exit(1);
 }
 
 async function run() {
     console.log('🚀 Starting LINE Rich Menu Setup...');
+    console.log(`📷 Selected image: ${path.basename(targetImagePath)} (${(fs.statSync(targetImagePath).size / 1024).toFixed(1)} KB, Content-Type: ${contentType})`);
 
     // 1. Create Rich Menu Structure
     console.log('1️⃣ Registering Rich Menu structure...');
@@ -54,14 +73,14 @@ async function run() {
     console.log(`✅ Rich Menu created successfully! ID: ${richMenuId}`);
 
     // 2. Upload Rich Menu Image
-    console.log('2️⃣ Uploading Rich Menu image (smart-groupinsights-line-rich-menu-2500x1686.png)...');
-    const imageBuffer = fs.readFileSync(imagePath);
+    console.log(`2️⃣ Uploading Rich Menu image...`);
+    const imageBuffer = fs.readFileSync(targetImagePath);
 
     const uploadRes = await fetch(`https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${token}`,
-            'Content-Type': 'image/png'
+            'Content-Type': contentType
         },
         body: imageBuffer
     });

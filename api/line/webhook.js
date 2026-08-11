@@ -95,12 +95,12 @@ async function fetchSummaryData(queryDate) {
     try {
         const [summaryRows] = await queryWithTimeout(trackerPool.query(
             `SELECT COUNT(*) AS service_total_count,
-                    SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') THEN 1 ELSE 0 END) AS total_visits,
-                    COALESCE(SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') THEN uc_money ELSE 0 END), 0) AS total_money,
+                    SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0 THEN 1 ELSE 0 END) AS total_visits,
+                    COALESCE(SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0 THEN uc_money ELSE 0 END), 0) AS total_money,
                     SUM(CASE WHEN color_status = 'YELLOW' THEN 1 ELSE 0 END) AS endpoint_count,
                     SUM(CASE WHEN check_claimcode = 'ยังไม่ได้นำเข้า' THEN 1 ELSE 0 END) AS not_imported_count,
                     SUM(CASE WHEN color_status = 'GREEN' THEN 1 ELSE 0 END) AS authen_count,
-                    SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') THEN 1 ELSE 0 END) AS ucs_total
+                    SUM(CASE WHEN UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS') AND color_status IN ('RED', 'YELLOW') AND COALESCE(uc_money, 0) > 0 THEN 1 ELSE 0 END) AS ucs_total
              FROM visit_tracking
              WHERE visit_date = ?`,
             [queryDate]

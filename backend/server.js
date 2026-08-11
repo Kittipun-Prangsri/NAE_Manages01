@@ -340,9 +340,17 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
     }
     
     try {
-        const todayDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
-        
+        let total_visits = 0;
+        let total_money = 0;
+        let not_imported_count = 0;
+        let authen_count = 0;
+        let rights = [];
+        let ucs_total = 0;
+        let ucs_departments = [];
+        let service_total_count = 0;
+        let dbErrorOccurred = false;
         let dataSourceLabel = 'Synced Tracking DB';
+
         const queryWithTimeout = (promise, ms = 5000) => {
             return Promise.race([
                 promise,
@@ -402,7 +410,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                 ucs_departments = dRows || [];
             }
         } catch (dbErr) {
-            logger.warn('⚠️ Tracker DB query failed in sendLineReplyFlexSummary:', dbErr.message);
+            logger.warn(`⚠️ Tracker DB query failed in sendLineReplyFlexSummary: ${dbErr.stack || dbErr.message}`);
         }
 
         // 2. If tracker DB had no records for queryDate, fallback to live HOSxP DB (Smart Groupinsights)
@@ -526,7 +534,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                 ucs_departments = dRows || [];
                 dataSourceLabel = 'HOSxP Live DB (Smart Groupinsights)';
             } catch (hosxpErr) {
-                logger.error('❌ HOSxP Live DB query failed in sendLineReplyFlexSummary:', hosxpErr.message);
+                logger.error(`❌ HOSxP Live DB query failed in sendLineReplyFlexSummary: ${hosxpErr.stack || hosxpErr.message}`);
                 dbErrorOccurred = true;
             }
         }
@@ -863,12 +871,12 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                 if (pushRes.ok) {
                     logger.info('✅ Sent LINE Fallback Push Flex Message successfully.');
                 } else {
-                    logger.error('❌ LINE Fallback Push API error:', pushData);
+                    logger.error(`❌ LINE Fallback Push API error: ${JSON.stringify(pushData)}`);
                 }
             }
         }
     } catch (error) {
-        logger.error('❌ Error replying to LINE:', error);
+        logger.error(`❌ Error replying to LINE: ${error.stack || error.message}`);
     }
 }
 

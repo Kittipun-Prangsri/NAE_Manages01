@@ -476,11 +476,12 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
     return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `📊 สรุปข้อมูลการให้บริการ (${queryDate})`, contents: flexBubble }] }, targetId);
 }
 
-async function sendLineReplyReportLinks(replyToken, targetId = null) {
-    const webUrl = process.env.SERVER_PUBLIC_URL || 'https://nhsoauthen.nhsotracker.site';
+async function sendLineReplyReportLinks(replyToken) {
+    const rawPublicUrl = process.env.SERVER_PUBLIC_URL || '';
+    const webUrl = (rawPublicUrl && !rawPublicUrl.includes('localhost')) ? rawPublicUrl : 'https://nhsoauthen.nhsotracker.site';
     const flexBubble = {
         type: "bubble",
-        size: "large",
+        size: "giga",
         body: {
             type: "box", layout: "vertical", backgroundColor: "#0f172a",
             contents: [
@@ -509,15 +510,15 @@ async function sendLineReplyReportLinks(replyToken, targetId = null) {
         }
     };
 
-    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "📈 ระบบรายงาน Smart Groupinsights", contents: flexBubble }] }, targetId);
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "📈 ระบบรายงาน Smart Groupinsights", contents: flexBubble }] });
 }
 
-async function sendLineReplyDebtorSummary(replyToken, queryDate, targetId = null) {
+async function sendLineReplyDebtorSummary(replyToken, queryDate) {
     const formattedDate = new Date(queryDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
     const stats = await fetchSummaryData(queryDate);
 
     const flexBubble = {
-        type: "bubble", size: "large",
+        type: "bubble", size: "giga",
         body: {
             type: "box", layout: "vertical", backgroundColor: "#1e1b4b",
             contents: [
@@ -561,15 +562,15 @@ async function sendLineReplyDebtorSummary(replyToken, queryDate, targetId = null
         }
     };
 
-    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `📌 สรุปลูกหนี้ UC ประจำวันที่ ${queryDate}`, contents: flexBubble }] }, targetId);
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `📌 สรุปลูกหนี้ UC ประจำวันที่ ${queryDate}`, contents: flexBubble }] });
 }
 
-async function sendLineReplyAuthenSummary(replyToken, queryDate, targetId = null) {
+async function sendLineReplyAuthenSummary(replyToken, queryDate) {
     const formattedDate = new Date(queryDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
     const stats = await fetchSummaryData(queryDate);
 
     const flexBubble = {
-        type: "bubble", size: "large",
+        type: "bubble", size: "giga",
         body: {
             type: "box", layout: "vertical", backgroundColor: "#064e3b",
             contents: [
@@ -606,13 +607,14 @@ async function sendLineReplyAuthenSummary(replyToken, queryDate, targetId = null
         }
     };
 
-    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `🔑 สถานะ Authen Code ประจำวันที่ ${queryDate}`, contents: flexBubble }] }, targetId);
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `🔑 สถานะ Authen Code ประจำวันที่ ${queryDate}`, contents: flexBubble }] });
 }
 
-async function sendLineReplyUserManual(replyToken, targetId = null) {
-    const webUrl = process.env.SERVER_PUBLIC_URL || 'https://nhsoauthen.nhsotracker.site';
+async function sendLineReplyUserManual(replyToken) {
+    const rawPublicUrl = process.env.SERVER_PUBLIC_URL || '';
+    const webUrl = (rawPublicUrl && !rawPublicUrl.includes('localhost')) ? rawPublicUrl : 'https://nhsoauthen.nhsotracker.site';
     const flexBubble = {
-        type: "bubble", size: "large",
+        type: "bubble", size: "giga",
         body: {
             type: "box", layout: "vertical", backgroundColor: "#1e293b",
             contents: [
@@ -640,12 +642,12 @@ async function sendLineReplyUserManual(replyToken, targetId = null) {
         }
     };
 
-    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "📖 คู่มือการใช้งาน Smart Groupinsights", contents: flexBubble }] }, targetId);
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "📖 คู่มือการใช้งาน Smart Groupinsights", contents: flexBubble }] });
 }
 
-async function sendLineReplyAdminContact(replyToken, targetId = null) {
+async function sendLineReplyAdminContact(replyToken) {
     const flexBubble = {
-        type: "bubble", size: "large",
+        type: "bubble", size: "giga",
         body: {
             type: "box", layout: "vertical", backgroundColor: "#0f172a",
             contents: [
@@ -663,5 +665,5 @@ async function sendLineReplyAdminContact(replyToken, targetId = null) {
         }
     };
 
-    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "🎧 ติดต่อผู้ดูแลระบบ", contents: flexBubble }] }, targetId);
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "🎧 ติดต่อผู้ดูแลระบบ", contents: flexBubble }] });
 }

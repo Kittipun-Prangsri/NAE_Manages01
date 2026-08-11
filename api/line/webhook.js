@@ -55,8 +55,43 @@ export default async function handler(req, res) {
                         if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) {
                             queryDate = parts[1];
                         }
-                        console.log(`💬 Processing command '${text}' for date ${queryDate}`);
+                        console.log(`💬 Processing command 'นำเข้าข้อมูล' for date ${queryDate}`);
                         sendLineReplyFlexSummary(replyToken, queryDate, targetId).catch(err => {
+                            console.error('❌ LINE Reply Error:', err);
+                        });
+                    } else if (/^(|\/)(ดูรายงาน|รายงาน|report)/i.test(text)) {
+                        console.log(`💬 Processing command 'ดูรายงาน'`);
+                        sendLineReplyReportLinks(replyToken, targetId).catch(err => {
+                            console.error('❌ LINE Reply Error:', err);
+                        });
+                    } else if (/^(|\/)(ตรวจสอบลูกหนี้|ลูกหนี้|debtor)/i.test(text)) {
+                        const parts = text.split(/\s+/);
+                        let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+                        if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) {
+                            queryDate = parts[1];
+                        }
+                        console.log(`💬 Processing command 'ตรวจสอบลูกหนี้' for date ${queryDate}`);
+                        sendLineReplyDebtorSummary(replyToken, queryDate, targetId).catch(err => {
+                            console.error('❌ LINE Reply Error:', err);
+                        });
+                    } else if (/^(|\/)(authen code|authen|ออเธน)/i.test(text)) {
+                        const parts = text.split(/\s+/);
+                        let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+                        if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) {
+                            queryDate = parts[1];
+                        }
+                        console.log(`💬 Processing command 'Authen Code' for date ${queryDate}`);
+                        sendLineReplyAuthenSummary(replyToken, queryDate, targetId).catch(err => {
+                            console.error('❌ LINE Reply Error:', err);
+                        });
+                    } else if (/^(|\/)(คู่มือใช้งาน|คู่มือ|manual|help)/i.test(text)) {
+                        console.log(`💬 Processing command 'คู่มือใช้งาน'`);
+                        sendLineReplyUserManual(replyToken, targetId).catch(err => {
+                            console.error('❌ LINE Reply Error:', err);
+                        });
+                    } else if (/^(|\/)(ติดต่อผู้ดูแล|ผู้ดูแล|admin|contact)/i.test(text)) {
+                        console.log(`💬 Processing command 'ติดต่อผู้ดูแล'`);
+                        sendLineReplyAdminContact(replyToken, targetId).catch(err => {
                             console.error('❌ LINE Reply Error:', err);
                         });
                     }
@@ -294,13 +329,64 @@ async function fetchSummaryData(queryDate) {
     };
 }
 
-async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) {
+async function sendLineGenericPayload(replyToken, payload, targetId = null) {
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token) {
-        console.error('❌ LINE Token is not configured in Vercel environment variables.');
+        console.error('❌ LINE Token is not configured in environment variables.');
         return;
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    let response = null;
+
+    try {
+        response = await fetch('https://api.line.me/v2/bot/message/reply', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        });
+    } catch (fetchErr) {
+        console.warn('⚠️ LINE Reply fetch error:', fetchErr.message);
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    const resData = response ? await response.json().catch(() => ({})) : {};
+    if (response && response.ok) {
+        console.log('✅ Sent LINE Reply Message successfully.');
+    } else {
+        console.error('❌ LINE Reply API error:', resData);
+
+        const fallbackTarget = targetId || process.env.LINE_GROUP_ID;
+        if (fallbackTarget) {
+            console.log(`📲 Attempting fallback Push message to ${fallbackTarget}...`);
+            const pushRes = await fetch('https://api.line.me/v2/bot/message/push', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    to: fallbackTarget,
+                    messages: payload.messages
+                })
+            });
+            const pushData = await pushRes.json().catch(() => ({}));
+            if (pushRes.ok) {
+                console.log('✅ Sent LINE Fallback Push Message successfully.');
+            } else {
+                console.error('❌ LINE Fallback Push API error:', pushData);
+            }
+        }
+    }
+}
+
+async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) {
     const formattedDate = new Date(queryDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
     const stats = await fetchSummaryData(queryDate);
 
@@ -340,45 +426,22 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
             layout: "vertical",
             backgroundColor: "#18191a",
             contents: [
-                {
-                    type: "text",
-                    text: "📊 Smart Groupinsights",
-                    weight: "bold",
-                    color: "#ffffff",
-                    size: "xl"
-                },
-                {
-                    type: "text",
-                    text: `รายงานข้อมูลวันที่ ${formattedDate} • ${stats.dataSource}`,
-                    size: "xs",
-                    color: "#8c8c8c",
-                    margin: "sm"
-                },
+                { type: "text", text: "📊 Smart Groupinsights", weight: "bold", color: "#ffffff", size: "xl" },
+                { type: "text", text: `รายงานข้อมูลวันที่ ${formattedDate} • ${stats.dataSource}`, size: "xs", color: "#8c8c8c", margin: "sm" },
                 { type: "separator", margin: "md", color: "#333333" },
                 {
-                    type: "box",
-                    layout: "vertical",
-                    margin: "md",
-                    spacing: "sm",
+                    type: "box", layout: "vertical", margin: "md", spacing: "sm",
                     contents: [
+                        { type: "text", text: "📌 ลูกหนี้ UC ค้างปิดสิทธิ์", color: "#52c41a", size: "xs", weight: "bold" },
                         {
-                            type: "text",
-                            text: "📌 ลูกหนี้ UC ค้างปิดสิทธิ์",
-                            color: "#52c41a",
-                            size: "xs",
-                            weight: "bold"
-                        },
-                        {
-                            type: "box",
-                            layout: "horizontal",
+                            type: "box", layout: "horizontal",
                             contents: [
                                 { type: "text", text: "จำนวนครั้ง (count)", color: "#ffffff", size: "sm", gravity: "center" },
                                 { type: "text", text: String(stats.total_visits), color: "#ff4d4d", size: "xl", align: "end", weight: "bold" }
                             ]
                         },
                         {
-                            type: "box",
-                            layout: "horizontal",
+                            type: "box", layout: "horizontal",
                             contents: [
                                 { type: "text", text: "ค่ารักษาลูกหนี้ (sum)", color: "#ffffff", size: "sm", gravity: "center" },
                                 { type: "text", text: Number(stats.total_money).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), color: "#ff4d4d", size: "xl", align: "end", weight: "bold" }
@@ -388,35 +451,28 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                 },
                 { type: "separator", margin: "md", color: "#333333" },
                 {
-                    type: "box",
-                    layout: "vertical",
-                    margin: "md",
-                    spacing: "sm",
+                    type: "box", layout: "vertical", margin: "md", spacing: "sm",
                     contents: [
                         { type: "text", text: "📋 ภาพรวมรับบริการ & Authen Code", color: "#8c8c8c", size: "xs", weight: "bold" },
                         {
-                            type: "box",
-                            layout: "horizontal",
+                            type: "box", layout: "horizontal",
                             contents: [
                                 {
-                                    type: "box",
-                                    layout: "vertical",
+                                    type: "box", layout: "vertical",
                                     contents: [
                                         { type: "text", text: "รับบริการทั้งหมด", color: "#ffffff", size: "xs", align: "center" },
                                         { type: "text", text: String(stats.service_total_count), color: "#1890ff", size: "md", align: "center", weight: "bold" }
                                     ]
                                 },
                                 {
-                                    type: "box",
-                                    layout: "vertical",
+                                    type: "box", layout: "vertical",
                                     contents: [
                                         { type: "text", text: "ยังไม่นำเข้า", color: "#ffffff", size: "xs", align: "center" },
                                         { type: "text", text: String(stats.not_imported_count), color: "#ff4d4d", size: "md", align: "center", weight: "bold" }
                                     ]
                                 },
                                 {
-                                    type: "box",
-                                    layout: "vertical",
+                                    type: "box", layout: "vertical",
                                     contents: [
                                         { type: "text", text: "นำเข้าสำเร็จ", color: "#ffffff", size: "xs", align: "center" },
                                         { type: "text", text: String(stats.authen_count), color: "#52c41a", size: "md", align: "center", weight: "bold" }
@@ -428,86 +484,207 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                 },
                 { type: "separator", margin: "md", color: "#333333" },
                 {
-                    type: "box",
-                    layout: "vertical",
-                    margin: "md",
-                    spacing: "sm",
+                    type: "box", layout: "vertical", margin: "md", spacing: "sm",
                     contents: [
                         { type: "text", text: "💳 กลุ่มสิทธิลูกหนี้ (Top 3)", color: "#8c8c8c", size: "xs", weight: "bold" },
                         ...rightsContents
                     ]
                 },
                 { type: "separator", margin: "md", color: "#333333" },
+                { type: "box", layout: "vertical", margin: "md", spacing: "sm", contents: ucsContents }
+            ]
+        }
+    };
+
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `📊 สรุปข้อมูลการให้บริการ (${queryDate})`, contents: flexBubble }] }, targetId);
+}
+
+async function sendLineReplyReportLinks(replyToken, targetId = null) {
+    const webUrl = process.env.SERVER_PUBLIC_URL || 'https://nhsoauthen.nhsotracker.site';
+    const flexBubble = {
+        type: "bubble",
+        size: "large",
+        body: {
+            type: "box", layout: "vertical", backgroundColor: "#0f172a",
+            contents: [
+                { type: "text", text: "📈 ระบบรายงาน Smart Groupinsights", weight: "bold", color: "#38bdf8", size: "lg" },
+                { type: "text", text: "เลือกดูรายงานสรุปผลการดำเนินงานและสิทธิการรักษา", size: "xs", color: "#94a3b8", margin: "xs" },
+                { type: "separator", margin: "md", color: "#334155" },
                 {
-                    type: "box",
-                    layout: "vertical",
-                    margin: "md",
-                    spacing: "sm",
-                    contents: ucsContents
+                    type: "box", layout: "vertical", margin: "md", spacing: "sm",
+                    contents: [
+                        { type: "text", text: "🔗 ลิงก์เข้าใช้งานระบบ", color: "#f8fafc", size: "sm", weight: "bold" },
+                        { type: "text", text: "• แดชบอร์ดสรุปรายวัน (Live Dashboard)", color: "#cbd5e1", size: "xs" },
+                        { type: "text", text: "• ตรวจสอบลูกหนี้ UC และ Authen Code", color: "#cbd5e1", size: "xs" },
+                        { type: "text", text: "• ประวัติการซิงก์ข้อมูล HOSxP", color: "#cbd5e1", size: "xs" }
+                    ]
+                }
+            ]
+        },
+        footer: {
+            type: "box", layout: "vertical", backgroundColor: "#0f172a", spacing: "sm",
+            contents: [
+                {
+                    type: "button", style: "primary", color: "#0284c7", height: "sm",
+                    action: { type: "uri", label: "🌐 เปิดหน้าแดชบอร์ดระบบ", uri: webUrl }
                 }
             ]
         }
     };
 
-    const payload = {
-        replyToken: replyToken,
-        messages: [
-            {
-                type: 'flex',
-                altText: `📊 สรุปข้อมูลการให้บริการ (${queryDate})`,
-                contents: flexBubble
-            }
-        ]
-    };
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
-    let response = null;
-
-    try {
-        response = await fetch('https://api.line.me/v2/bot/message/reply', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(payload),
-            signal: controller.signal
-        });
-    } catch (fetchErr) {
-        console.warn('⚠️ LINE Reply fetch error:', fetchErr.message);
-    } finally {
-        clearTimeout(timeoutId);
-    }
-
-    const resData = response ? await response.json().catch(() => ({})) : {};
-    if (response && response.ok) {
-        console.log('✅ Sent LINE Reply Flex Message successfully via Vercel Function.');
-    } else {
-        console.error('❌ LINE Reply API error:', resData);
-
-        // Fallback to push message if replyToken failed or expired
-        const fallbackTarget = targetId || process.env.LINE_GROUP_ID;
-        if (fallbackTarget) {
-            console.log(`📲 Attempting fallback Push message to ${fallbackTarget}...`);
-            const pushRes = await fetch('https://api.line.me/v2/bot/message/push', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    to: fallbackTarget,
-                    messages: payload.messages
-                })
-            });
-            const pushData = await pushRes.json().catch(() => ({}));
-            if (pushRes.ok) {
-                console.log('✅ Sent LINE Fallback Push Flex Message successfully.');
-            } else {
-                console.error('❌ LINE Fallback Push API error:', pushData);
-            }
-        }
-    }
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "📈 ระบบรายงาน Smart Groupinsights", contents: flexBubble }] }, targetId);
 }
 
+async function sendLineReplyDebtorSummary(replyToken, queryDate, targetId = null) {
+    const formattedDate = new Date(queryDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+    const stats = await fetchSummaryData(queryDate);
+
+    const flexBubble = {
+        type: "bubble", size: "large",
+        body: {
+            type: "box", layout: "vertical", backgroundColor: "#1e1b4b",
+            contents: [
+                { type: "text", text: "📌 ตรวจสอบลูกหนี้ UC ค้างปิดสิทธิ์", weight: "bold", color: "#a855f7", size: "lg" },
+                { type: "text", text: `ประจำวันที่ ${formattedDate}`, size: "xs", color: "#c084fc", margin: "xs" },
+                { type: "separator", margin: "md", color: "#4338ca" },
+                {
+                    type: "box", layout: "vertical", margin: "md", spacing: "sm",
+                    contents: [
+                        {
+                            type: "box", layout: "horizontal",
+                            contents: [
+                                { type: "text", text: "จำนวนลูกหนี้ค้างสิทธิ์:", color: "#e0e7ff", size: "sm" },
+                                { type: "text", text: `${stats.total_visits} ราย`, color: "#f43f5e", size: "md", align: "end", weight: "bold" }
+                            ]
+                        },
+                        {
+                            type: "box", layout: "horizontal",
+                            contents: [
+                                { type: "text", text: "ยอดเงินค่ารักษาพยาบาล:", color: "#e0e7ff", size: "sm" },
+                                { type: "text", text: `฿${Number(stats.total_money).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`, color: "#f43f5e", size: "md", align: "end", weight: "bold" }
+                            ]
+                        }
+                    ]
+                },
+                { type: "separator", margin: "md", color: "#4338ca" },
+                {
+                    type: "box", layout: "vertical", margin: "md", spacing: "xs",
+                    contents: [
+                        { type: "text", text: "🏥 แผนก/จุดบริการค้างสิทธิ์สูงสุด (Top 3)", color: "#cbd5e1", size: "xs", weight: "bold" },
+                        ...stats.ucs_departments.map(d => ({
+                            type: "box", layout: "horizontal",
+                            contents: [
+                                { type: "text", text: `• ${d.dept_name || 'ไม่ระบุจุดบริการ'}`, color: "#e2e8f0", size: "xs" },
+                                { type: "text", text: `${d.cnt || 0} ราย`, color: "#fbbf24", size: "xs", align: "end" }
+                            ]
+                        }))
+                    ]
+                }
+            ]
+        }
+    };
+
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `📌 สรุปลูกหนี้ UC ประจำวันที่ ${queryDate}`, contents: flexBubble }] }, targetId);
+}
+
+async function sendLineReplyAuthenSummary(replyToken, queryDate, targetId = null) {
+    const formattedDate = new Date(queryDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+    const stats = await fetchSummaryData(queryDate);
+
+    const flexBubble = {
+        type: "bubble", size: "large",
+        body: {
+            type: "box", layout: "vertical", backgroundColor: "#064e3b",
+            contents: [
+                { type: "text", text: "🔑 ตรวจสอบ Authen Code (สปสช.)", weight: "bold", color: "#34d399", size: "lg" },
+                { type: "text", text: `ประจำวันที่ ${formattedDate}`, size: "xs", color: "#a7f3d0", margin: "xs" },
+                { type: "separator", margin: "md", color: "#047857" },
+                {
+                    type: "box", layout: "vertical", margin: "md", spacing: "sm",
+                    contents: [
+                        {
+                            type: "box", layout: "horizontal",
+                            contents: [
+                                { type: "text", text: "รับบริการทั้งหมด:", color: "#ecfdf5", size: "sm" },
+                                { type: "text", text: `${stats.service_total_count} ราย`, color: "#60a5fa", size: "md", align: "end", weight: "bold" }
+                            ]
+                        },
+                        {
+                            type: "box", layout: "horizontal",
+                            contents: [
+                                { type: "text", text: "นำเข้า Authen Code แล้ว:", color: "#ecfdf5", size: "sm" },
+                                { type: "text", text: `${stats.authen_count} ราย`, color: "#34d399", size: "md", align: "end", weight: "bold" }
+                            ]
+                        },
+                        {
+                            type: "box", layout: "horizontal",
+                            contents: [
+                                { type: "text", text: "ยังไม่นำเข้า / ค้างปิดสิทธิ์:", color: "#ecfdf5", size: "sm" },
+                                { type: "text", text: `${stats.not_imported_count} ราย`, color: "#f87171", size: "md", align: "end", weight: "bold" }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    };
+
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: `🔑 สถานะ Authen Code ประจำวันที่ ${queryDate}`, contents: flexBubble }] }, targetId);
+}
+
+async function sendLineReplyUserManual(replyToken, targetId = null) {
+    const webUrl = process.env.SERVER_PUBLIC_URL || 'https://nhsoauthen.nhsotracker.site';
+    const flexBubble = {
+        type: "bubble", size: "large",
+        body: {
+            type: "box", layout: "vertical", backgroundColor: "#1e293b",
+            contents: [
+                { type: "text", text: "📖 คู่มือการใช้งาน Smart Groupinsights", weight: "bold", color: "#fbbf24", size: "md" },
+                { type: "separator", margin: "md", color: "#475569" },
+                {
+                    type: "box", layout: "vertical", margin: "md", spacing: "sm",
+                    contents: [
+                        { type: "text", text: "1️⃣ นำเข้าข้อมูล: สั่งพิมพ์คำว่า 'นำเข้าข้อมูล' หรือกดปุ่มแรกเพื่อดูสรุปสิทธิและลูกหนี้", color: "#f1f5f9", size: "xs" },
+                        { type: "text", text: "2️⃣ ดูรายงาน: ดูแดชบอร์ดเปรียบเทียบ HOSxP และ Authen Code ผ่านระบบเว็บ", color: "#f1f5f9", size: "xs" },
+                        { type: "text", text: "3️⃣ ตรวจสอบลูกหนี้: ตรวจสอบรายชื่อและมูลค่าลูกหนี้ UC ค้างปิดสิทธิ์รายวัน", color: "#f1f5f9", size: "xs" },
+                        { type: "text", text: "4️⃣ Authen Code: ติดตามจำนวนผู้ขอ Authen Code จาก สปสช.", color: "#f1f5f9", size: "xs" }
+                    ]
+                }
+            ]
+        },
+        footer: {
+            type: "box", layout: "vertical", backgroundColor: "#1e293b",
+            contents: [
+                {
+                    type: "button", style: "secondary", color: "#334155", height: "sm",
+                    action: { type: "uri", label: "🌐 เปิดคู่มือและใช้งานระบบเว็บ", uri: webUrl }
+                }
+            ]
+        }
+    };
+
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "📖 คู่มือการใช้งาน Smart Groupinsights", contents: flexBubble }] }, targetId);
+}
+
+async function sendLineReplyAdminContact(replyToken, targetId = null) {
+    const flexBubble = {
+        type: "bubble", size: "large",
+        body: {
+            type: "box", layout: "vertical", backgroundColor: "#0f172a",
+            contents: [
+                { type: "text", text: "🎧 ติดต่อผู้ดูแลระบบ (Admin Support)", weight: "bold", color: "#38bdf8", size: "md" },
+                { type: "separator", margin: "md", color: "#334155" },
+                {
+                    type: "box", layout: "vertical", margin: "md", spacing: "xs",
+                    contents: [
+                        { type: "text", text: "ศูนย์เทคโนโลยีสารสนเทศ & งานเวชระเบียน", color: "#f8fafc", size: "xs", weight: "bold" },
+                        { type: "text", text: "• ระบบซิงก์ข้อมูล HOSxP & NHSO Tracker", color: "#cbd5e1", size: "xs" },
+                        { type: "text", text: "• สอบถามปัญหาการซิงก์หรือขอสิทธิ์เข้าใช้งาน", color: "#cbd5e1", size: "xs" }
+                    ]
+                }
+            ]
+        }
+    };
+
+    return sendLineGenericPayload(replyToken, { replyToken, messages: [{ type: 'flex', altText: "🎧 ติดต่อผู้ดูแลระบบ", contents: flexBubble }] }, targetId);
+}

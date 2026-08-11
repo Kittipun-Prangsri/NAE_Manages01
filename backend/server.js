@@ -1279,6 +1279,39 @@ app.post('/api/line/webhook', (req, res) => {
                 sendLineReplyAdminContact(replyToken, targetId).catch(err => {
                     logger.error('❌ Error executing LINE reply handler:', err);
                 });
+            } else if (/^(|\/)(ดูรายงาน|รายงาน|report)/i.test(text)) {
+                console.log(`💬 [LINE Webhook] Command 'ดูรายงาน'`);
+                sendLineReplyReportLinks(replyToken, targetId).catch(err => {
+                    console.error('❌ Error executing LINE reply handler:', err);
+                });
+            } else if (/^(|\/)(ตรวจสอบลูกหนี้|ลูกหนี้|debtor)/i.test(text)) {
+                const parts = text.split(/\s+/);
+                let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+                if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) queryDate = parts[1];
+
+                console.log(`💬 [LINE Webhook] Command 'ตรวจสอบลูกหนี้' for date: ${queryDate}`);
+                sendLineReplyDebtorSummary(replyToken, queryDate, targetId).catch(err => {
+                    console.error('❌ Error executing LINE reply handler:', err);
+                });
+            } else if (/^(|\/)(authen code|authen|ออเธน)/i.test(text)) {
+                const parts = text.split(/\s+/);
+                let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+                if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) queryDate = parts[1];
+
+                console.log(`💬 [LINE Webhook] Command 'Authen Code' for date: ${queryDate}`);
+                sendLineReplyAuthenSummary(replyToken, queryDate, targetId).catch(err => {
+                    console.error('❌ Error executing LINE reply handler:', err);
+                });
+            } else if (/^(|\/)(คู่มือใช้งาน|คู่มือ|manual|help)/i.test(text)) {
+                console.log(`💬 [LINE Webhook] Command 'คู่มือใช้งาน'`);
+                sendLineReplyUserManual(replyToken, targetId).catch(err => {
+                    console.error('❌ Error executing LINE reply handler:', err);
+                });
+            } else if (/^(|\/)(ติดต่อผู้ดูแล|ผู้ดูแล|admin|contact)/i.test(text)) {
+                console.log(`💬 [LINE Webhook] Command 'ติดต่อผู้ดูแล'`);
+                sendLineReplyAdminContact(replyToken, targetId).catch(err => {
+                    console.error('❌ Error executing LINE reply handler:', err);
+                });
             }
         }
     });

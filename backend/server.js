@@ -342,119 +342,200 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
     try {
         const todayDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
         
-        let total_visits = 0;
-        let total_money = 0;
-        let not_imported_count = 0;
-        let authen_count = 0;
-        let rights = [];
-        let ucs_total = 0;
-        let ucs_departments = [];
-        let service_total_count = 0;
-        let dbErrorOccurred = false;
+        let dataSourceLabel = 'Synced Tracking DB';
 
-        const queryWithTimeout = (promise, ms = 2000) => {
-            return Promise.race([
-                promise,
-                new Promise((_, reject) => setTimeout(() => reject(new Error('DB Query Timeout (2s)')), ms))
-            ]);
-        };
-
-        // ดึงข้อมูลจากตาราง visit_tracking (ผลลัพธ์จริงของการ sync ล่าสุด) แทนการ
-        // คำนวณสดจาก HOSxP เพื่อให้ตัวเลขที่ตอบกลับใน LINE ตรงกับสถานะที่ sync ไว้จริง
+        // 1. Try querying internal visit_tracking table (synced data) first
         try {
-            // สิทธิ์บัตรทองที่ยังไม่ปิดสิทธิ์ (RED/YELLOW) และมีค่ารักษาค้างอยู่
-            const [[vRows]] = await queryWithTimeout(trackerPool.query(
-                `SELECT COUNT(*) as total_visits
-                 FROM visit_tracking
-                 WHERE visit_date = ?
-                   AND pcode = 'UCS'
-                   AND color_status IN ('RED', 'YELLOW')
-                   AND COALESCE(uc_money, 0) > 0`,
-                [queryDate]
-            ));
-            total_visits = vRows?.total_visits || 0;
-            ucs_total = total_visits;
-
-            // จำนวนผู้มารับบริการทั้งหมด (ครั้ง) ที่ sync ไว้สำหรับวันที่ระบุ
             const [[sRows]] = await queryWithTimeout(trackerPool.query(
                 `SELECT COUNT(*) as service_total FROM visit_tracking WHERE visit_date = ?`,
                 [queryDate]
             ));
             service_total_count = sRows?.service_total || 0;
 
-            // ยอดค่ารักษาลูกหนี้บัตรทองที่ยังค้างสิทธิ์
-            const [[mRows]] = await queryWithTimeout(trackerPool.query(
-                `SELECT COALESCE(SUM(uc_money), 0) AS total_money
-                 FROM visit_tracking
-                 WHERE visit_date = ?
-                   AND pcode = 'UCS'
-                   AND color_status IN ('RED', 'YELLOW')
-                   AND COALESCE(uc_money, 0) > 0`,
-                [queryDate]
-            ));
-            total_money = mRows?.total_money || 0;
+            if (service_total_count > 0) {
+                const [[vRows]] = await queryWithTimeout(trackerPool.query(
+                    `SELECT COUNT(*) as total_visits
+                     FROM visit_tracking
+                     WHERE visit_date = ?
+                       AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
+                       AND color_status IN ('RED', 'YELLOW')
+                       AND COALESCE(uc_money, 0) > 0`,
+                    [queryDate]
+                ));
+                total_visits = vRows?.total_visits || 0;
+                ucs_total = total_visits;
 
-            // RED: ยังไม่ได้ขอ Authen Code
-            const [[nRows]] = await queryWithTimeout(trackerPool.query(
-                `SELECT COUNT(*) AS not_imported_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'RED'`,
-                [queryDate]
-            ));
-            not_imported_count = nRows?.not_imported_count || 0;
+                const [[mRows]] = await queryWithTimeout(trackerPool.query(
+                    `SELECT COALESCE(SUM(uc_money), 0) AS total_money
+                     FROM visit_tracking
+                     WHERE visit_date = ?
+                       AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
+                       AND color_status IN ('RED', 'YELLOW')
+                       AND COALESCE(uc_money, 0) > 0`,
+                    [queryDate]
+                ));
+                total_money = Number(mRows?.total_money || 0);
 
-            // GREEN: ตรวจสอบสิทธิ์ผ่านสมบูรณ์ (มี Authen Code และปิด Endpoint แล้ว)
-            const [[aRows]] = await queryWithTimeout(trackerPool.query(
-                `SELECT COUNT(*) AS authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'`,
-                [queryDate]
-            ));
-            authen_count = aRows?.authen_count || 0;
+                const [[nRows]] = await queryWithTimeout(trackerPool.query(
+                    `SELECT COUNT(*) AS not_imported_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'RED'`,
+                    [queryDate]
+                ));
+                not_imported_count = nRows?.not_imported_count || 0;
 
-            // สิทธิการรักษา Top 3 จากผลการ sync จริง จัดกลุ่มตามรหัสสิทธิ (hipdata_code)
-            const [rRows] = await queryWithTimeout(trackerPool.query(
-                `SELECT COALESCE(pcode, 'ไม่ระบุสิทธิ') as right_name, COUNT(*) as cnt
-                 FROM visit_tracking
-                 WHERE visit_date = ?
-                 GROUP BY right_name
-                 ORDER BY cnt DESC
-                 LIMIT 3`,
-                [queryDate]
-            ));
-            rights = rRows || [];
+                const [[aRows]] = await queryWithTimeout(trackerPool.query(
+                    `SELECT COUNT(*) AS authen_count FROM visit_tracking WHERE visit_date = ? AND color_status = 'GREEN'`,
+                    [queryDate]
+                ));
+                authen_count = aRows?.authen_count || 0;
 
-            // จุดบริการ/แผนกที่มีผู้ป่วยบัตรทองค้างสิทธิ์มากที่สุด 3 ลำดับแรก
-            const [dRows] = await queryWithTimeout(trackerPool.query(
-                `SELECT COALESCE(department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt
-                 FROM visit_tracking
-                 WHERE visit_date = ?
-                   AND pcode = 'UCS'
-                   AND color_status IN ('RED', 'YELLOW')
-                   AND COALESCE(uc_money, 0) > 0
-                 GROUP BY dept_name
-                 ORDER BY cnt DESC
-                 LIMIT 3`,
-                [queryDate]
-            ));
-            ucs_departments = dRows || [];
+                const [rRows] = await queryWithTimeout(trackerPool.query(
+                    `SELECT COALESCE(NULLIF(TRIM(pttype_note), ''), NULLIF(TRIM(pttype), ''), 'ไม่ระบุสิทธิ') as right_name, COUNT(*) as cnt
+                     FROM visit_tracking
+                     WHERE visit_date = ?
+                     GROUP BY right_name
+                     ORDER BY cnt DESC
+                     LIMIT 3`,
+                    [queryDate]
+                ));
+                rights = rRows || [];
+
+                const [dRows] = await queryWithTimeout(trackerPool.query(
+                    `SELECT COALESCE(NULLIF(TRIM(department), ''), 'ไม่ระบุจุดบริการ') as dept_name, COUNT(*) as cnt
+                     FROM visit_tracking
+                     WHERE visit_date = ?
+                       AND UPPER(COALESCE(pcode, '')) IN ('UC', 'UCS')
+                       AND color_status IN ('RED', 'YELLOW')
+                       AND COALESCE(uc_money, 0) > 0
+                     GROUP BY dept_name
+                     ORDER BY cnt DESC
+                     LIMIT 3`,
+                    [queryDate]
+                ));
+                ucs_departments = dRows || [];
+            }
         } catch (dbErr) {
-            logger.error('❌ Database error in sendLineReplyFlexSummary (using fallback mock data):', dbErr.message);
-            dbErrorOccurred = true;
+            logger.warn('⚠️ Tracker DB query failed in sendLineReplyFlexSummary:', dbErr.message);
+        }
 
-            // Mock data fallback
-            total_visits = 120;
-            total_money = 45000;
-            not_imported_count = 25;
-            authen_count = 80;
-            rights = [
-                { right_name: 'UCS', cnt: 75 },
-                { right_name: 'OFC', cnt: 30 },
-                { right_name: 'SSS', cnt: 15 }
-            ];
-            ucs_total = 40;
-            service_total_count = 343;
-            ucs_departments = [
-                { dept_name: 'OPD ทั่วไป', cnt: 20 },
-                { dept_name: 'ห้องฉุกเฉิน (ER)', cnt: 12 },
-                { dept_name: 'คลินิกโรคเรื้อรัง', cnt: 8 }
-            ];
+        // 2. If tracker DB had no records for queryDate, fallback to live HOSxP DB (Smart Groupinsights)
+        if (service_total_count === 0 && hosxpPool) {
+            try {
+                const [[vRows]] = await queryWithTimeout(hosxpPool.query(
+                    `SELECT COUNT(DISTINCT v.vn) as total_visits, COALESCE(SUM(v.uc_money), 0) AS total_money
+                     FROM vn_stat v
+                     LEFT JOIN ovst ov ON ov.vn = v.vn
+                     LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                        AND td.status_use <> 'C'
+                        AND td.dateser = v.vstdate
+                        AND td.flag = 'D'
+                     LEFT JOIN pttype py ON py.pttype = v.pttype
+                     WHERE v.vstdate = ?
+                       AND UPPER(py.hipdata_code) = 'UCS'
+                       AND COALESCE(ov.pt_subtype, '') <> '1'
+                       AND ov.an IS NULL
+                       AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                       AND COALESCE(v.uc_money, 0) > 0`,
+                    [queryDate]
+                ));
+                total_visits = vRows?.total_visits || 0;
+                total_money = Number(vRows?.total_money || 0);
+                ucs_total = total_visits;
+
+                const [[sRows]] = await queryWithTimeout(hosxpPool.query(
+                    `SELECT COUNT(DISTINCT v.vn) as service_total 
+                     FROM vn_stat v
+                     LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+                     WHERE v.vstdate = ?
+                       AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})`,
+                    [queryDate]
+                ));
+                service_total_count = sRows?.service_total || 0;
+
+                const [[nRows]] = await queryWithTimeout(hosxpPool.query(
+                    `SELECT COUNT(DISTINCT v.vn) AS not_imported_count
+                     FROM vn_stat v
+                     LEFT JOIN ovst ov ON ov.vn = v.vn
+                     LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                        AND td.status_use <> 'C'
+                        AND td.dateser = v.vstdate
+                        AND td.flag = 'D'
+                     LEFT JOIN pttype py ON py.pttype = v.pttype
+                     WHERE v.vstdate = ?
+                       AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                       AND COALESCE(ov.pt_subtype, '') <> '1'
+                       AND ov.an IS NULL
+                       AND td.claimcode IS NULL`,
+                    [queryDate]
+                ));
+                not_imported_count = nRows?.not_imported_count || 0;
+
+                const [[aRows]] = await queryWithTimeout(hosxpPool.query(
+                    `SELECT COUNT(DISTINCT v.vn) AS authen_count
+                     FROM vn_stat v
+                     LEFT JOIN visit_pttype vp ON vp.vn = v.vn
+                     LEFT JOIN pttype py ON py.pttype = v.pttype
+                     WHERE v.vstdate = ?
+                       AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+                       AND UPPER(vp.pttype_note) = 'AUTHENCODE'`,
+                    [queryDate]
+                ));
+                authen_count = aRows?.authen_count || 0;
+
+                const [rRows] = await queryWithTimeout(hosxpPool.query(
+                    `SELECT 
+                        CASE 
+                            WHEN py.pttype_spp_id = 1 THEN 'เบิกจ่ายตรงกรมบัญชีกลาง'
+                            WHEN py.pttype_spp_id = 11 THEN 'เบิกต้นสังกัด'
+                            WHEN py.pttype_spp_id = 7 THEN 'เบิกจ่ายตรง อปท.'
+                            WHEN py.pttype_spp_id IN (3, 4) THEN 'บัตรทอง'
+                            WHEN py.pttype_spp_id IN (5, 8) THEN 'คนต่างด้าว'
+                            WHEN py.pttype_spp_id = 10 THEN 'ผู้มีปัญหาสถานะและสิทธิ'
+                            WHEN py.pttype_spp_id = 2 THEN 'บัตรประกันสังคม'
+                            WHEN py.pttype_spp_id = 9 THEN 'พรบ.ผู้ประสบภัยจากรถ'
+                            WHEN py.pttype_spp_id = 6 THEN 'อื่นๆ (ชำระเงินเอง)'
+                            ELSE 'ไม่ระบุสิทธิ'
+                        END as right_name,
+                        COUNT(DISTINCT v.vn) as cnt
+                     FROM vn_stat v
+                     LEFT OUTER JOIN pttype py ON py.pttype = v.pttype
+                     LEFT OUTER JOIN ovst ov ON ov.vn = v.vn
+                     WHERE v.vstdate = ?
+                       AND COALESCE(ov.pt_subtype, '') <> '1'
+                       AND ov.an IS NULL
+                     GROUP BY right_name
+                     ORDER BY cnt DESC
+                     LIMIT 3`,
+                    [queryDate]
+                ));
+                rights = rRows || [];
+
+                const [dRows] = await queryWithTimeout(hosxpPool.query(
+                    `SELECT COALESCE(NULLIF(TRIM(CONVERT(k.department USING utf8)), ''), 'ไม่ระบุจุดบริการ') as dept_name, COUNT(DISTINCT v.vn) as cnt
+                     FROM vn_stat v
+                     LEFT JOIN ovst ov ON ov.vn = v.vn
+                     LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
+                     LEFT JOIN temp_authen_code td ON td.cid = v.cid
+                        AND td.status_use <> 'C'
+                        AND td.dateser = v.vstdate
+                        AND td.flag = 'D'
+                     LEFT JOIN pttype py ON py.pttype = v.pttype
+                     WHERE v.vstdate = ?
+                       AND UPPER(py.hipdata_code) = 'UCS'
+                       AND COALESCE(ov.pt_subtype, '') <> '1'
+                       AND ov.an IS NULL
+                       AND (td.claimcode IS NULL OR td.authen_code_type IS NULL OR UPPER(td.authen_code_type) NOT IN ('EP', 'ENDPOINT'))
+                       AND COALESCE(v.uc_money, 0) > 0
+                     GROUP BY dept_name
+                     ORDER BY cnt DESC
+                     LIMIT 3`,
+                    [queryDate]
+                ));
+                ucs_departments = dRows || [];
+                dataSourceLabel = 'HOSxP Live DB (Smart Groupinsights)';
+            } catch (hosxpErr) {
+                logger.error('❌ HOSxP Live DB query failed in sendLineReplyFlexSummary:', hosxpErr.message);
+                dbErrorOccurred = true;
+            }
         }
 
         // Build right items contents dynamically
@@ -549,7 +630,7 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                     },
                     {
                         "type": "text",
-                        "text": `Dashboard Summary (${formattedDate})`,
+                        "text": `Dashboard Summary (${formattedDate}) • ${dataSourceLabel}`,
                         "size": "xs",
                         "color": "#8c8c8c",
                         "margin": "sm"
@@ -800,6 +881,10 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
 }
 
 // --- LINE Webhook for Group ID Discovery & Commands ---
+app.get('/api/line/webhook', (req, res) => {
+    res.status(200).send('LINE Webhook Endpoint Active');
+});
+
 app.post('/api/line/webhook', (req, res) => {
     const events = req.body?.events || [];
     events.forEach(async (event) => {

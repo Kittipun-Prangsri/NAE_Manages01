@@ -246,7 +246,7 @@ async function fetchSummaryData(queryDate) {
             rights = rRows || [];
 
             const [dRows] = await hosxpPool.query(
-                `SELECT COALESCE(k.department, 'ไม่ระบุจุดบริการ') as dept_name, COUNT(DISTINCT v.vn) as cnt
+                `SELECT COALESCE(NULLIF(TRIM(CONVERT(k.department USING utf8)), ''), 'ไม่ระบุจุดบริการ') as dept_name, COUNT(DISTINCT v.vn) as cnt
                  FROM vn_stat v
                  LEFT JOIN ovst ov ON ov.vn = v.vn
                  LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep

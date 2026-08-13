@@ -99,7 +99,7 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
             }
         }
 
-        browser = await puppeteer.launch({
+        const launchOptions = {
             headless: true,
             userDataDir: sessionPath,
             args: [
@@ -108,7 +108,28 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
                 '--disable-web-security',
                 '--disable-features=IsolateOrigins,site-per-process'
             ]
-        });
+        };
+
+        if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+            launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+        } else if (process.platform === 'linux') {
+            const knownPaths = [
+                '/usr/bin/google-chrome-stable',
+                '/usr/bin/google-chrome',
+                '/usr/bin/chromium-browser',
+                '/usr/bin/chromium',
+                '/snap/bin/chromium'
+            ];
+            for (const p of knownPaths) {
+                if (fs.existsSync(p)) {
+                    launchOptions.executablePath = p;
+                    logger.info(`🌐 Using system Chromium/Chrome at: ${p}`);
+                    break;
+                }
+            }
+        }
+
+        browser = await puppeteer.launch(launchOptions);
         
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');

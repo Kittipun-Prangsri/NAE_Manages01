@@ -19,7 +19,9 @@
     "pm2:stop": "pm2 stop ecosystem.config.cjs",
     "pm2:logs": "pm2 logs nae-server --lines 100",
     "test": "node --test test/*.test.js",
-    "line:richmenu": "node scripts/create-line-rich-menu.js"
+    "line:richmenu": "node scripts/create-line-rich-menu.js",
+    "install:chrome": "npx puppeteer browsers install chrome",
+    "postinstall": "npx puppeteer browsers install chrome || true"
   },
   "keywords": [],
   "author": "",

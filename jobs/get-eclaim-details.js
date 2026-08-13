@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import logger from '../backend/logger.js';
+import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
 
 dotenv.config();
 
@@ -23,35 +24,7 @@ async function extractEclaimDetails() {
     
     let browser;
     try {
-        const launchOptions = {
-            headless: true,
-            args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process'
-            ]
-        };
-
-        if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-            launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-        } else if (process.platform === 'linux') {
-            const knownPaths = [
-                '/usr/bin/google-chrome-stable',
-                '/usr/bin/google-chrome',
-                '/usr/bin/chromium-browser',
-                '/usr/bin/chromium',
-                '/snap/bin/chromium'
-            ];
-            for (const p of knownPaths) {
-                if (fs.existsSync(p)) {
-                    launchOptions.executablePath = p;
-                    logger.info(`🌐 Using system Chromium/Chrome at: ${p}`);
-                    break;
-                }
-            }
-        }
-
+        const launchOptions = getPuppeteerLaunchOptions();
         browser = await puppeteer.launch(launchOptions);
         
         const page = await browser.newPage();

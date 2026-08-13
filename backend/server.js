@@ -37,6 +37,7 @@ import { applySecurityHeaders, isPublicScreenshotAccessEnabled } from './securit
 import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
+import { keepAliveNhsoSession, getNhsoSessionStatusInfo } from '../jobs/keep-alive-nhso.js';
 import visitRoutes from './routes/visitRoutes.js';
 import logger from './logger.js';
 
@@ -1659,6 +1660,43 @@ app.post('/api/sync/nhso-portal-download', authenticateToken, requireAdmin, asyn
 app.get('/api/sync/status', authenticateToken, (req, res) => {
     checkSyncStatusTimeout();
     res.json(currentSyncStatus);
+});
+
+/**
+ * Endpoint สำหรับดึงสถานะเซสชัน NHSO/ThaiD ล่าสุด
+ */
+app.get('/api/nhso/session-status', authenticateToken, (req, res) => {
+    try {
+        const info = getNhsoSessionStatusInfo();
+        res.json({
+            success: true,
+            ...info
+        });
+    } catch (error) {
+        logger.error('Error fetching NHSO session status:', error);
+        res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการดึงสถานะเซสชัน' });
+    }
+});
+
+/**
+ * Endpoint สำหรับสั่ง Refresh/Keep-Alive เซสชัน สปสช. ทันทีจากหน้าเว็บ
+ */
+app.post('/api/nhso/refresh-session', authenticateToken, async (req, res) => {
+    try {
+        logger.info(`⏰ Manual NHSO Session Refresh triggered by user: ${req.user?.username || 'unknown'}`);
+        
+        keepAliveNhsoSession().catch(err => {
+            logger.error('Manual Session Refresh background error:', err);
+        });
+
+        res.json({
+            success: true,
+            message: 'ส่งคำสั่งรีเฟรชเซสชัน สปสช. ในเบื้องหลังแล้ว'
+        });
+    } catch (error) {
+        logger.error('Error refreshing NHSO session:', error);
+        res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการส่งคำสั่งรีเฟรชเซสชัน' });
+    }
 });
 
 async function runManualPortalSyncInBackground(visit_date, username = null) {

@@ -103,6 +103,7 @@ function init() {
         }
         if (domRefs.visitDateInput) domRefs.visitDateInput.valueAsDate = new Date();
         loadDashboardData();
+        loadNhsoSessionStatus();
         loadHipdataCodes();
         loadSavedQueries();
         loadQueryHistory();
@@ -139,6 +140,7 @@ function setupEventListeners() {
     document.getElementById('api-sync-btn')?.addEventListener('click', () => handleApiSync(callbacks));
     document.getElementById('auto-portal-btn')?.addEventListener('click', () => handleAutoPortalSync(callbacks));
     document.getElementById('refresh-btn')?.addEventListener('click', () => loadDashboardData());
+    document.getElementById('refresh-nhso-session-btn')?.addEventListener('click', handleRefreshNhsoSession);
     document.getElementById('uc-pending-total-count-card')?.addEventListener('click', openUcPendingListModal);
     document.getElementById('uc-insight-refresh-btn')?.addEventListener('click', refreshGroupInsights);
     domRefs.visitDateInput?.addEventListener('change', () => loadDashboardData());
@@ -687,6 +689,44 @@ window.filterTrackerByDepartment = function (departmentName) {
     if (!departmentName) return;
     applyTrackerDashboardFilter('department', departmentName, `แผนก ${departmentName}`, {}, callbacks);
 };
+
+async function loadNhsoSessionStatus() {
+    if (!appState.token) return;
+    try {
+        const response = await api.fetchNhsoSessionStatus(appState.token);
+        if (response.ok && response.data) {
+            ui.renderNhsoSessionStatus(response.data);
+        }
+    } catch (err) {
+        console.error('Failed to fetch NHSO session status:', err);
+    }
+}
+
+async function handleRefreshNhsoSession() {
+    if (!appState.token) return;
+    const btn = document.getElementById('refresh-nhso-session-btn');
+    const icon = document.getElementById('refresh-nhso-session-icon');
+    if (icon) icon.classList.add('fa-spin');
+    if (btn) btn.disabled = true;
+
+    try {
+        const response = await api.refreshNhsoSession(appState.token);
+        if (response.ok) {
+            alert('ส่งคำสั่งรีเฟรชเซสชัน สปสช. แล้ว ระบบกำลังตรวจสอบในเบื้องหลัง');
+            setTimeout(loadNhsoSessionStatus, 3000);
+        } else {
+            alert('ไม่สามารถส่งคำสั่งรีเฟรชเซสชันได้: ' + (response.data?.message || 'ข้อผิดพลาด'));
+        }
+    } catch (err) {
+        console.error('Refresh session error:', err);
+        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+    } finally {
+        setTimeout(() => {
+            if (icon) icon.classList.remove('fa-spin');
+            if (btn) btn.disabled = false;
+        }, 1000);
+    }
+}
 
 // Boot Application
 init();

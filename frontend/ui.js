@@ -221,6 +221,31 @@ function showTrackingDetails(item = {}) {
 }
 
 export const ui = {
+    renderNhsoSessionStatus(sessionInfo) {
+        if (typeof document === 'undefined') return;
+        const badge = document.getElementById('nhso-session-badge');
+        const dot = document.getElementById('nhso-session-dot');
+        const text = document.getElementById('nhso-session-text');
+        if (!badge || !dot || !text) return;
+
+        badge.classList.remove('hidden');
+
+        if (sessionInfo?.status === 'active') {
+            dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+            text.textContent = 'NHSO: ข้ามการสแกน (Active)';
+            const timeStr = sessionInfo.last_checked ? new Date(sessionInfo.last_checked).toLocaleTimeString('th-TH') : '-';
+            badge.title = `เซสชัน สปสช. ทำงานปกติ (ตรวจสอบเมื่อ: ${timeStr})`;
+        } else if (sessionInfo?.status === 'expired') {
+            dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+            text.textContent = 'NHSO: เซสชันหมดอายุ';
+            badge.title = 'เซสชัน สปสช. หมดอายุแล้ว ต้องทำการสแกนใหม่';
+        } else {
+            dot.className = 'w-2 h-2 rounded-full bg-amber-400';
+            text.textContent = 'NHSO: รอตรวจสอบ';
+            badge.title = sessionInfo?.message || 'ยังไม่มีข้อมูลการตรวจสอบเซสชัน';
+        }
+    },
+
     initSidebar() {
         if (typeof document === 'undefined' || typeof localStorage === 'undefined') return;
         const collapsed = localStorage.getItem('sidebar_collapsed') === 'true';

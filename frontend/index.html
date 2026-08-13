@@ -116,6 +116,16 @@
                     <span id="clock-date" class="text-[9px] font-medium opacity-80 uppercase tracking-tighter">01 JAN
                         2024</span>
                 </div>
+                <!-- NHSO Session Status Badge -->
+                <div id="nhso-session-badge" title="สถานะเซสชันการยืนยันตัวตน สปสช. (ThaiD)"
+                    class="hidden sm:flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-semibold">
+                    <span id="nhso-session-dot" class="w-2 h-2 rounded-full bg-slate-400"></span>
+                    <span id="nhso-session-text">NHSO: Checking...</span>
+                    <button id="refresh-nhso-session-btn" type="button" title="ส่งคำสั่งรีเฟรชเซสชัน สปสช."
+                        class="ml-1 text-slate-400 hover:text-blue-500 transition cursor-pointer">
+                        <i class="fas fa-arrows-rotate text-[11px]" id="refresh-nhso-session-icon"></i>
+                    </button>
+                </div>
                 <!-- Quick Sync Modal Trigger -->
                 <button id="quick-sync-trigger-btn" type="button" title="นำเข้าและ Sync ข้อมูลด่วน" class="w-9 h-9 flex items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition cursor-pointer border border-blue-200/50 dark:border-blue-800/40">
                     <i class="fas fa-file-import text-sm"></i>

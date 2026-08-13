@@ -22,6 +22,7 @@ import { execSync } from 'child_process';
 import { trackerPool } from '../backend/db.js';
 import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 import logger from '../backend/logger.js';
+import { saveNhsoSessionStatusInfo } from './keep-alive-nhso.js';
 
 dotenv.config();
 puppeteer.use(StealthPlugin());
@@ -235,13 +236,18 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
 
                 if (authenticated) {
                     logger.info('✅ Authentication successful!');
+                    saveNhsoSessionStatusInfo('active', 'ยืนยันตัวตนสำเร็จแล้ว เซสชันพร้อมใช้งาน');
                 } else {
                     logger.warn('⚠️ Timed out waiting for scan.');
+                    saveNhsoSessionStatusInfo('expired', 'การสแกนยืนยันตัวตนหมดเวลา');
                 }
             }
+        } else {
+            saveNhsoSessionStatusInfo('active', 'พบเซสชันเดิมที่ยังใช้งานได้ ข้ามการสแกน');
         }
 
         if (!authenticated) {
+            saveNhsoSessionStatusInfo('expired', 'การยืนยันตัวตน ThaiD ไม่สำเร็จ');
             throw new Error('การยืนยันตัวตน ThaiD หมดเวลา หรือไม่สำเร็จ');
         }
 

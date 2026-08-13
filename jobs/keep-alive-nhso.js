@@ -12,6 +12,68 @@ puppeteer.use(StealthPlugin());
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const sessionPath = path.join(__dirname, '../puppeteer_session');
+const statusFilePath = path.join(sessionPath, 'session_status.json');
+
+export function getNhsoSessionStatusInfo() {
+    try {
+        if (fs.existsSync(statusFilePath)) {
+            const raw = fs.readFileSync(statusFilePath, 'utf8');
+            return JSON.parse(raw);
+        }
+    } catch (e) {
+        logger.warn('⚠️ Could not read session_status.json:', e.message);
+    }
+    return {
+        status: 'unknown',
+        last_checked: null,
+        last_active: null,
+        message: 'ยังไม่มีข้อมูลการตรวจสอบเซสชัน'
+    };
+}
+
+export function saveNhsoSessionStatusInfo(status, message, extraData = {}) {
+    try {
+        if (!fs.existsSync(sessionPath)) {
+            fs.mkdirSync(sessionPath, { recursive: true });
+        }
+        const prev = getNhsoSessionStatusInfo();
+        const nowIso = new Date().toISOString();
+        const data = {
+            status,
+            message,
+            last_checked: nowIso,
+            last_active: status === 'active' ? nowIso : (prev.last_active || null),
+            ...extraData
+        };
+        fs.writeFileSync(statusFilePath, JSON.stringify(data, null, 2), 'utf8');
+        return data;
+    } catch (e) {
+        logger.error('❌ Failed to save session status info:', e.message);
+    }
+}
+
+async function notifySessionExpired() {
+    const telegramToken = process.env.TELEGRAM_BOT_TOKEN || process.env.WORKER_TELEGRAM_BOT_TOKEN;
+    const telegramChatId = process.env.TELEGRAM_CHAT_ID;
+    if (process.env.DISABLE_NOTIFICATIONS === 'true') return;
+    if (!telegramToken || !telegramChatId || telegramChatId === 'your_telegram_chat_id_here') return;
+
+    try {
+        const text = '⚠️ [แจ้งเตือนเซสชัน สปสช.] เซสชันการเข้าสู่ระบบ NHSO/ThaiD หมดอายุแล้ว กรุณายืนยันตัวตนใหม่เพื่อให้ออกรายงานได้ต่อเนื่อง';
+        const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
+        for (const chatId of chatIds) {
+            await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chatId, text: text })
+            });
+        }
+        logger.info('📲 Sent Session Expired notification to Telegram.');
+    } catch (err) {
+        logger.error('❌ Failed to send session expired notification:', err.message);
+    }
+}
 
 export async function keepAliveNhsoSession() {
     const url = process.env.NHSO_PORTAL_URL || 'https://authenservice.nhso.go.th/authencode/';
@@ -19,8 +81,6 @@ export async function keepAliveNhsoSession() {
     
     let browser;
     try {
-        const sessionPath = path.join(__dirname, '../puppeteer_session');
-        
         // Cleanup singleton lock
         const lockFile = path.join(sessionPath, 'SingletonLock');
         try {
@@ -50,26 +110,47 @@ export async function keepAliveNhsoSession() {
 
         logger.info('🔗 [Keep-Alive] Accessing portal to ping session...');
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await new Promise(resolve => setTimeout(resolve, 3000));
 
         const currentUrl = page.url();
         logger.info(`📍 [Keep-Alive] Current portal URL: ${currentUrl}`);
 
+        let isActive = false;
         if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('login')) {
             const hasLoginButton = await page.evaluate(() => {
                 return !!document.querySelector('a[href*="/broker/thaid/login"]');
             });
             if (!hasLoginButton) {
-                logger.info('✅ [Keep-Alive] Session is active and healthy! Cookies refreshed.');
-            } else {
-                logger.info('⚠️ [Keep-Alive] Redirected to login page inside portal structure.');
+                isActive = true;
             }
+        }
+
+        if (isActive) {
+            // Deep ping report page to refresh full session cookies
+            logger.info('🔗 [Keep-Alive] Deep pinging report/eclaim page to refresh cookies...');
+            try {
+                await page.goto('https://authenservice.nhso.go.th/authencode/report/eclaim', { waitUntil: 'networkidle2', timeout: 30000 });
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            } catch (e) {
+                logger.warn('⚠️ [Keep-Alive] Deep ping navigation warning:', e.message);
+            }
+
+            logger.info('✅ [Keep-Alive] Session is active and healthy! Cookies refreshed.');
+            saveNhsoSessionStatusInfo('active', 'เซสชันยังไม่หมดอายุ การสแกนอัตโนมัติพร้อมใช้งาน');
         } else {
-            logger.info('⚠️ [Keep-Alive] Session has expired. (Redirected to outside login)');
+            logger.warn('⚠️ [Keep-Alive] Session has expired. (Redirected to login)');
+            const prev = getNhsoSessionStatusInfo();
+            saveNhsoSessionStatusInfo('expired', 'เซสชันหมดอายุแล้ว ต้องทำการสแกนยืนยันตัวตนใหม่');
+            
+            // Only send alert notification if previously active
+            if (prev.status === 'active') {
+                await notifySessionExpired();
+            }
         }
 
     } catch (error) {
         logger.error('❌ [Keep-Alive] Error during session keep-alive:', error.message);
+        saveNhsoSessionStatusInfo('error', `เกิดข้อผิดพลาดในการตรวจสอบเซสชัน: ${error.message}`);
     } finally {
         if (browser) {
             await browser.close();
@@ -82,3 +163,4 @@ export async function keepAliveNhsoSession() {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
     keepAliveNhsoSession().then(() => process.exit(0));
 }
+

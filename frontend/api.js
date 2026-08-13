@@ -80,6 +80,21 @@ const rawApi = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
+    async fetchNhsoSessionStatus(token) {
+        const res = await fetch(`${API_BASE}/nhso/session-status`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async refreshNhsoSession(token) {
+        const res = await fetch(`${API_BASE}/nhso/refresh-session`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
     async fetchDashboard(date, token) {
         const params = new URLSearchParams({ date, _ts: String(Date.now()) });
         const res = await fetch(`${API_BASE}/tracking/dashboard?${params.toString()}`, {

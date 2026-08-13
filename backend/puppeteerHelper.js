@@ -24,7 +24,8 @@ export function getPuppeteerLaunchOptions(extraOptions = {}) {
             logger.info(`🌐 Using configured PUPPETEER_EXECUTABLE_PATH: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
             return launchOptions;
         } else {
-            logger.warn(`⚠️ Configured PUPPETEER_EXECUTABLE_PATH does not exist: ${process.env.PUPPETEER_EXECUTABLE_PATH}. Falling back to auto-detection.`);
+            logger.warn(`⚠️ Configured PUPPETEER_EXECUTABLE_PATH does not exist on disk: ${process.env.PUPPETEER_EXECUTABLE_PATH}. Removing invalid env var.`);
+            delete process.env.PUPPETEER_EXECUTABLE_PATH;
         }
     }
 

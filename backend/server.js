@@ -328,6 +328,54 @@ app.post('/api/auth/login', async (req, res) => {
     res.status(401).json({ message: result.message });
 });
 
+/**
+ * Parses user-provided date strings into YYYY-MM-DD format.
+ * Supports DD.MM.YYYY, DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, and Thai BE years (e.g. 2569 -> 2026).
+ */
+function parseInputDate(dateStr) {
+    if (!dateStr) return null;
+    const cleanStr = dateStr.trim();
+
+    // 1. Pattern: YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
+    let match = cleanStr.match(/^(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})$/);
+    if (match) {
+        let year = parseInt(match[1], 10);
+        if (year > 2400) year -= 543; // Convert B.E. to A.D.
+        const month = String(parseInt(match[2], 10)).padStart(2, '0');
+        const day = String(parseInt(match[3], 10)).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    // 2. Pattern: DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
+    match = cleanStr.match(/^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{4})$/);
+    if (match) {
+        const day = String(parseInt(match[1], 10)).padStart(2, '0');
+        const month = String(parseInt(match[2], 10)).padStart(2, '0');
+        let year = parseInt(match[3], 10);
+        if (year > 2400) year -= 543; // Convert B.E. to A.D.
+        return `${year}-${month}-${day}`;
+    }
+
+    return null;
+}
+
+/**
+ * Extracts a date from a command string or falls back to today's date in Bangkok.
+ */
+function extractQueryDate(text) {
+    const defaultDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+    if (!text) return defaultDate;
+
+    // Search for date patterns inside text
+    const dateMatch = text.match(/(\d{1,2}[-/. ]\d{1,2}[-/. ]\d{4}|\d{4}[-/. ]\d{1,2}[-/. ]\d{1,2})/);
+    if (dateMatch) {
+        const parsed = parseInputDate(dateMatch[1]);
+        if (parsed) return parsed;
+    }
+
+    return defaultDate;
+}
+
 // Helper to reply LINE message using Flex Report (Free)
 async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) {
     if (process.env.DISABLE_NOTIFICATIONS === 'true') {
@@ -1218,10 +1266,7 @@ app.post('/api/line/webhook', (req, res) => {
             const replyToken = event.replyToken;
 
             if (/^(|\/)(นำเข้าข้อมูล|นำเข้า|summary|สรุปข้อมูล)/i.test(text)) {
-                const parts = text.split(/\s+/);
-                let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
-                if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) queryDate = parts[1];
-
+                const queryDate = extractQueryDate(text);
                 logger.info(`💬 [LINE Webhook] Command 'นำเข้าข้อมูล' for date: ${queryDate}`);
                 sendLineReplyFlexSummary(replyToken, queryDate, targetId).catch(err => {
                     logger.error('❌ Error executing LINE reply handler:', err);
@@ -1232,19 +1277,13 @@ app.post('/api/line/webhook', (req, res) => {
                     logger.error('❌ Error executing LINE reply handler:', err);
                 });
             } else if (/^(|\/)(ตรวจสอบลูกหนี้|ลูกหนี้|debtor)/i.test(text)) {
-                const parts = text.split(/\s+/);
-                let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
-                if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) queryDate = parts[1];
-
+                const queryDate = extractQueryDate(text);
                 logger.info(`💬 [LINE Webhook] Command 'ตรวจสอบลูกหนี้' for date: ${queryDate}`);
                 sendLineReplyDebtorSummary(replyToken, queryDate).catch(err => {
                     logger.error('❌ Error executing LINE reply handler:', err);
                 });
             } else if (/^(|\/)(authen code|authen|ออเธน)/i.test(text)) {
-                const parts = text.split(/\s+/);
-                let queryDate = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
-                if (parts.length > 1 && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) queryDate = parts[1];
-
+                const queryDate = extractQueryDate(text);
                 logger.info(`💬 [LINE Webhook] Command 'Authen Code' for date: ${queryDate}`);
                 sendLineReplyAuthenSummary(replyToken, queryDate).catch(err => {
                     logger.error('❌ Error executing LINE reply handler:', err);

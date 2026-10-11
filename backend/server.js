@@ -1839,6 +1839,7 @@ app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
             hosxpStats: hosxpStats,
             disableNotifications: process.env.DISABLE_NOTIFICATIONS === 'true',
             syncReportsEnabled: SYNC_REPORTS_ENABLED,
+            dashboardModulesEnabled: DASHBOARD_MODULES_ENABLED,
             generated_at: new Date().toISOString()
         });
     } catch (error) {

@@ -2,6 +2,7 @@
 import { api } from './api.js';
 import { ui } from './ui.js';
 import { appState } from './state.js';
+import { notify, confirmDialog } from './notify.js';
 
 export async function loadAdminUsers() {
     if (!appState.token || appState.user.role !== 'admin') return;
@@ -81,35 +82,35 @@ export async function handleUserFormSubmit(e) {
         }
 
         if (response.ok) {
-            alert(response.data.message || 'บันทึกสำเร็จ');
+            notify.success(response.data.message || 'บันทึกสำเร็จ');
             closeUserModal();
             loadAdminUsers();
         } else {
-            alert(response.data.message || 'เกิดข้อผิดพลาดในการบันทึก');
+            notify.error(response.data.message || 'เกิดข้อผิดพลาดในการบันทึก');
         }
     } catch (error) {
         console.error('Error saving user:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+        notify.error('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
         ui.setLoading(false);
     }
 }
 
 export async function handleDeleteUser(id) {
-    if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการลบผู้ใช้นี้ออกจากระบบ?')) return;
+    if (!await confirmDialog('คุณแน่ใจหรือไม่ว่าต้องการลบผู้ใช้นี้ออกจากระบบ?', { title: 'ลบผู้ใช้งาน', confirmText: 'ลบผู้ใช้', danger: true })) return;
 
     ui.setLoading(true);
     try {
         const { ok, data } = await api.deleteUser(id, appState.token);
         if (ok) {
-            alert(data.message || 'ลบผู้ใช้สำเร็จ');
+            notify.success(data.message || 'ลบผู้ใช้สำเร็จ');
             loadAdminUsers();
         } else {
-            alert(data.message || 'ลบผู้ใช้ไม่สำเร็จ');
+            notify.error(data.message || 'ลบผู้ใช้ไม่สำเร็จ');
         }
     } catch (error) {
         console.error('Error deleting user:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+        notify.error('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
         ui.setLoading(false);
     }
@@ -119,7 +120,7 @@ export async function handleTestNotification(type, user) {
     const hasToken = type === 'line' ? user.has_line_token : user.has_telegram_token;
     const targetVal = type === 'line' ? user.line_group_id : user.telegram_chat_id;
     if (!hasToken || !targetVal) {
-        alert('กรุณากรอกข้อมูล Token และ ID ปลายทางให้ครบถ้วนก่อนทดสอบ');
+        notify.warning('กรุณากรอกข้อมูล Token และ ID ปลายทางให้ครบถ้วนก่อนทดสอบ');
         return;
     }
 
@@ -127,13 +128,13 @@ export async function handleTestNotification(type, user) {
     try {
         const { ok, data } = await api.testStoredNotification(user.id, type, appState.token);
         if (ok) {
-            alert(data.message || 'ส่งข้อความทดสอบสำเร็จ!');
+            notify.success(data.message || 'ส่งข้อความทดสอบสำเร็จ!');
         } else {
-            alert(data.message || 'ส่งข้อความทดสอบล้มเหลว');
+            notify.error(data.message || 'ส่งข้อความทดสอบล้มเหลว');
         }
     } catch (error) {
         console.error('Error testing notification:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + error.message);
+        notify.error('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + error.message);
     } finally {
         ui.setLoading(false);
     }
@@ -202,8 +203,8 @@ export function handleAdminSubtabSwitch(subtab) {
 
     if (!btnUsers || !btnSchedules || !btnSyncRuns || !btnAuditLogs || !viewUsers || !viewSchedules || !viewSyncRuns || !viewAuditLogs) return;
 
-    const activeClass = 'flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center bg-white dark:bg-slate-800 shadow-sm text-blue-600 dark:text-blue-400';
-    const inactiveClass = 'flex-1 px-4 py-2 text-xs font-bold tracking-wide rounded-lg transition cursor-pointer text-center text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200';
+    const activeClass = 'seg-btn flex-1 is-active';
+    const inactiveClass = 'seg-btn flex-1';
 
     if (subtab === 'users') {
         btnUsers.className = activeClass;
@@ -257,15 +258,15 @@ export async function handleAddSchedule(e) {
     try {
         const { ok, data } = await api.createSchedule(timeInput.value, appState.token);
         if (ok) {
-            alert(data.message || 'เพิ่มเวลาทำงานสำเร็จ');
+            notify.success(data.message || 'เพิ่มเวลาทำงานสำเร็จ');
             timeInput.value = '';
             loadAdminSchedules();
         } else {
-            alert(data.message || 'เพิ่มเวลาทำงานไม่สำเร็จ');
+            notify.error(data.message || 'เพิ่มเวลาทำงานไม่สำเร็จ');
         }
     } catch (error) {
         console.error('Error adding schedule:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+        notify.error('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
         ui.setLoading(false);
     }
@@ -277,31 +278,31 @@ export async function handleToggleSchedule(id, enabled) {
         if (ok) {
             loadAdminSchedules();
         } else {
-            alert(data.message || 'อัปเดตสถานะไม่สำเร็จ');
+            notify.error(data.message || 'อัปเดตสถานะไม่สำเร็จ');
             loadAdminSchedules();
         }
     } catch (error) {
         console.error('Error toggling schedule:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+        notify.error('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
         loadAdminSchedules();
     }
 }
 
 export async function handleDeleteSchedule(id, timeStr) {
-    if (!confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบเวลาทำงาน ${timeStr} น. ออกจากระบบ?`)) return;
+    if (!await confirmDialog(`คุณแน่ใจหรือไม่ว่าต้องการลบเวลาทำงาน ${timeStr} น. ออกจากระบบ?`, { title: 'ลบเวลาทำงาน', confirmText: 'ลบ', danger: true })) return;
 
     ui.setLoading(true);
     try {
         const { ok, data } = await api.deleteSchedule(id, appState.token);
         if (ok) {
-            alert(data.message || 'ลบเวลาทำงานสำเร็จ');
+            notify.success(data.message || 'ลบเวลาทำงานสำเร็จ');
             loadAdminSchedules();
         } else {
-            alert(data.message || 'ลบไม่สำเร็จ');
+            notify.error(data.message || 'ลบไม่สำเร็จ');
         }
     } catch (error) {
         console.error('Error deleting schedule:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+        notify.error('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
         ui.setLoading(false);
     }

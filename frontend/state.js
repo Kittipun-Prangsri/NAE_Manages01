@@ -63,6 +63,7 @@ const getInitialState = () => {
         trackerColumnFilters: {},
         trackerDashboardFilter: null,
         trackerCurrentPage: 1,
+        dashboardModulesEnabled: false,
         liveDashboardInterval: null,
         liveDashboardCountdownInterval: null,
         liveDashboardNextRefreshAt: null,

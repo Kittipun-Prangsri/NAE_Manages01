@@ -2,6 +2,7 @@
 import { api } from './api.js';
 import { ui } from './ui.js';
 import { appState, isLoggingOut, domRefs } from './state.js';
+import { notify } from './notify.js';
 
 export function updateAdminLoginBtnVisibility() {
     const btn = document.getElementById('admin-login-btn');
@@ -42,13 +43,13 @@ export function handleApiResponse(response) {
             console.warn('Session expired or unauthorized. Logging out.');
             if (!isLoggingOut.value) {
                 isLoggingOut.value = true;
-                alert('เซสชั่นหมดอายุหรือคุณไม่มีสิทธิ์เข้าใช้งาน กรุณาเข้าสู่ระบบใหม่');
+                notify.flash('warning', 'เซสชั่นหมดอายุหรือคุณไม่มีสิทธิ์เข้าใช้งาน กรุณาเข้าสู่ระบบใหม่');
                 handleLogout();
             }
             return false;
         }
         if (response.status === 403) {
-            alert(response.data.message || 'คุณไม่มีสิทธิ์ในการดำเนินการนี้ (Forbidden)');
+            notify.error(response.data.message || 'คุณไม่มีสิทธิ์ในการดำเนินการนี้ (Forbidden)');
             return false;
         }
     }
@@ -134,7 +135,7 @@ export async function handleAdminQuickLogin(e, onLoadCallbackObj) {
             closeAdminLoginModal();
             updateAdminLoginBtnVisibility();
 
-            alert('เข้าสู่ระบบสิทธิ์ Admin สำเร็จ!');
+            notify.success('เข้าสู่ระบบสิทธิ์ Admin สำเร็จ!');
 
             ui.showDashboard(data.user.full_name);
 
@@ -142,11 +143,11 @@ export async function handleAdminQuickLogin(e, onLoadCallbackObj) {
                 onLoadCallbackObj.handleTabSwitch('tab-admin');
             }
         } else {
-            alert(data.message || 'รหัสผ่าน Admin ไม่ถูกต้อง');
+            notify.error(data.message || 'รหัสผ่าน Admin ไม่ถูกต้อง');
         }
     } catch (err) {
         console.error('Admin quick login error:', err);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+        notify.error('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
         ui.setLoading(false);
     }

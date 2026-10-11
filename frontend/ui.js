@@ -149,6 +149,22 @@ function escapeStatusHtml(value) {
         .replace(/'/g, '&#039;');
 }
 
+// Placeholder row for an empty admin/report table.
+function emptyTableRowHtml(colspan, icon, text) {
+    return `
+        <tr>
+            <td colspan="${colspan}" class="px-6 py-12 text-center">
+                <div class="mx-auto mb-3 grid size-12 place-items-center rounded-2xl bg-slate-100 text-slate-400 dark:bg-white/5 dark:text-slate-500">
+                    <i class="fas ${icon} text-lg" aria-hidden="true"></i>
+                </div>
+                <p class="text-sm font-medium text-slate-500 dark:text-slate-400">${escapeStatusHtml(text)}</p>
+            </td>
+        </tr>`;
+}
+
+const CHIP_OK = 'chip bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/15 ring-inset dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20';
+const CHIP_MUTED = 'chip bg-slate-100 text-slate-500 ring-1 ring-slate-500/10 ring-inset dark:bg-white/5 dark:text-slate-400 dark:ring-white/10';
+
 export function getClaimStatusPresentation(value) {
     const label = String(value || 'ยังไม่ได้นำเข้า');
     if (label === 'ตรง') return { tone: 'success', icon: 'fa-circle-check', label, description: 'ข้อมูลตรงกัน' };
@@ -406,10 +422,41 @@ export const ui = {
         }
     },
 
+    showTrackerLoadError(message) {
+        if (typeof document === 'undefined') return;
+        const box = document.getElementById('tracker-load-error');
+        const text = document.getElementById('tracker-load-error-message');
+        const resultCount = document.getElementById('tracker-table-result-count');
+        if (text) text.textContent = message || 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง';
+        if (box) {
+            box.classList.remove('hidden');
+            box.classList.add('flex');
+        }
+        if (resultCount) resultCount.textContent = 'โหลดไม่สำเร็จ';
+        // An empty table under an error banner would read as "no patients today".
+        document.getElementById('no-data')?.classList.add('hidden');
+    },
+
+    hideTrackerLoadError() {
+        if (typeof document === 'undefined') return;
+        const box = document.getElementById('tracker-load-error');
+        if (box) {
+            box.classList.add('hidden');
+            box.classList.remove('flex');
+        }
+    },
+
+    setTrackerLoadingLabel() {
+        if (typeof document === 'undefined') return;
+        const resultCount = document.getElementById('tracker-table-result-count');
+        if (resultCount) resultCount.textContent = 'กำลังโหลดรายการ…';
+    },
+
     renderTable(data, sortBy = '', sortDesc = false, currentPage = 1, pageSize = 20) {
         if (typeof document === 'undefined') return;
         const els = getEls();
         if (!els.tableBody) return;
+        this.hideTrackerLoadError();
         const resultCount = document.getElementById('tracker-table-result-count');
         const paginationControls = document.getElementById('tracker-pagination-controls');
 
@@ -417,7 +464,7 @@ export const ui = {
         const headers = document.querySelectorAll('#tracking-table-thead th[data-sort]');
         headers.forEach(th => {
             const field = th.getAttribute('data-sort');
-            th.className = th.className.replace(' text-blue-600 dark:text-blue-400', '');
+            th.className = th.className.replace(' text-brand-600 dark:text-brand-400', '');
             let sortIndicator = th.querySelector('[data-sort-indicator]');
             if (!sortIndicator) {
                 sortIndicator = document.createElement('span');
@@ -429,7 +476,7 @@ export const ui = {
 
             if (field === sortBy) {
                 sortIndicator.textContent = sortDesc ? '▼' : '▲';
-                th.classList.add('text-blue-600', 'dark:text-blue-400');
+                th.classList.add('text-brand-600', 'dark:text-brand-400');
                 th.setAttribute('aria-sort', sortDesc ? 'descending' : 'ascending');
             } else {
                 sortIndicator.textContent = '';
@@ -474,50 +521,48 @@ export const ui = {
                 
                 // Pagination info
                 const infoDiv = document.createElement('div');
-                infoDiv.className = 'text-xs text-slate-500 dark:text-slate-400 font-medium hidden sm:block';
-                infoDiv.textContent = `หน้า ${safeCurrentPage} จาก ${totalPages}`;
+                infoDiv.className = 'hidden text-xs text-slate-500 sm:block dark:text-slate-400';
+                infoDiv.innerHTML = `หน้า <strong class="font-semibold text-slate-700 dark:text-slate-200">${safeCurrentPage}</strong> จาก ${totalPages}`;
                 paginationControls.appendChild(infoDiv);
 
-                // Buttons container
-                const btnContainer = document.createElement('div');
-                btnContainer.className = 'flex items-center space-x-1.5';
+                const btnContainer = document.createElement('nav');
+                btnContainer.className = 'flex items-center gap-1';
+                btnContainer.setAttribute('aria-label', 'เปลี่ยนหน้าตาราง');
+                const goTo = (page) => document.dispatchEvent(new CustomEvent('tracker-page-change', { detail: { page } }));
 
-                // Previous Button
-                const prevBtn = document.createElement('button');
-                prevBtn.className = `px-3 py-1.5 rounded-lg text-xs font-semibold transition ${safeCurrentPage === 1 ? 'text-slate-400 bg-slate-100/50 cursor-not-allowed dark:bg-slate-800/50 dark:text-slate-600' : 'text-slate-600 hover:bg-slate-100 hover:text-blue-600 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer'}`;
-                prevBtn.textContent = 'ก่อนหน้า';
-                prevBtn.disabled = safeCurrentPage === 1;
-                prevBtn.onclick = () => {
-                    document.dispatchEvent(new CustomEvent('tracker-page-change', { detail: { page: safeCurrentPage - 1 } }));
+                const makeStepBtn = (label, icon, page, disabled, iconFirst) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'btn btn-sm btn-secondary';
+                    btn.disabled = disabled;
+                    btn.innerHTML = iconFirst
+                        ? `<i class="fas ${icon} text-[10px]" aria-hidden="true"></i><span class="hidden sm:inline">${label}</span>`
+                        : `<span class="hidden sm:inline">${label}</span><i class="fas ${icon} text-[10px]" aria-hidden="true"></i>`;
+                    btn.setAttribute('aria-label', label);
+                    if (!disabled) btn.onclick = () => goTo(page);
+                    return btn;
                 };
-                btnContainer.appendChild(prevBtn);
 
-                // Page Numbers (Simple version: show limited pages)
+                btnContainer.appendChild(makeStepBtn('ก่อนหน้า', 'fa-chevron-left', safeCurrentPage - 1, safeCurrentPage === 1, true));
+
+                // Window of up to 5 page numbers around the current page
                 let startPage = Math.max(1, safeCurrentPage - 2);
                 let endPage = Math.min(totalPages, startPage + 4);
                 if (endPage - startPage < 4) startPage = Math.max(1, endPage - 4);
 
                 for (let i = startPage; i <= endPage; i++) {
                     const pageBtn = document.createElement('button');
-                    pageBtn.className = `w-7 h-7 rounded-lg text-xs font-semibold flex items-center justify-center transition cursor-pointer ${i === safeCurrentPage ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`;
+                    pageBtn.type = 'button';
+                    const isCurrent = i === safeCurrentPage;
+                    pageBtn.className = `${isCurrent ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'} w-8 px-0 tabular-nums`;
                     pageBtn.textContent = i;
-                    if (i !== safeCurrentPage) {
-                        pageBtn.onclick = () => {
-                            document.dispatchEvent(new CustomEvent('tracker-page-change', { detail: { page: i } }));
-                        };
-                    }
+                    pageBtn.setAttribute('aria-label', `หน้า ${i}`);
+                    if (isCurrent) pageBtn.setAttribute('aria-current', 'page');
+                    else pageBtn.onclick = () => goTo(i);
                     btnContainer.appendChild(pageBtn);
                 }
 
-                // Next Button
-                const nextBtn = document.createElement('button');
-                nextBtn.className = `px-3 py-1.5 rounded-lg text-xs font-semibold transition ${safeCurrentPage === totalPages ? 'text-slate-400 bg-slate-100/50 cursor-not-allowed dark:bg-slate-800/50 dark:text-slate-600' : 'text-slate-600 hover:bg-slate-100 hover:text-blue-600 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer'}`;
-                nextBtn.textContent = 'ถัดไป';
-                nextBtn.disabled = safeCurrentPage === totalPages;
-                nextBtn.onclick = () => {
-                    document.dispatchEvent(new CustomEvent('tracker-page-change', { detail: { page: safeCurrentPage + 1 } }));
-                };
-                btnContainer.appendChild(nextBtn);
+                btnContainer.appendChild(makeStepBtn('ถัดไป', 'fa-chevron-right', safeCurrentPage + 1, safeCurrentPage === totalPages, false));
 
                 paginationControls.appendChild(btnContainer);
             } else {
@@ -538,12 +583,15 @@ export const ui = {
 
             tr.innerHTML = `
                 <td class="tracker-sticky-vn py-3.5 px-4 font-mono text-xs font-semibold">
-                    <span class="text-blue-600 dark:text-blue-400 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100/50 dark:border-blue-900/30 rounded-lg px-2.5 py-1 inline-block">${item.vn}</span>
+                    <span class="text-brand-600 dark:text-brand-400 bg-brand-50/70 dark:bg-brand-900/30 border border-brand-100/50 dark:border-brand-900/30 rounded-lg px-2.5 py-1 inline-block">${escapeStatusHtml(item.vn)}</span>
                     <button type="button" class="mobile-row-details-btn" aria-label="ดูรายละเอียด VN ${escapeStatusHtml(item.vn || '')}"><i class="fas fa-ellipsis" aria-hidden="true"></i></button>
                 </td>
-                <td class="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-medium tracking-wide">${item.cid}</td>
-                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400">${item.pttype || '-'}</td>
-                <td class="py-3.5 px-4 text-xs font-medium text-slate-500 dark:text-slate-400">${item.pcode || '-'}</td>
+                <td class="py-3.5 px-4">${statusBadgeHtml(checkClaimPresentation)}</td>
+                <td class="py-3.5 px-4 text-xs font-semibold ${issueClass}">${escapeStatusHtml(issueReason)}</td>
+                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${escapeStatusHtml(item.department || '-')}</td>
+                <td class="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-medium tracking-wide">${escapeStatusHtml(item.cid)}</td>
+                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400">${escapeStatusHtml(item.pttype || '-')}</td>
+                <td class="py-3.5 px-4 text-xs font-medium text-slate-500 dark:text-slate-400">${escapeStatusHtml(item.pcode || '-')}</td>
                 <td class="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-200 text-right">${(() => {
                     const uc = Number(item.uc_money) || 0;
                     const im = Number(item.item_money) || 0;
@@ -552,17 +600,14 @@ export const ui = {
                 })()}</td>
                 <td class="py-3.5 px-4 font-mono text-xs">
                     <div class="flex flex-col gap-1 items-start">
-                        ${item.authCode ? `<span class="bg-slate-100 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 px-2 py-0.5 rounded font-medium dark:text-slate-300">${item.authCode}</span>` : '<span class="text-slate-400">-</span>'}
-                        <span class="text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">${item.claim_code || '-'}</span>
+                        ${item.authCode ? `<span class="bg-slate-100 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-700/50 px-2 py-0.5 rounded font-medium dark:text-slate-300">${escapeStatusHtml(item.authCode)}</span>` : '<span class="text-slate-400">-</span>'}
+                        <span class="text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">${escapeStatusHtml(item.claim_code || '-')}</span>
                     </div>
                 </td>
-                <td class="py-3.5 px-4 text-xs text-blue-600 dark:text-blue-400 font-bold">${item.nhso_claim_code || '-'}</td>
-                <td class="py-3.5 px-4 text-xs text-indigo-500 dark:text-indigo-400 font-semibold">${item.authen_code_type || '-'}</td>
-                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]" title="${item.pttype_note || ''}">${item.pttype_note || '-'}</td>
-                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${item.staff || '-'}</td>
-                <td class="tracker-sticky-status py-3.5 px-4 text-center">${statusBadgeHtml(checkClaimPresentation)}</td>
-                <td class="py-3.5 px-4 text-xs font-semibold ${issueClass}">${issueReason}</td>
-                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${item.department || '-'}</td>
+                <td class="py-3.5 px-4 text-xs text-brand-600 dark:text-brand-400 font-bold">${escapeStatusHtml(item.nhso_claim_code || '-')}</td>
+                <td class="py-3.5 px-4 text-xs text-indigo-500 dark:text-indigo-400 font-semibold">${escapeStatusHtml(item.authen_code_type || '-')}</td>
+                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]" title="${escapeStatusHtml(item.pttype_note || '')}">${escapeStatusHtml(item.pttype_note || '-')}</td>
+                <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${escapeStatusHtml(item.staff || '-')}</td>
             `;
             tr.querySelector('.mobile-row-details-btn')?.addEventListener('click', () => showTrackingDetails(item));
             els.tableBody.appendChild(tr);
@@ -598,7 +643,7 @@ export const ui = {
             tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150';
             tr.innerHTML = `
                 <td class="tracker-sticky-vn py-3.5 px-4 font-mono text-xs font-semibold">
-                    <span class="text-blue-600 dark:text-blue-400 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100/50 dark:border-blue-900/30 rounded-lg px-2.5 py-1 inline-block">${escapeHtml(item.vn || '-')}</span>
+                    <span class="text-brand-600 dark:text-brand-400 bg-brand-50/70 dark:bg-brand-900/30 border border-brand-100/50 dark:border-brand-900/30 rounded-lg px-2.5 py-1 inline-block">${escapeHtml(item.vn || '-')}</span>
                     <button type="button" class="mobile-row-details-btn" aria-label="ดูรายละเอียด VN ${escapeHtml(item.vn || '')}"><i class="fas fa-ellipsis" aria-hidden="true"></i></button>
                 </td>
                 <td class="py-3.5 px-4 text-slate-700 dark:text-slate-200 font-medium tracking-wide">${escapeHtml(item.cid || '-')}</td>
@@ -610,7 +655,7 @@ export const ui = {
                         <span class="text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">${escapeHtml(item.claim_code || '-')}</span>
                     </div>
                 </td>
-                <td class="py-3.5 px-4 text-xs text-blue-600 dark:text-blue-400 font-bold">${escapeHtml(item.nhso_claim_code || '-')}</td>
+                <td class="py-3.5 px-4 text-xs text-brand-600 dark:text-brand-400 font-bold">${escapeHtml(item.nhso_claim_code || '-')}</td>
                 <td class="py-3.5 px-4 text-xs text-indigo-500 dark:text-indigo-400 font-semibold">${escapeHtml(item.authen_code_type || '-')}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]" title="${escapeHtml(item.pttype_note || '')}">${escapeHtml(item.pttype_note || '-')}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-500 dark:text-slate-400 font-medium">${escapeHtml(item.staff || '-')}</td>
@@ -795,6 +840,12 @@ export const ui = {
         if (serviceTotalCount) serviceTotalCount.textContent = Number(serviceTotal.count || 0).toLocaleString();
         renderServiceSparkline();
         if (notImportedCount) notImportedCount.textContent = Number(notImported.count || 0).toLocaleString();
+        // Red is reserved for outstanding work; zero values render muted.
+        [
+            [pendingTotalCount, debtorTotal.count],
+            [debtorTotalMoney, debtorTotal.total_money],
+            [notImportedCount, notImported.count]
+        ].forEach(([el, value]) => el?.classList.toggle('is-zero', !(Number(value) > 0)));
         if (updatedAt) {
             const generatedAt = insights?.generated_at ? new Date(insights.generated_at) : new Date();
             updatedAt.textContent = `อัปเดตล่าสุด: ${generatedAt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
@@ -808,9 +859,8 @@ export const ui = {
 
         document.querySelectorAll('.group-insights-toggle').forEach(btn => {
             const isActive = btn.dataset.groupBy === groupBy;
-            btn.className = isActive
-                ? 'group-insights-toggle px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-300 shadow-sm'
-                : 'group-insights-toggle px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition cursor-pointer text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200';
+            btn.classList.toggle('is-active', isActive);
+            btn.setAttribute('aria-pressed', String(isActive));
         });
 
         const renderEmpty = (target, label) => {
@@ -904,23 +954,25 @@ export const ui = {
             const dateStr = day.visit_date.split('T')[0];
             const displayDate = date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
 
-            // เลือกสีหลักของการ์ดตามความสำคัญ (แดง > เหลือง > เขียว)
-            const mainColor = day.red > 0 ? 'border-red-500 bg-red-50/30 dark:bg-red-900/10' :
-                day.yellow > 0 ? 'border-amber-500 bg-amber-50/30 dark:bg-amber-900/10' :
-                    'border-emerald-500 bg-emerald-50/30 dark:bg-emerald-900/10';
+            // Card tone follows the most urgent status of the day (red > amber > green)
+            const red = Number(day.red || 0);
+            const yellow = Number(day.yellow || 0);
+            const tone = red > 0 ? 'is-red' : yellow > 0 ? 'is-amber' : 'is-green';
+            const summary = red > 0 ? `ค้าง ${red + yellow} รายการ` : yellow > 0 ? `รอปิด ${yellow} รายการ` : 'เรียบร้อย';
 
-            const card = document.createElement('div');
-            card.className = `p-3 rounded-xl border ${mainColor} cursor-pointer transition transform hover:-translate-y-1 hover:shadow-md text-center`;
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = `weekly-day-card ${tone}`;
+            card.title = `ดูข้อมูลวันที่ ${displayDate}`;
             card.onclick = () => onDateClick(dateStr);
 
             card.innerHTML = `
-                <p class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">${displayDate}</p>
-                <div class="flex justify-center space-x-1.5 items-center">
-                    <span class="w-2 h-2 rounded-full bg-red-500" title="ยังไม่เปิด Authen"></span>
-                    <span class="text-xs font-bold">${day.red}</span>
-                    <span class="w-2 h-2 rounded-full bg-amber-500 ml-1" title="รอปิด Endpoint"></span>
-                    <span class="text-xs font-bold">${day.yellow}</span>
-                </div>
+                <span class="weekly-day-date">${displayDate}</span>
+                <span class="weekly-day-summary">${summary}</span>
+                <span class="weekly-day-counts">
+                    <span title="ยังไม่เปิด Authen"><i class="weekly-dot bg-red-500" aria-hidden="true"></i>${red}</span>
+                    <span title="รอปิด Endpoint"><i class="weekly-dot bg-amber-500" aria-hidden="true"></i>${yellow}</span>
+                </span>
             `;
             container.appendChild(card);
         });
@@ -984,72 +1036,58 @@ export const ui = {
 
         body.innerHTML = '';
         if (!users || users.length === 0) {
-            body.innerHTML = `
-                <tr>
-                    <td colspan="7" class="py-8 text-center text-slate-500 dark:text-slate-400 font-bold bg-transparent">
-                        <i class="fas fa-users-slash text-3xl mb-2 block"></i>
-                        ไม่พบข้อมูลผู้ใช้งานในระบบ
-                    </td>
-                </tr>
-            `;
+            body.innerHTML = emptyTableRowHtml(7, 'fa-users-slash', 'ไม่พบข้อมูลผู้ใช้งานในระบบ');
             return;
         }
 
         users.forEach(user => {
             const tr = document.createElement('tr');
-            tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200 bg-transparent';
+            tr.className = 'text-slate-700 dark:text-slate-200';
 
-            const roleClass = user.role === 'admin' ? 'bg-purple-100 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400' :
-                user.role === 'viewer' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' :
-                    'bg-blue-100 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400';
+            const roleClass = user.role === 'admin' ? 'bg-violet-50 text-violet-700 ring-1 ring-violet-600/15 ring-inset dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-400/20' :
+                user.role === 'viewer' ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-500/10 ring-inset dark:bg-white/5 dark:text-slate-300 dark:ring-white/10' :
+                    'bg-brand-50 text-brand-700 ring-1 ring-brand-600/15 ring-inset dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-400/20';
 
             const roleText = user.role === 'admin' ? 'Admin' :
                 user.role === 'viewer' ? 'Viewer' : 'User';
 
             // Check details for Line and Telegram config
             const hasLine = user.has_line_token && user.line_group_id;
-            const lineStatus = hasLine ?
-                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ตั้งค่าแล้ว</span>` :
-                `<span class="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/10">ยังไม่ได้ตั้งค่า</span>`;
-
             const hasTelegram = user.has_telegram_token && user.telegram_chat_id;
-            const telegramStatus = hasTelegram ?
-                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ตั้งค่าแล้ว</span>` :
-                `<span class="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/10">ยังไม่ได้ตั้งค่า</span>`;
-
-            // Action Test buttons
-            const testLineBtn = hasLine ?
-                `<button class="test-line-btn px-2 py-1 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 font-bold rounded-lg transition text-[10px] cursor-pointer" data-id="${user.id}">Test LINE</button>` :
-                `<button class="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 font-bold rounded-lg text-[10px] cursor-not-allowed" disabled>Test LINE</button>`;
-
-            const testTelegramBtn = hasTelegram ?
-                `<button class="test-telegram-btn px-2 py-1 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-lg transition text-[10px] cursor-pointer" data-id="${user.id}">Test TG</button>` :
-                `<button class="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 font-bold rounded-lg text-[10px] cursor-not-allowed" disabled>Test TG</button>`;
+            const configChip = (ok) => ok
+                ? `<span class="${CHIP_OK}"><i class="fas fa-check text-[9px]" aria-hidden="true"></i>ตั้งค่าแล้ว</span>`
+                : `<span class="${CHIP_MUTED}">ยังไม่ได้ตั้งค่า</span>`;
+            const esc = escapeStatusHtml;
+            // Icon-only test buttons keep the actions on one line; the label lives in title/aria-label.
+            const testBtn = (cls, icon, label, enabled) => enabled
+                ? `<button type="button" class="${cls} icon-btn icon-btn-bordered size-8" title="${label}" aria-label="${label}" data-id="${esc(user.id)}">${icon}</button>`
+                : `<button type="button" class="icon-btn icon-btn-bordered size-8 cursor-not-allowed opacity-40" disabled title="${label} (ยังไม่ได้ตั้งค่า)" aria-label="${label} (ยังไม่ได้ตั้งค่า)">${icon}</button>`;
 
             tr.innerHTML = `
-                <td class="py-3.5 px-4 font-semibold text-blue-600 dark:text-blue-400">${user.username}</td>
-                <td class="py-3.5 px-4 font-medium">${user.full_name || '-'}</td>
+                <td class="py-3.5 px-4 font-semibold text-brand-600 dark:text-brand-400">${esc(user.username)}</td>
+                <td class="py-3.5 px-4 font-medium">${esc(user.full_name || '-')}</td>
                 <td class="py-3.5 px-4">
-                    <span class="inline-flex items-center justify-center px-2 py-0.5 rounded text-[10px] font-bold ${roleClass}">${roleText}</span>
+                    <span class="chip ${roleClass}">${roleText}</span>
                 </td>
-                <td class="py-3.5 px-4 text-slate-500 dark:text-slate-400">${user.department || '-'}</td>
-                <td class="py-3.5 px-4 space-y-1">
-                    <div>${lineStatus}</div>
-                    <div class="text-[9px] font-mono text-slate-400 truncate max-w-[150px]" title="${user.line_group_id || ''}">${user.line_group_id || '-'}</div>
+                <td class="py-3.5 px-4 text-slate-500 dark:text-slate-400">${esc(user.department || '-')}</td>
+                <td class="py-3.5 px-4">
+                    <div>${configChip(hasLine)}</div>
+                    <div class="mt-1 max-w-[150px] truncate font-mono text-[10px] text-slate-400" title="${esc(user.line_group_id || '')}">${esc(user.line_group_id || '-')}</div>
                 </td>
-                <td class="py-3.5 px-4 space-y-1">
-                    <div>${telegramStatus}</div>
-                    <div class="text-[9px] font-mono text-slate-400 truncate max-w-[150px]" title="${user.telegram_chat_id || ''}">${user.telegram_chat_id || '-'}</div>
+                <td class="py-3.5 px-4">
+                    <div>${configChip(hasTelegram)}</div>
+                    <div class="mt-1 max-w-[150px] truncate font-mono text-[10px] text-slate-400" title="${esc(user.telegram_chat_id || '')}">${esc(user.telegram_chat_id || '-')}</div>
                 </td>
-                <td class="py-3.5 px-4 text-center">
-                    <div class="flex items-center justify-center gap-1.5 flex-wrap">
-                        ${testLineBtn}
-                        ${testTelegramBtn}
-                        <button class="edit-user-btn p-1.5 text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition cursor-pointer" title="แก้ไข" data-id="${user.id}">
-                            <i class="fas fa-edit"></i>
+                <td class="py-3.5 px-4">
+                    <div class="flex items-center justify-center gap-1.5 whitespace-nowrap">
+                        ${testBtn('test-line-btn', '<i class="fab fa-line text-emerald-500" aria-hidden="true"></i>', 'ส่งข้อความทดสอบ LINE', hasLine)}
+                        ${testBtn('test-telegram-btn', '<i class="fab fa-telegram text-sky-500" aria-hidden="true"></i>', 'ส่งข้อความทดสอบ Telegram', hasTelegram)}
+                        <span class="mx-0.5 h-5 w-px bg-slate-200 dark:bg-white/10" aria-hidden="true"></span>
+                        <button type="button" class="edit-user-btn icon-btn size-8" title="แก้ไข" aria-label="แก้ไข ${esc(user.username)}" data-id="${esc(user.id)}">
+                            <i class="fas fa-pen-to-square" aria-hidden="true"></i>
                         </button>
-                        <button class="delete-user-btn p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition cursor-pointer" title="ลบ" data-id="${user.id}">
-                            <i class="fas fa-trash-alt"></i>
+                        <button type="button" class="delete-user-btn icon-btn size-8 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400" title="ลบ" aria-label="ลบ ${esc(user.username)}" data-id="${esc(user.id)}">
+                            <i class="fas fa-trash-can" aria-hidden="true"></i>
                         </button>
                     </div>
                 </td>
@@ -1076,25 +1114,18 @@ export const ui = {
 
         body.innerHTML = '';
         if (!schedules || schedules.length === 0) {
-            body.innerHTML = `
-                <tr>
-                    <td colspan="3" class="py-8 text-center text-slate-500 dark:text-slate-400 font-bold bg-transparent">
-                        <i class="fas fa-clock text-3xl mb-2 block"></i>
-                        ไม่พบการตั้งเวลาทำงานอัตโนมัติ
-                    </td>
-                </tr>
-            `;
+            body.innerHTML = emptyTableRowHtml(3, 'fa-clock', 'ไม่พบการตั้งเวลาทำงานอัตโนมัติ');
             return;
         }
 
         schedules.forEach(sched => {
             const tr = document.createElement('tr');
-            tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200 bg-transparent';
+            tr.className = 'text-slate-700 dark:text-slate-200';
 
             const enabledChecked = sched.is_enabled ? 'checked' : '';
             const statusLabel = sched.is_enabled ?
-                `<span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/10">ทำงาน</span>` :
-                `<span class="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/40 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/10">ปิดใช้งาน</span>`;
+                `<span class="${CHIP_OK}">ทำงาน</span>` :
+                `<span class="${CHIP_MUTED}">ปิดใช้งาน</span>`;
 
             tr.innerHTML = `
                 <td class="py-3.5 px-6 font-bold text-slate-900 dark:text-white text-sm">
@@ -1104,13 +1135,13 @@ export const ui = {
                     <div class="flex items-center space-x-2">
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" class="schedule-toggle sr-only peer" data-id="${sched.id}" ${enabledChecked}>
-                            <div class="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div class="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
                         </label>
                         ${statusLabel}
                     </div>
                 </td>
                 <td class="py-3.5 px-6 text-center">
-                    <button class="delete-schedule-btn px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold rounded-lg transition text-xs cursor-pointer flex items-center justify-center space-x-1 mx-auto" data-id="${sched.id}">
+                    <button type="button" class="delete-schedule-btn btn btn-sm btn-soft-danger mx-auto" data-id="${escapeStatusHtml(sched.id)}">
                         <i class="fas fa-trash-alt"></i>
                         <span>ลบ</span>
                     </button>
@@ -1177,20 +1208,13 @@ export const ui = {
 
         body.innerHTML = '';
         if (!runs || runs.length === 0) {
-            body.innerHTML = `
-                <tr>
-                    <td colspan="9" class="py-8 text-center text-slate-500 dark:text-slate-400 font-bold bg-transparent">
-                        <i class="fas fa-history text-3xl mb-2 block"></i>
-                        ยังไม่มีประวัติการ Sync ข้อมูล
-                    </td>
-                </tr>
-            `;
+            body.innerHTML = emptyTableRowHtml(9, 'fa-history', 'ยังไม่มีประวัติการ Sync ข้อมูล');
             return;
         }
 
         runs.forEach(run => {
             const tr = document.createElement('tr');
-            tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200 bg-transparent';
+            tr.className = 'text-slate-700 dark:text-slate-200';
 
             const statusPresentation = getSyncRunStatusPresentation(run.status);
             const message = run.error || run.message || '-';
@@ -1198,7 +1222,7 @@ export const ui = {
 
             tr.innerHTML = `
                 <td class="py-3.5 px-4 font-mono font-bold text-slate-500 dark:text-slate-400">#${run.id}</td>
-                <td class="py-3.5 px-4 font-semibold text-blue-600 dark:text-blue-400">${escapeHtml(run.source || '-')}</td>
+                <td class="py-3.5 px-4 font-semibold text-brand-600 dark:text-brand-400">${escapeHtml(run.source || '-')}</td>
                 <td class="py-3.5 px-4 font-mono">${escapeHtml(formatVisitDate(run.visit_date))}</td>
                 <td class="py-3.5 px-4">${statusBadgeHtml(statusPresentation)}</td>
                 <td class="py-3.5 px-4">${escapeHtml(run.username || '-')}</td>
@@ -1249,20 +1273,13 @@ export const ui = {
 
         body.innerHTML = '';
         if (!logs || logs.length === 0) {
-            body.innerHTML = `
-                <tr>
-                    <td colspan="6" class="py-8 text-center text-slate-500 dark:text-slate-400 font-bold bg-transparent">
-                        <i class="fas fa-clipboard-list text-3xl mb-2 block"></i>
-                        ยังไม่มี Audit Log
-                    </td>
-                </tr>
-            `;
+            body.innerHTML = emptyTableRowHtml(6, 'fa-clipboard-list', 'ยังไม่มี Audit Log');
             return;
         }
 
         logs.forEach(log => {
             const tr = document.createElement('tr');
-            tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200 bg-transparent';
+            tr.className = 'text-slate-700 dark:text-slate-200';
             const details = formatDetails(log.details);
             const safeDetails = escapeHtml(details);
 
@@ -1270,7 +1287,7 @@ export const ui = {
                 <td class="py-3.5 px-4 text-slate-500 dark:text-slate-400">${escapeHtml(formatDateTime(log.created_at))}</td>
                 <td class="py-3.5 px-4 font-semibold">${escapeHtml(log.username || '-')}</td>
                 <td class="py-3.5 px-4">
-                    <span class="inline-flex px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 font-bold text-[10px]">
+                    <span class="chip bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/15 ring-inset dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-400/20">
                         ${escapeHtml(log.action || '-')}
                     </span>
                 </td>
@@ -1327,7 +1344,7 @@ export const ui = {
         list.innerHTML = '';
         if (!history || history.length === 0) {
             list.innerHTML = `
-                <div class="lg:col-span-2 px-3 py-4 text-center text-xs text-slate-400 dark:text-slate-500 font-semibold border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                <div class="lg:col-span-2 rounded-xl border border-dashed border-slate-300 px-3 py-6 text-center text-xs font-medium text-slate-500 dark:border-white/10 dark:text-slate-400">
                     ยังไม่มีประวัติคำสั่ง SQL
                 </div>
             `;
@@ -1337,11 +1354,12 @@ export const ui = {
         history.forEach(item => {
             const button = document.createElement('button');
             button.type = 'button';
-            button.className = 'text-left p-3 rounded-xl bg-white/80 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800 hover:border-indigo-400/60 dark:hover:border-indigo-500/60 hover:shadow-sm transition cursor-pointer';
+            button.type = 'button';
+            button.className = 'cursor-pointer rounded-xl border border-slate-200 bg-white p-3 text-left shadow-xs transition hover:border-brand-400/60 hover:shadow-md dark:border-white/10 dark:bg-white/[0.03] dark:hover:border-brand-400/50';
             const queryPreview = String(item.query_text || '').replace(/\s+/g, ' ').trim().slice(0, 160);
             button.innerHTML = `
                 <div class="flex items-center justify-between gap-2 mb-1">
-                    <span class="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-300 uppercase">${escapeHtml(item.db_type || 'hosxp')}</span>
+                    <span class="text-[10px] font-bold tracking-wide text-brand-600 uppercase dark:text-brand-300">${escapeHtml(item.db_type || 'hosxp')}</span>
                     <span class="text-[10px] text-slate-400 dark:text-slate-500">${escapeHtml(formatDateTime(item.created_at))}</span>
                 </div>
                 <div class="font-mono text-[11px] leading-relaxed text-slate-700 dark:text-slate-200 line-clamp-2">${escapeHtml(queryPreview || '-')}</div>
@@ -1414,13 +1432,13 @@ export const ui = {
         const trHead = document.createElement('tr');
         headers.forEach(header => {
             const th = document.createElement('th');
-            th.className = 'py-3 px-4 cursor-pointer hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition duration-150 select-none text-[11px] font-bold tracking-wider';
+            th.dataset.sort = header;
             th.onclick = () => onHeaderClick(header);
 
             let displayName = header;
             if (header === sortBy) {
                 displayName += sortDesc ? '  ▼' : '  ▲';
-                th.classList.add('text-blue-600', 'dark:text-blue-400');
+                th.classList.add('text-brand-600', 'dark:text-brand-400');
             }
 
             th.textContent = displayName;
@@ -1431,7 +1449,7 @@ export const ui = {
         // 4. วาดข้อมูล (Rows)
         filteredRows.forEach((row, idx) => {
             const tr = document.createElement('tr');
-            tr.className = 'hover:bg-slate-50/70 dark:hover:bg-slate-800/45 border-b border-slate-100 dark:border-slate-800/80 transition duration-150 text-slate-700 dark:text-slate-200';
+            tr.className = 'text-slate-700 dark:text-slate-200';
 
             headers.forEach(header => {
                 const td = document.createElement('td');
@@ -1448,7 +1466,7 @@ export const ui = {
                     td.innerHTML = statusBadgeHtml(getClaimStatusPresentation(val));
                 } else if (header.toLowerCase() === 'vn' || header.toLowerCase() === 'hn') {
                     td.className = 'py-2 px-4 font-mono text-[11px] font-semibold';
-                    td.innerHTML = `<span class="text-blue-600 dark:text-blue-400 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100/50 dark:border-blue-900/30 rounded px-2 py-0.5 inline-block">${val}</span>`;
+                    td.innerHTML = `<span class="text-brand-600 dark:text-brand-400 bg-brand-50/70 dark:bg-brand-900/30 border border-brand-100/50 dark:border-brand-900/30 rounded px-2 py-0.5 inline-block">${escapeStatusHtml(val)}</span>`;
                 } else if (header.toLowerCase().includes('cid')) {
                     td.className = 'py-3 px-4 font-mono text-xs text-slate-600 dark:text-slate-400';
                     td.textContent = val;
@@ -1480,18 +1498,18 @@ export const ui = {
         if (!stateEl) return;
 
         if (state === 'syncing') {
-            stateEl.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-500/10';
+            stateEl.className = 'chip bg-brand-50 text-brand-700 ring-1 ring-brand-600/15 ring-inset dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-400/20';
             stateEl.innerHTML = '<i class="fas fa-sync-alt animate-spin text-[10px]"></i> กำลังอัปเดต';
             return;
         }
 
         if (state === 'failed') {
-            stateEl.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-500/10';
+            stateEl.className = 'chip bg-red-50 text-red-700 ring-1 ring-red-600/15 ring-inset dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/20';
             stateEl.innerHTML = '<i class="fas fa-exclamation-triangle text-[10px]"></i> อัปเดตไม่สำเร็จ';
             return;
         }
 
-        stateEl.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10';
+        stateEl.className = 'chip bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/15 ring-inset dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20';
         stateEl.innerHTML = '<i class="fas fa-circle text-[7px]"></i> ออนไลน์';
         if (timeEl) {
             timeEl.textContent = new Date().toLocaleTimeString('th-TH', {
@@ -1515,9 +1533,9 @@ export const ui = {
         }
         if (toggleBtn) {
             if (isActive) {
-                toggleBtn.className = 'px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition cursor-pointer shadow-md shadow-emerald-500/20';
+                toggleBtn.className = 'btn btn-success';
             } else {
-                toggleBtn.className = 'px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs flex items-center gap-2 transition cursor-pointer';
+                toggleBtn.className = 'btn btn-secondary';
             }
         }
 
@@ -1560,7 +1578,7 @@ export const ui = {
         const statPendingEl = document.getElementById('live-stat-pending');
 
         if (statTotalEl) {
-            statTotalEl.innerHTML = `${totalPersons} <span class="text-lg text-slate-400 font-medium">/ ${totalVisits}</span>`;
+            statTotalEl.innerHTML = `${totalPersons} <span class="text-lg font-medium text-slate-400">/ ${totalVisits}</span>`;
         }
         if (statDeptsEl) {
             statDeptsEl.textContent = activeDepts;

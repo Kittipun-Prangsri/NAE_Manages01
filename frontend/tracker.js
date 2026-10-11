@@ -5,6 +5,7 @@ import { appState, domRefs, TRACKER_PAGE_SIZE, TRACKER_COLUMN_FILTERS, activeCol
 import { handleApiResponse } from './auth.js';
 import { escapeHtml } from './uploader.js';
 import { exportToCsv } from './utils.js';
+import { notify } from './notify.js';
 
 export function closeTrackerColumnFilterMenu() {
     document.getElementById('tracker-column-filter-menu')?.remove();
@@ -95,7 +96,7 @@ export function openTrackerColumnFilterMenu(field, anchor) {
     const search = document.createElement('input');
     search.type = 'search';
     search.placeholder = 'ค้นหาค่าในคอลัมน์นี้';
-    search.className = 'w-full mb-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:ring-2 focus:ring-blue-500/30';
+    search.className = 'w-full mb-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none focus:ring-2 focus:ring-brand-500/30';
 
     const list = document.createElement('div');
     list.className = 'max-h-64 overflow-auto custom-scrollbar border border-slate-100 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-800';
@@ -109,7 +110,7 @@ export function openTrackerColumnFilterMenu(field, anchor) {
         checkbox.type = 'checkbox';
         checkbox.value = item.value;
         checkbox.checked = selectedValues.has(item.value);
-        checkbox.className = 'rounded border-slate-300 text-blue-600 focus:ring-blue-500';
+        checkbox.className = 'rounded border-slate-300 text-brand-600 focus:ring-brand-500';
 
         const text = document.createElement('span');
         text.className = item.value === '' ? 'text-slate-400 italic' : 'font-semibold';
@@ -143,7 +144,7 @@ export function openTrackerColumnFilterMenu(field, anchor) {
 
     const clearFilterBtn = document.createElement('button');
     clearFilterBtn.type = 'button';
-    clearFilterBtn.className = 'mr-auto text-blue-600 dark:text-blue-300 font-bold hover:underline';
+    clearFilterBtn.className = 'mr-auto text-brand-600 dark:text-brand-300 font-bold hover:underline';
     clearFilterBtn.textContent = 'Clear filter';
     clearFilterBtn.addEventListener('click', () => {
         delete appState.trackerColumnFilters[field];
@@ -160,7 +161,7 @@ export function openTrackerColumnFilterMenu(field, anchor) {
 
     const okBtn = document.createElement('button');
     okBtn.type = 'button';
-    okBtn.className = 'px-3 py-1.5 rounded-lg bg-blue-600 text-white font-bold shadow-sm';
+    okBtn.className = 'px-3 py-1.5 rounded-lg bg-brand-600 text-white font-bold shadow-sm';
     okBtn.textContent = 'OK';
     okBtn.addEventListener('click', () => {
         const checkedValues = Array.from(list.querySelectorAll('input[type="checkbox"]:checked')).map(input => input.value);
@@ -225,7 +226,7 @@ export function setupTrackerColumnFilters() {
         const filterButton = document.createElement('button');
         filterButton.type = 'button';
         filterButton.dataset.columnFilter = field;
-        filterButton.className = 'tracker-column-filter-btn shrink-0 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition cursor-pointer';
+        filterButton.className = 'tracker-column-filter-btn shrink-0 text-slate-400 hover:text-brand-600 dark:hover:text-brand-300 transition cursor-pointer';
         filterButton.title = `กรอง ${meta.label}`;
         filterButton.innerHTML = '<i class="fas fa-filter text-[11px] pointer-events-none"></i>';
         filterButton.addEventListener('click', event => {
@@ -357,8 +358,8 @@ export function updateTrackerColumnFilterHeaders() {
         const field = button.dataset.columnFilter;
         const isActive = Array.isArray(appState.trackerColumnFilters?.[field]);
         button.className = isActive
-            ? 'tracker-column-filter-btn shrink-0 text-blue-600 dark:text-blue-300 transition cursor-pointer'
-            : 'tracker-column-filter-btn shrink-0 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition cursor-pointer';
+            ? 'tracker-column-filter-btn is-filtered shrink-0 text-brand-600 dark:text-brand-300 transition cursor-pointer'
+            : 'tracker-column-filter-btn shrink-0 text-slate-400 hover:text-brand-600 dark:hover:text-brand-300 transition cursor-pointer';
     });
 }
 
@@ -490,7 +491,7 @@ export async function openUcPendingListModal() {
             const issueReason = item.issue_reason || getTrackingIssueReason(item);
 
             tr.innerHTML = `
-                <td class="py-2.5 px-3 font-mono font-semibold text-blue-600 dark:text-blue-400">${escapeHtml(item.vn || '-')}</td>
+                <td class="py-2.5 px-3 font-mono font-semibold text-brand-600 dark:text-brand-400">${escapeHtml(item.vn || '-')}</td>
                 <td class="py-2.5 px-3 font-medium tracking-wide">${escapeHtml(item.cid || '-')}</td>
                 <td class="py-2.5 px-3">${escapeHtml(item.full_name || '-')}</td>
                 <td class="py-2.5 px-3 text-slate-500 dark:text-slate-400">${escapeHtml(item.department || '-')}</td>
@@ -529,7 +530,7 @@ export function handleExportErrors() {
     );
 
     if (errorData.length === 0) {
-        alert("ไม่มีรายการที่ต้องแก้ไข (ทุกรายการเป็นสีเขียว)");
+        notify.warning("ไม่มีรายการที่ต้องแก้ไข (ทุกรายการเป็นสีเขียว)");
         return;
     }
 

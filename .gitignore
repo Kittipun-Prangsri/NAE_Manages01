@@ -7,4 +7,6 @@ puppeteer_session/
 **/screenshots/
 downloads/
 .npm_cache/
+backend/scripts/debug-output/
+*.code-workspace
 

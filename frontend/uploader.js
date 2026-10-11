@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { ui } from './ui.js';
 import { appState, domRefs } from './state.js';
 import { handleApiResponse } from './auth.js';
+import { notify } from './notify.js';
 
 export function escapeHtml(value) {
     return String(value ?? '')
@@ -48,9 +49,9 @@ export function openExcelMappingModal(payload = {}, message = '') {
         })).join('');
         const requiredBadge = field.required ? '<span class="text-red-500">*</span>' : '';
         return `
-            <label class="space-y-1">
-                <span class="block text-slate-500 dark:text-slate-400">${escapeHtml(field.label)} ${requiredBadge}</span>
-                <select class="excel-mapping-select w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30" data-field="${field.key}">
+            <label class="block">
+                <span class="field-label">${escapeHtml(field.label)} ${requiredBadge}</span>
+                <select class="excel-mapping-select field cursor-pointer" data-field="${field.key}">
                      ${options}
                 </select>
             </label>
@@ -87,7 +88,7 @@ export function saveExcelMappingFromModal() {
 
     const missing = getMissingExcelMappingFields(mapping);
     if (missing.length > 0) {
-        alert(`กรุณาเลือกคอลัมน์จำเป็นให้ครบ: ${missing.map(item => item.label).join(', ')}`);
+        notify.warning(`กรุณาเลือกคอลัมน์จำเป็นให้ครบ: ${missing.map(item => item.label).join(', ')}`);
         return;
     }
 
@@ -147,6 +148,12 @@ export function setupFileUpload(onLoadCallbackObj) {
     if (!dropzone || !domRefs.excelFileInput) return;
 
     dropzone.addEventListener('click', () => domRefs.excelFileInput.click());
+    dropzone.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            domRefs.excelFileInput.click();
+        }
+    });
 
     domRefs.excelFileInput.addEventListener('change', (e) => {
         handleFileSelection(e.target.files[0], onLoadCallbackObj);
@@ -155,14 +162,14 @@ export function setupFileUpload(onLoadCallbackObj) {
     ['dragenter', 'dragover'].forEach(evt => {
         dropzone.addEventListener(evt, e => {
             e.preventDefault();
-            dropzone.classList.add('border-blue-500', 'bg-blue-50/20');
+            dropzone.classList.add('border-brand-500', 'bg-brand-50/20');
         });
     });
 
     ['dragleave', 'drop'].forEach(evt => {
         dropzone.addEventListener(evt, e => {
             e.preventDefault();
-            dropzone.classList.remove('border-blue-500', 'bg-blue-50/20');
+            dropzone.classList.remove('border-brand-500', 'bg-brand-50/20');
         });
     });
 

@@ -4,11 +4,16 @@ import { ui } from './ui.js';
 import { appState } from './state.js';
 import { handleApiResponse } from './auth.js';
 import { exportToCsv } from './utils.js';
+import { notify, confirmDialog } from './notify.js';
 
 export async function loadSavedQueries(selectedId = '') {
     if (!appState.token) return;
     try {
         const response = await api.fetchSavedQueries(appState.token);
+        if (response.status === 503) {
+            // Dashboard modules are disabled on server
+            return;
+        }
         if (handleApiResponse(response)) {
             appState.savedQueries = response.data;
             ui.renderSavedQueriesDropdown(response.data, selectedId);
@@ -22,6 +27,10 @@ export async function loadQueryHistory() {
     if (!appState.token) return;
     try {
         const response = await api.fetchQueryHistory(appState.token);
+        if (response.status === 503) {
+            // Dashboard modules are disabled on server
+            return;
+        }
         if (handleApiResponse(response)) {
             appState.queryHistory = response.data.history || [];
             ui.renderQueryHistory(appState.queryHistory, handleQueryHistorySelect);
@@ -83,7 +92,7 @@ export function handleQueryHistorySelect(item) {
 }
 
 export async function handleClearQueryHistory() {
-    if (!confirm('ต้องการล้างประวัติคำสั่ง SQL ล่าสุดของผู้ใช้นี้ทั้งหมดหรือไม่?')) return;
+    if (!await confirmDialog('ต้องการล้างประวัติคำสั่ง SQL ล่าสุดของผู้ใช้นี้ทั้งหมดหรือไม่?', { title: 'ล้างประวัติ SQL', confirmText: 'ล้างประวัติ', danger: true })) return;
 
     ui.setLoading(true);
     try {
@@ -93,11 +102,11 @@ export async function handleClearQueryHistory() {
             ui.renderQueryHistory([], handleQueryHistorySelect);
             document.getElementById('query-info-msg').textContent = response.data.message || 'ล้างประวัติคำสั่ง SQL แล้ว';
         } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'ไม่สามารถล้างประวัติ SQL ได้');
+            notify.error(response.data.message || 'ไม่สามารถล้างประวัติ SQL ได้');
         }
     } catch (error) {
         console.error('Error clearing query history:', error);
-        alert('เกิดข้อผิดพลาดในการล้างประวัติ SQL');
+        notify.error('เกิดข้อผิดพลาดในการล้างประวัติ SQL');
     } finally {
         ui.setLoading(false);
     }
@@ -120,7 +129,7 @@ export async function handleRunQuery() {
     const hipdataCode = document.getElementById('query-hipdata').value;
 
     if (!query) {
-        alert('กรุณากรอกคำสั่ง SQL');
+        notify.warning('กรุณากรอกคำสั่ง SQL');
         return;
     }
 
@@ -139,13 +148,13 @@ export async function handleRunQuery() {
                 `พบผลลัพธ์ ${response.data.rows.length.toLocaleString()} แถว | ใช้เวลาประมวลผล ${response.data.executionTimeMs} ms`;
             loadQueryHistory();
         } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'เกิดข้อผิดพลาดในการรัน SQL');
+            notify.error(response.data.message || 'เกิดข้อผิดพลาดในการรัน SQL');
             document.getElementById('query-info-msg').textContent = response.data.message || 'การเรียกใช้ SQL ล้มเหลว';
             ui.renderGrafanaTable([], '', false, '', null);
         }
     } catch (err) {
         console.error(err);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์: ' + err.message);
+        notify.error('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์: ' + err.message);
     } finally {
         ui.setLoading(false);
     }
@@ -171,7 +180,7 @@ export function handleQueryHeaderClick(column) {
 
 export function handleQueryExport() {
     if (!appState.currentQueryResults || appState.currentQueryResults.length === 0) {
-        alert('ไม่มีข้อมูลให้ส่งออก');
+        notify.warning('ไม่มีข้อมูลให้ส่งออก');
         return;
     }
 
@@ -205,7 +214,7 @@ export async function handleSaveQuery() {
     const dbType = document.getElementById('query-db-type').value;
 
     if (!name || !queryText) {
-        alert('กรุณากรอกชื่อและคำสั่ง SQL ก่อนกดบันทึก');
+        notify.warning('กรุณากรอกชื่อและคำสั่ง SQL ก่อนกดบันทึก');
         return;
     }
 
@@ -213,17 +222,17 @@ export async function handleSaveQuery() {
     try {
         const response = await api.saveQuery(name, queryText, dbType, appState.token);
         if (handleApiResponse(response)) {
-            alert('บันทึกคำสั่งสำเร็จ');
+            notify.success('บันทึกคำสั่งสำเร็จ');
             await loadSavedQueries();
             const newlySaved = appState.savedQueries.find(q => q.name === name);
             if (newlySaved) {
                 document.getElementById('query-template-select').value = newlySaved.id;
             }
         } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'บันทึกล้มเหลว');
+            notify.error(response.data.message || 'บันทึกล้มเหลว');
         }
     } catch (err) {
-        alert('เกิดข้อผิดพลาด: ' + err.message);
+        notify.error('เกิดข้อผิดพลาด: ' + err.message);
     } finally {
         ui.setLoading(false);
     }
@@ -234,28 +243,28 @@ export async function handleDeleteQuery() {
     const queryId = select.value;
 
     if (!queryId) {
-        alert('กรุณาเลือกคำสั่งที่ต้องการลบใน Dropdown ก่อน');
+        notify.warning('กรุณาเลือกคำสั่งที่ต้องการลบใน Dropdown ก่อน');
         return;
     }
 
     const selected = appState.savedQueries.find(q => String(q.id) === String(queryId));
     if (!selected) return;
 
-    if (!confirm(`คุณต้องการลบคำสั่ง "${selected.name}" หรือไม่?`)) return;
+    if (!await confirmDialog(`คุณต้องการลบคำสั่ง "${selected.name}" หรือไม่?`, { title: 'ลบคำสั่ง SQL', confirmText: 'ลบ', danger: true })) return;
 
     ui.setLoading(true);
     try {
         const response = await api.deleteSavedQuery(queryId, appState.token);
         if (handleApiResponse(response)) {
-            alert('ลบสำเร็จ');
+            notify.success('ลบสำเร็จ');
             document.getElementById('sql-editor').value = '';
             document.getElementById('new-query-name').value = '';
             await loadSavedQueries();
         } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'ลบล้มเหลว');
+            notify.error(response.data.message || 'ลบล้มเหลว');
         }
     } catch (err) {
-        alert('เกิดข้อผิดพลาด: ' + err.message);
+        notify.error('เกิดข้อผิดพลาด: ' + err.message);
     } finally {
         ui.setLoading(false);
     }

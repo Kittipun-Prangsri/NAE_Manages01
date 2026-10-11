@@ -4,15 +4,16 @@ import { ui } from './ui.js';
 import { appState, domRefs } from './state.js';
 import { handleApiResponse } from './auth.js';
 import { ensureExcelMapping, openExcelMappingModal } from './uploader.js';
+import { notify, confirmDialog } from './notify.js';
 
 export async function handleApiSync(onLoadCallbackObj) {
     const visitDate = domRefs.visitDateInput?.value;
     if (!visitDate) {
-        alert('กรุณาเลือกวันที่ต้องการตรวจสอบก่อน');
+        notify.warning('กรุณาเลือกวันที่ต้องการตรวจสอบก่อน');
         return;
     }
 
-    if (!confirm(`ระบบจะดึงข้อมูลจาก สปสช. ผ่าน API โดยอัตโนมัติสำหรับวันที่ ${visitDate}\nขั้นตอนนี้อาจใช้เวลาสักครู่ ขึ้นอยู่กับจำนวนผู้ป่วย\nต้องการเริ่มดำเนินการหรือไม่?`)) {
+    if (!await confirmDialog(`ระบบจะดึงข้อมูลจาก สปสช. ผ่าน API โดยอัตโนมัติสำหรับวันที่ ${visitDate}\nขั้นตอนนี้อาจใช้เวลาสักครู่ ขึ้นอยู่กับจำนวนผู้ป่วย\nต้องการเริ่มดำเนินการหรือไม่?`, { title: 'ดึงข้อมูลผ่าน API', confirmText: 'เริ่มดึงข้อมูล' })) {
         return;
     }
 
@@ -26,13 +27,13 @@ export async function handleApiSync(onLoadCallbackObj) {
             if (onLoadCallbackObj && typeof onLoadCallbackObj.loadWeeklySummary === 'function') {
                 onLoadCallbackObj.loadWeeklySummary();
             }
-            alert(response.data.message || 'ดึงข้อมูลสำเร็จ');
+            notify.success(response.data.message || 'ดึงข้อมูลสำเร็จ');
         } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ API');
+            notify.error(response.data.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ API');
         }
     } catch (error) {
         console.error('API Sync error:', error);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
+        notify.error('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
     } finally {
         ui.setLoading(false);
     }
@@ -73,24 +74,24 @@ export function parseTSV(text) {
 export async function handlePasteSync(onLoadCallbackObj) {
     const visitDate = domRefs.visitDateInput?.value;
     if (!visitDate) {
-        alert('กรุณาเลือกวันที่ต้องการตรวจสอบก่อน');
+        notify.warning('กรุณาเลือกวันที่ต้องการตรวจสอบก่อน');
         return;
     }
 
     try {
         const text = await navigator.clipboard.readText();
         if (!text || text.trim() === '') {
-            alert('ไม่พบข้อมูลใน Clipboard กรุณา Copy ข้อมูลจากหน้าเว็บ สปสช. ก่อน');
+            notify.warning('ไม่พบข้อมูลใน Clipboard กรุณา Copy ข้อมูลจากหน้าเว็บ สปสช. ก่อน');
             return;
         }
 
         const jsonData = parseTSV(text);
         if (jsonData.length === 0) {
-            alert('ไม่สามารถอ่านข้อมูลได้ กรุณาตรวจสอบว่า Copy ตารางมาถูกต้องหรือไม่');
+            notify.error('ไม่สามารถอ่านข้อมูลได้ กรุณาตรวจสอบว่า Copy ตารางมาถูกต้องหรือไม่');
             return;
         }
 
-        if (confirm(`พบข้อมูล ${jsonData.length} รายการ ต้องการ Sync หรือไม่?`)) {
+        if (await confirmDialog(`พบข้อมูล ${jsonData.length} รายการ ต้องการ Sync หรือไม่?`, { title: 'Sync ข้อมูลจาก Clipboard', confirmText: 'เริ่ม Sync' })) {
             ui.setLoading(true);
             const response = await api.processSyncJson(visitDate, jsonData, appState.token);
             if (handleApiResponse(response)) {
@@ -100,14 +101,14 @@ export async function handlePasteSync(onLoadCallbackObj) {
                 if (onLoadCallbackObj && typeof onLoadCallbackObj.loadWeeklySummary === 'function') {
                     onLoadCallbackObj.loadWeeklySummary();
                 }
-                alert(response.data.message || 'นำเข้าข้อมูลสำเร็จ');
+                notify.success(response.data.message || 'นำเข้าข้อมูลสำเร็จ');
             } else if (response.status !== 401 && response.status !== 403) {
-                alert(response.data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
+                notify.error(response.data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
             }
         }
     } catch (err) {
         console.error('Paste error:', err);
-        alert('ไม่สามารถเข้าถึง Clipboard ได้ หรือรูปแบบข้อมูลไม่ถูกต้อง');
+        notify.error('ไม่สามารถเข้าถึง Clipboard ได้ หรือรูปแบบข้อมูลไม่ถูกต้อง');
     } finally {
         ui.setLoading(false);
     }
@@ -118,7 +119,7 @@ export async function handleSyncProcess(onLoadCallbackObj) {
     const file = domRefs.excelFileInput?.files[0];
 
     if (!visitDate || !file) {
-        alert('กรุณาเลือกวันที่และอัปโหลดไฟล์ Excel');
+        notify.warning('กรุณาเลือกวันที่และอัปโหลดไฟล์ Excel');
         return;
     }
 
@@ -142,12 +143,12 @@ export async function handleSyncProcess(onLoadCallbackObj) {
             if (onLoadCallbackObj && typeof onLoadCallbackObj.loadWeeklySummary === 'function') {
                 onLoadCallbackObj.loadWeeklySummary();
             }
-            alert(response.data.message || 'ซิงก์ข้อมูลสำเร็จ');
+            notify.success(response.data.message || 'ซิงก์ข้อมูลสำเร็จ');
         } else if (response.status !== 401 && response.status !== 403) {
-            alert(response.data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
+            notify.error(response.data.message || 'เกิดข้อผิดพลาดในการประมวลผล');
         }
     } catch (error) {
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
+        notify.error('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
     } finally {
         ui.setLoading(false);
     }
@@ -156,11 +157,11 @@ export async function handleSyncProcess(onLoadCallbackObj) {
 export async function handleAutoPortalSync(onLoadCallbackObj) {
     const visitDate = domRefs.visitDateInput?.value;
     if (!visitDate) {
-        alert('กรุณาเลือกวันที่ต้องการดึงข้อมูลก่อน');
+        notify.warning('กรุณาเลือกวันที่ต้องการดึงข้อมูลก่อน');
         return;
     }
 
-    if (!confirm(`คุณต้องการสั่งให้บอทดาวน์โหลดรายงานจากเว็บ สปสช. ของวันที่ ${visitDate} และประมวลผล Sync ข้อมูลโดยอัตโนมัติใช่หรือไม่?\n(คุณสามารถสแกน QR Code เพื่อล็อกอินผ่านทางหน้าจอนี้ หรือห้องแชท Telegram/LINE)`)) {
+    if (!await confirmDialog(`คุณต้องการสั่งให้บอทดาวน์โหลดรายงานจากเว็บ สปสช. ของวันที่ ${visitDate} และประมวลผล Sync ข้อมูลโดยอัตโนมัติใช่หรือไม่?\n(คุณสามารถสแกน QR Code เพื่อล็อกอินผ่านทางหน้าจอนี้ หรือห้องแชท Telegram/LINE)`, { title: 'ดาวน์โหลดรายงานจาก Portal', confirmText: 'เริ่มดาวน์โหลด' })) {
         return;
     }
 
@@ -240,7 +241,7 @@ export async function handleAutoPortalSync(onLoadCallbackObj) {
     try {
         const response = await api.triggerPortalSync(visitDate, appState.token);
         if (response.status === 409) {
-            alert(response.data.message || 'ระบบกำลังทำงานอยู่แล้ว');
+            notify.warning(response.data.message || 'ระบบกำลังทำงานอยู่แล้ว');
             syncProgressModal.classList.add('hidden');
             return;
         }

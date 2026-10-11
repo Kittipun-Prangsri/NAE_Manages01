@@ -4,12 +4,13 @@
   "type": "module",
   "main": "script.js",
   "scripts": {
-    "dev": "concurrently \"vite\" \"nodemon backend/server.js\"",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"Vite,API\" -c \"cyan,green\" \"vite\" \"nodemon backend/server.js\"",
     "dev:frontend": "vite",
     "dev:api": "nodemon backend/server.js",
     "dev:backend": "nodemon backend/server.js",
     "build": "vite build",
     "preview": "vite preview",
+    "clean": "rm -rf dist",
     "start": "node backend/server.js",
     "worker": "node jobs/worker.js",
     "check:config": "node scripts/check-config.js",
@@ -44,13 +45,12 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.0",
-    "autoprefixer": "^10.5.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "autoprefixer": "^10.6.1",
     "concurrently": "^9.2.1",
     "nodemon": "^3.1.14",
     "postcss": "^8.5.15",
-    "tailwindcss": "^4.3.0",
+    "tailwindcss": "^4.3.3",
     "vite": "^8.0.14"
   }
 }
-

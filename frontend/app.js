@@ -2,6 +2,8 @@
 import { api } from './api.js';
 import { ui } from './ui.js';
 import { isTokenExpired } from './utils.js';
+import { initAppearanceControls } from './appearance.js';
+import { initModalAccessibility } from './modals.js';
 
 import {
     appState,
@@ -68,6 +70,7 @@ import {
     loadAdminAuditLogs,
     handleAddSchedule
 } from './admin.js';
+import { notify } from './notify.js';
 
 // Callbacks container to avoid circular dependencies
 const callbacks = {
@@ -105,8 +108,6 @@ function init() {
         loadDashboardData();
         loadNhsoSessionStatus();
         loadHipdataCodes();
-        loadSavedQueries();
-        loadQueryHistory();
     } else {
         ui.showLogin();
     }
@@ -118,6 +119,9 @@ function init() {
 function setupEventListeners() {
     // Theme & UX
     document.getElementById('theme-toggle')?.addEventListener('click', ui.toggleTheme);
+    initAppearanceControls();
+    notify.showPendingFlash();
+    initModalAccessibility();
     document.getElementById('sidebar-toggle')?.addEventListener('click', ui.toggleSidebar.bind(ui));
     document.getElementById('toggle-list-btn')?.addEventListener('click', ui.togglePatientList);
     document.getElementById('live-tv-toggle')?.addEventListener('click', handleLiveTvToggle);
@@ -132,6 +136,16 @@ function setupEventListeners() {
 
     // Authentication
     document.getElementById('login-form')?.addEventListener('submit', (e) => handleLogin(e, callbacks));
+    document.getElementById('toggle-password-visibility')?.addEventListener('click', (e) => {
+        const input = document.getElementById('password');
+        if (!input) return;
+        const reveal = input.type === 'password';
+        input.type = reveal ? 'text' : 'password';
+        const btn = e.currentTarget;
+        btn.setAttribute('aria-pressed', String(reveal));
+        btn.setAttribute('aria-label', reveal ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน');
+        btn.querySelector('i')?.classList.replace(reveal ? 'fa-eye' : 'fa-eye-slash', reveal ? 'fa-eye-slash' : 'fa-eye');
+    });
     document.getElementById('logout-btn')?.addEventListener('click', () => handleLogout(callbacks));
 
     // Main Actions
@@ -140,6 +154,7 @@ function setupEventListeners() {
     document.getElementById('api-sync-btn')?.addEventListener('click', () => handleApiSync(callbacks));
     document.getElementById('auto-portal-btn')?.addEventListener('click', () => handleAutoPortalSync(callbacks));
     document.getElementById('refresh-btn')?.addEventListener('click', () => loadDashboardData());
+    document.getElementById('tracker-retry-btn')?.addEventListener('click', () => loadDashboardData());
     document.getElementById('refresh-nhso-session-btn')?.addEventListener('click', handleRefreshNhsoSession);
     document.getElementById('uc-pending-total-count-card')?.addEventListener('click', openUcPendingListModal);
     document.getElementById('uc-insight-refresh-btn')?.addEventListener('click', refreshGroupInsights);
@@ -251,6 +266,7 @@ function setupEventListeners() {
         window.open('quick-sync.html', 'NAE_QuickSync_Popup', 'width=460,height=560,resizable=yes,scrollbars=yes');
     });
     document.getElementById('quick-sync-form')?.addEventListener('submit', handleQuickSyncSubmit);
+    setupQuickSyncDropzone();
     document.getElementById('quick-sync-modal')?.addEventListener('click', (e) => {
         if (e.target === e.currentTarget) closeQuickSyncModal();
     });
@@ -305,7 +321,97 @@ function closeQuickSyncModal() {
     if (modal) {
         modal.classList.add('hidden');
         document.getElementById('quick-sync-form')?.reset();
+        renderQuickSyncFile(null);
     }
+}
+
+const QUICK_SYNC_EXTENSIONS = ['.xlsx', '.xls', '.csv'];
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Swap between the drop zone and the "selected file" card.
+function renderQuickSyncFile(file) {
+    const dropzone = document.getElementById('quick-dropzone');
+    const card = document.getElementById('quick-file-card');
+    const submitBtn = document.getElementById('quick-sync-submit-btn');
+    if (!dropzone || !card) return;
+
+    dropzone.classList.toggle('hidden', Boolean(file));
+    card.classList.toggle('hidden', !file);
+    card.classList.toggle('flex', Boolean(file));
+    if (submitBtn) submitBtn.disabled = !file;
+    if (!file) return;
+
+    const isCsv = file.name.toLowerCase().endsWith('.csv');
+    document.getElementById('quick-file-icon').className = `fas ${isCsv ? 'fa-file-csv' : 'fa-file-excel'}`;
+    document.getElementById('quick-file-name').textContent = file.name;
+    document.getElementById('quick-file-name').title = file.name;
+    document.getElementById('quick-file-meta').textContent =
+        `${formatFileSize(file.size)} · พร้อม Sync`;
+}
+
+function setupQuickSyncDropzone() {
+    const input = document.getElementById('quick-import-file');
+    const dropzone = document.getElementById('quick-dropzone');
+    if (!input || !dropzone) return;
+
+    const accept = (file) => {
+        if (!file) return false;
+        const name = file.name.toLowerCase();
+        if (!QUICK_SYNC_EXTENSIONS.some(ext => name.endsWith(ext))) {
+            notify.warning(`ไฟล์ "${file.name}" ไม่รองรับ กรุณาเลือกไฟล์ .xlsx, .xls หรือ .csv`);
+            return false;
+        }
+        return true;
+    };
+
+    input.addEventListener('change', () => {
+        const file = input.files?.[0] || null;
+        if (file && !accept(file)) {
+            input.value = '';
+            renderQuickSyncFile(null);
+            return;
+        }
+        renderQuickSyncFile(file);
+    });
+
+    // dragleave also fires when moving over child elements, so count enter/leave pairs.
+    let dragDepth = 0;
+    dropzone.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        dragDepth += 1;
+        dropzone.classList.add('is-dragover');
+    });
+    dropzone.addEventListener('dragover', (e) => e.preventDefault());
+    dropzone.addEventListener('dragleave', () => {
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) dropzone.classList.remove('is-dragover');
+    });
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dragDepth = 0;
+        dropzone.classList.remove('is-dragover');
+        const file = e.dataTransfer?.files?.[0];
+        if (!accept(file)) return;
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        input.files = transfer.files;
+        renderQuickSyncFile(file);
+    });
+
+    // A file dropped just outside the zone would otherwise make the browser navigate to it.
+    const modal = document.getElementById('quick-sync-modal');
+    ['dragover', 'drop'].forEach(evt => modal?.addEventListener(evt, (e) => e.preventDefault()));
+
+    document.getElementById('quick-file-remove')?.addEventListener('click', () => {
+        input.value = '';
+        renderQuickSyncFile(null);
+        input.focus();
+    });
 }
 
 async function handleQuickSyncSubmit(e) {
@@ -313,7 +419,7 @@ async function handleQuickSyncSubmit(e) {
     const fileInput = document.getElementById('quick-import-file');
     const file = fileInput?.files?.[0];
     if (!file) {
-        alert('กรุณาเลือกไฟล์ก่อนทำการ Sync');
+        notify.warning('กรุณาเลือกไฟล์ก่อนทำการ Sync');
         return;
     }
 
@@ -335,7 +441,7 @@ async function handleQuickSyncSubmit(e) {
         await handleSyncProcess();
     } catch (error) {
         console.error('Quick Sync Error:', error);
-        alert('เกิดข้อผิดพลาดในการประมวลผล Sync');
+        notify.error('เกิดข้อผิดพลาดในการประมวลผล Sync');
     } finally {
         if (submitBtn) submitBtn.disabled = false;
         if (syncIcon) syncIcon.classList.remove('animate-spin');
@@ -364,6 +470,7 @@ async function loadDashboardData(isSilent = false) {
     if (!isSilent) {
         ui.setLoading(true);
     }
+    ui.setTrackerLoadingLabel();
     try {
         const [dashboardRes, rightsRes] = await Promise.all([
             api.fetchDashboard(date, appState.token),
@@ -376,6 +483,7 @@ async function loadDashboardData(isSilent = false) {
         if (handleApiResponse(dashboardRes)) {
             const data = dashboardRes.data;
             appState.disableNotifications = data.disableNotifications;
+            setLiveDashboardAvailability(data.dashboardModulesEnabled === true);
 
             appState.rawTableData = data.trackingData || [];
             appState.hosxpStats = data.hosxpStats || null;
@@ -400,9 +508,13 @@ async function loadDashboardData(isSilent = false) {
                 ui.renderLgoTrackingTable(appState.lgoTableData);
             }
             await loadGroupInsights(date);
+        } else if (dashboardRes.status !== 401) {
+            ui.showTrackerLoadError(dashboardRes.data?.message
+                || `เซิร์ฟเวอร์ตอบกลับผิดพลาด (รหัส ${dashboardRes.status}) กรุณาลองใหม่อีกครั้ง`);
         }
     } catch (error) {
         console.error('Fetch error:', error);
+        ui.showTrackerLoadError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ ตรวจสอบเครือข่ายหรือสถานะระบบ แล้วลองใหม่อีกครั้ง');
     } finally {
         if (!isSilent) {
             ui.setLoading(false);
@@ -637,8 +749,17 @@ async function handleLiveFullscreen() {
     }
 }
 
+// Live Dashboard is gated server-side by ENABLE_DASHBOARD_MODULES; only show it when enabled.
+function setLiveDashboardAvailability(enabled) {
+    appState.dashboardModulesEnabled = enabled;
+    const tab = document.getElementById('tab-live-dashboard');
+    if (!tab) return;
+    tab.classList.toggle('hidden', !enabled);
+    tab.toggleAttribute('aria-hidden', !enabled);
+}
+
 function handleTabSwitch(tabId) {
-    if (tabId === 'tab-live-dashboard') return;
+    if (tabId === 'tab-live-dashboard' && !appState.dashboardModulesEnabled) return;
     stopLiveDashboardAutoRefresh();
 
     const doSwitch = () => {
@@ -712,14 +833,14 @@ async function handleRefreshNhsoSession() {
     try {
         const response = await api.refreshNhsoSession(appState.token);
         if (response.ok) {
-            alert('ส่งคำสั่งรีเฟรชเซสชัน สปสช. แล้ว ระบบกำลังตรวจสอบในเบื้องหลัง');
+            notify.info('ส่งคำสั่งรีเฟรชเซสชัน สปสช. แล้ว ระบบกำลังตรวจสอบในเบื้องหลัง');
             setTimeout(loadNhsoSessionStatus, 3000);
         } else {
-            alert('ไม่สามารถส่งคำสั่งรีเฟรชเซสชันได้: ' + (response.data?.message || 'ข้อผิดพลาด'));
+            notify.error('ไม่สามารถส่งคำสั่งรีเฟรชเซสชันได้: ' + (response.data?.message || 'ข้อผิดพลาด'));
         }
     } catch (err) {
         console.error('Refresh session error:', err);
-        alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+        notify.error('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
         setTimeout(() => {
             if (icon) icon.classList.remove('fa-spin');

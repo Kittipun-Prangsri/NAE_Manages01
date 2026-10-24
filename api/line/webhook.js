@@ -605,6 +605,9 @@ async function sendLineReplyAuthenSummary(replyToken, queryDate) {
     const formattedDate = new Date(queryDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
     const stats = await fetchSummaryData(queryDate);
 
+    // "รับบริการทั้งหมด" counts every right, the other rows only UC; show the rest so the rows add up.
+    const other_rights_count = Math.max(0, stats.service_total_count - stats.authen_count - stats.endpoint_count - stats.not_imported_count);
+
     const flexBubble = {
         type: "bubble", size: "giga",
         body: {
@@ -630,11 +633,27 @@ async function sendLineReplyAuthenSummary(replyToken, queryDate) {
                                 { type: "text", text: `${stats.authen_count} ราย`, color: "#34d399", size: "md", align: "end", weight: "bold" }
                             ]
                         },
+                        ...(stats.endpoint_count > 0 ? [
+                            {
+                                type: "box", layout: "horizontal",
+                                contents: [
+                                    { type: "text", text: "ขอแล้ว รอปิด Endpoint:", color: "#ecfdf5", size: "sm" },
+                                    { type: "text", text: `${stats.endpoint_count} ราย`, color: "#fbbf24", size: "md", align: "end", weight: "bold" }
+                                ]
+                            }
+                        ] : []),
                         {
                             type: "box", layout: "horizontal",
                             contents: [
                                 { type: "text", text: "ยังไม่นำเข้า / ค้างปิดสิทธิ์:", color: "#ecfdf5", size: "sm" },
                                 { type: "text", text: `${stats.not_imported_count} ราย`, color: "#f87171", size: "md", align: "end", weight: "bold" }
+                            ]
+                        },
+                        {
+                            type: "box", layout: "horizontal",
+                            contents: [
+                                { type: "text", text: "สิทธิ์อื่น / ไม่เข้าเกณฑ์:", color: "#ecfdf5", size: "sm" },
+                                { type: "text", text: `${other_rights_count} ราย`, color: "#94a3b8", size: "md", align: "end", weight: "bold" }
                             ]
                         }
                     ]

@@ -34,3 +34,11 @@ test('decodes QR data URLs and reads timeout config', () => {
     assert.equal(getThaidTimeoutMs(undefined), 10 * 60 * 1000);
     assert.equal(getThaidTimeoutMs('0'), 10 * 60 * 1000);
 });
+
+test('builds the ThaiD app link and the https hand-off page for Telegram buttons', async () => {
+    const { thaidAppLink, thaidOpenPageUrl } = await import('../jobs/thaidLogin.js');
+    const tx = '45b86d35-5e53-4b20-9b3b-50644062edc7';
+    assert.equal(thaidAppLink(tx), `cdt://imauth.bora.dopa.go.th?txID=${tx}&to=external`);
+    assert.equal(thaidOpenPageUrl(tx, 'https://naeline.khostime.site/'), `https://naeline.khostime.site/api/thaid-open?tx=${tx}`);
+    assert.equal(thaidOpenPageUrl(null), null);
+});

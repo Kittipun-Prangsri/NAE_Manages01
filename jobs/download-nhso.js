@@ -23,7 +23,7 @@ import { createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedu
 import logger from '../backend/logger.js';
 import { saveNhsoSessionStatusInfo, acquirePortalLock, killProfileBrowsers, PORTAL_LOCK_KEY } from './keep-alive-nhso.js';
 import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
-import { loginWithThaid, createTelegramQrNotifier, saveQrFile } from './thaidLogin.js';
+import { loginWithThaid, createTelegramQrNotifier, saveQrFile, thaidOpenPageUrl } from './thaidLogin.js';
 
 dotenv.config();
 // Several job modules share the puppeteer-extra singleton; register stealth once.
@@ -127,7 +127,7 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
 
         const login = await loginWithThaid(page, {
             portalUrl: url,
-            onQr: async ({ dataUrl, buffer, refCode, expiresAt, round, deadline }) => {
+            onQr: async ({ dataUrl, buffer, refCode, expiresAt, round, deadline, txId }) => {
                 saveQrFile(buffer, thaidQrPath);
                 const minutesLeft = Math.max(1, Math.round((deadline - Date.now()) / 60000));
                 if (statusCallback) {
@@ -138,7 +138,7 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
                         round
                     });
                 }
-                await telegramQr.show(buffer, `📲 สแกน QR ด้วยแอป ThaiD เพื่อดึงรายงาน Authen Code\nเลขอ้างอิง: ${refCode || '-'} (รอบที่ ${round})\nQR อายุ ~1 นาที จะเปลี่ยนรูปให้อัตโนมัติ • รอได้อีก ~${minutesLeft} นาที`);
+                await telegramQr.show(buffer, `📲 สแกน QR ด้วยแอป ThaiD เพื่อดึงรายงาน Authen Code\nเลขอ้างอิง: ${refCode || '-'} (รอบที่ ${round})\nQR อายุ ~1 นาที จะเปลี่ยนรูปให้อัตโนมัติ • รอได้อีก ~${minutesLeft} นาที`, thaidOpenPageUrl(txId));
             }
         });
         const authenticated = login.authenticated;

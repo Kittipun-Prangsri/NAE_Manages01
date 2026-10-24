@@ -34,6 +34,20 @@ export function parseThaidRefCode(text) {
     return match ? match[1] : null;
 }
 
+/**
+ * ThaiD's QR encodes cdt://imauth.bora.dopa.go.th?txID=<tx>&to=external, which
+ * also opens the ThaiD app directly on a phone.  Telegram buttons only accept
+ * https, so the button goes through /api/thaid-open on our server, which hands
+ * the phone this cdt:// link.
+ */
+export function thaidAppLink(txId) {
+    return `cdt://imauth.bora.dopa.go.th?txID=${encodeURIComponent(txId)}&to=external`;
+}
+
+export function thaidOpenPageUrl(txId, base = process.env.THAID_LINK_BASE_URL || 'https://naeline.khostime.site') {
+    return txId ? `${base.replace(/\/$/, '')}/api/thaid-open?tx=${encodeURIComponent(txId)}` : null;
+}
+
 export function dataUrlToBuffer(dataUrl) {
     const match = /^data:image\/\w+;base64,(.+)$/.exec(dataUrl || '');
     return match ? Buffer.from(match[1], 'base64') : null;
@@ -47,7 +61,10 @@ export async function readThaidQr(page) {
         return { src: img ? img.getAttribute('src') : null, text: document.body?.innerText || '' };
     }).catch(() => null);
     if (!raw?.src) return null;
+    let txId = null;
+    try { txId = new URL(page.url()).searchParams.get('txID'); } catch { /* not a ThaiD URL */ }
     return {
+        txId,
         dataUrl: raw.src,
         refCode: parseThaidRefCode(raw.text),
         secondsLeft: parseThaidCountdown(raw.text) ?? DEFAULT_QR_TTL_SECONDS
@@ -140,12 +157,17 @@ export function createTelegramQrNotifier(token, chatIds) {
     }
 
     return {
-        async show(buffer, caption) {
+        // openUrl (optional): adds a button that opens the ThaiD app on the same phone.
+        async show(buffer, caption, openUrl = null) {
             if (!enabled || !buffer) return;
+            const replyMarkup = openUrl
+                ? JSON.stringify({ inline_keyboard: [[{ text: '📲 เปิดแอป ThaiD (กดบนมือถือเครื่องนี้)', url: openUrl }]] })
+                : null;
             for (const chatId of chatIds) {
                 try {
                     const form = new FormData();
                     form.append('chat_id', chatId);
+                    if (replyMarkup) form.append('reply_markup', replyMarkup);
                     const blob = new Blob([buffer], { type: 'image/png' });
                     if (messages.has(chatId)) {
                         form.append('message_id', String(messages.get(chatId)));

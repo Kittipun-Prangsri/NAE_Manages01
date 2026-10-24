@@ -10,7 +10,7 @@ import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
 import { createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 import { chooseEndpointReason, getEndpointCandidates } from '../backend/endpointCandidates.js';
 import { acquirePortalLock, PORTAL_LOCK_KEY } from './keep-alive-nhso.js';
-import { createTelegramQrNotifier, isThaidExpiredUrl, loginWithThaid, readThaidQr } from './thaidLogin.js';
+import { createTelegramQrNotifier, isThaidExpiredUrl, loginWithThaid, readThaidQr, thaidOpenPageUrl } from './thaidLogin.js';
 
 // NHSO endpoint ("ยืนยันตัวตนแทนผู้เข้ารับบริการ") for visits that still need it.
 // For each patient the bot fills the form; the officer then scans the ThaiD QR
@@ -258,7 +258,7 @@ async function officerScan(page, row, caption) {
         if (!qr) throw new Error('ไม่พบ QR ของผู้รับรอง');
 
         const notifier = createTelegramQrNotifier(telegramTarget().token, telegramTarget().chatIds);
-        await notifier.show(qr.buffer || Buffer.from(qr.dataUrl.split(',')[1], 'base64'), `${caption}\nเลขอ้างอิง ${qr.refCode || '-'} • QR อายุ ~1 นาที`);
+        await notifier.show(qr.buffer || Buffer.from(qr.dataUrl.split(',')[1], 'base64'), `${caption}\nเลขอ้างอิง ${qr.refCode || '-'} • QR อายุ ~1 นาที`, thaidOpenPageUrl(qr.txId));
         const expiresAt = Date.now() + qr.secondsLeft * 1000 + 5000;
 
         while (Date.now() < expiresAt) {
@@ -399,7 +399,7 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
         const loginQr = createTelegramQrNotifier(telegramTarget().token, telegramTarget().chatIds);
         const login = await loginWithThaid(page, {
             portalUrl: PORTAL_URL,
-            onQr: ({ buffer, refCode, round }) => loginQr.show(buffer, `📲 [Endpoint] สแกน ThaiD เพื่อเข้าสู่ระบบ สปสช.\nเลขอ้างอิง: ${refCode || '-'} (รอบที่ ${round})`)
+            onQr: ({ buffer, refCode, round, txId }) => loginQr.show(buffer, `📲 [Endpoint] สแกน ThaiD เพื่อเข้าสู่ระบบ สปสช.\nเลขอ้างอิง: ${refCode || '-'} (รอบที่ ${round})`, thaidOpenPageUrl(txId))
         });
         if (!login.authenticated) throw new Error('เข้าสู่ระบบ ThaiD ไม่สำเร็จ');
         if (login.rounds > 0) await loginQr.finish('✅ เข้าสู่ระบบแล้ว กำลังเริ่ม Endpoint');

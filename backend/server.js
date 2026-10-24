@@ -38,6 +38,7 @@ import { applySecurityHeaders, isPublicScreenshotAccessEnabled } from './securit
 import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
+import { thaidAppLink } from '../jobs/thaidLogin.js';
 import { runEndpointBatch } from '../jobs/nhso-endpoint.js';
 import { keepAliveNhsoSession, getNhsoSessionStatusInfo } from '../jobs/keep-alive-nhso.js';
 import visitRoutes from './routes/visitRoutes.js';
@@ -272,6 +273,23 @@ async function finishSyncRun(id, status, totalRecords, message, error = null, re
         logger.error('❌ Failed to update sync run audit:', dbError.message);
     }
 }
+
+// Telegram buttons only accept https links: this page hands the phone the
+// ThaiD app link (the same cdt:// link the QR encodes).  Public on purpose;
+// the transaction id is single-use and expires in about a minute.
+app.get('/api/thaid-open', (req, res) => {
+    const tx = String(req.query.tx || '');
+    if (!/^[0-9a-f-]{36}$/i.test(tx)) return res.status(400).send('ลิงก์ไม่ถูกต้อง');
+    const appLink = thaidAppLink(tx);
+    res.set('Cache-Control', 'no-store');
+    res.type('html').send(`<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>เปิดแอป ThaiD</title></head>
+<body style="font-family:sans-serif;text-align:center;padding:48px 20px;background:#f8fafc;color:#0f172a">
+<h2 style="margin:0 0 8px">กำลังเปิดแอป ThaiD…</h2>
+<p style="color:#475569">ถ้าแอปไม่เปิดเอง กดปุ่มด้านล่าง (ลิงก์ใช้ได้ประมาณ 1 นาที)</p>
+<a href="${appLink}" style="display:inline-block;margin-top:16px;padding:14px 28px;border-radius:12px;background:#1d4ed8;color:#fff;text-decoration:none;font-size:18px">เปิดแอป ThaiD</a>
+<script>location.href = ${JSON.stringify(appLink)};</script>
+</body></html>`);
+});
 
 app.get('/api/health', async (req, res) => {
     const health = {

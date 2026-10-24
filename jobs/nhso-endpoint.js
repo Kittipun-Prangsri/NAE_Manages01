@@ -230,7 +230,7 @@ function handleDialog(dialog) {
  * Clicks save, confirms any in-page "are you sure" prompt, and treats the
  * print prompt (or a success message) as proof the record was saved.
  */
-async function save(page) {
+export async function saveEndpointForm(page) {
     dialogState.accept = true;
     dialogState.messages = [];
     // One page-side routine for every modal step, so detecting a prompt and
@@ -348,7 +348,7 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
                 if (!(await selectProxyRole(page))) {
                     throw Object.assign(new Error(`ไม่พบตัวเลือก "${PROXY_ROLE}" ในฟอร์ม — ไม่บันทึก`), { status: 'needs_review' });
                 }
-                const saved = await save(page);
+                const saved = await saveEndpointForm(page);
                 if (!saved.ok) {
                     await page.screenshot({ path: shot, fullPage: true });
                     await logCase(row, reason, 'save_unconfirmed', `กดบันทึกแล้วไม่เห็นหน้าพิมพ์: ${saved.detail}`);

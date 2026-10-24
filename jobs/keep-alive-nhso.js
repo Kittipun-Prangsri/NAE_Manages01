@@ -8,7 +8,7 @@ import { execSync } from 'child_process';
 import logger from '../backend/logger.js';
 import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
 import { trackerPool } from '../backend/db.js';
-import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
+import { acquireSchedulerLock, createSchedulerHolderId, releaseLockIfHolderDead, releaseSchedulerLock } from '../backend/schedulerLock.js';
 
 dotenv.config();
 puppeteer.use(StealthPlugin());
@@ -78,6 +78,33 @@ async function notifySessionExpired() {
     }
 }
 
+export const PORTAL_LOCK_KEY = 'nhso_portal_download';
+const KEEP_ALIVE_TIMEOUT_MS = 3 * 60 * 1000;
+
+/** Kills Chromium processes using the shared portal profile (Linux/macOS only). */
+export function killProfileBrowsers() {
+    if (process.platform === 'win32') return;
+    try {
+        // "[u]ser" keeps the pattern from matching this pkill command itself.
+        execSync('pkill -f "[u]ser-data-dir=.*puppeteer_session" || true');
+    } catch (err) {
+        logger.warn({ err: err.message }, '⚠️ Could not pkill stale browsers:');
+    }
+}
+
+/**
+ * Acquires the lock shared by every job that drives the portal profile.  A lock
+ * left behind by a process that was killed mid-job (e.g. a PM2 restart) is
+ * released immediately, together with the browser that process orphaned.
+ */
+export async function acquirePortalLock(holderId) {
+    if (await releaseLockIfHolderDead(trackerPool, PORTAL_LOCK_KEY)) {
+        logger.warn('🧹 Released a portal lock left by a stopped process; closing its orphaned browser.');
+        killProfileBrowsers();
+    }
+    return acquireSchedulerLock(trackerPool, PORTAL_LOCK_KEY, holderId);
+}
+
 export async function keepAliveNhsoSession() {
     const url = process.env.NHSO_PORTAL_URL || 'https://authenservice.nhso.go.th/authencode/';
     logger.info('⏰ [Keep-Alive] Starting background NHSO portal keep-alive...');
@@ -85,9 +112,15 @@ export async function keepAliveNhsoSession() {
     let browser;
     const lockHolderId = createSchedulerHolderId();
     let lockAcquired = false;
+    // A hung page must not hold the shared lock for its whole TTL: closing the
+    // browser makes the pending Puppeteer call fail and the lock is released.
+    const watchdog = setTimeout(() => {
+        logger.warn('⚠️ [Keep-Alive] Took longer than 3 minutes; closing browser.');
+        browser?.close().catch(() => {});
+    }, KEEP_ALIVE_TIMEOUT_MS);
     try {
         // Share the downloader's lock: both use the same Chromium profile.
-        lockAcquired = await acquireSchedulerLock(trackerPool, 'nhso_portal_download', lockHolderId);
+        lockAcquired = await acquirePortalLock(lockHolderId);
         if (!lockAcquired) {
             logger.info('ℹ️ [Keep-Alive] Portal download is running; skipping this keep-alive.');
             return;
@@ -156,12 +189,13 @@ export async function keepAliveNhsoSession() {
         logger.error({ err: error.message }, '❌ [Keep-Alive] Error during session keep-alive:');
         saveNhsoSessionStatusInfo('error', `เกิดข้อผิดพลาดในการตรวจสอบเซสชัน: ${error.message}`);
     } finally {
+        clearTimeout(watchdog);
         if (browser) {
-            await browser.close();
+            await browser.close().catch(() => {});
             logger.info('🔒 [Keep-Alive] Browser closed.');
         }
         if (lockAcquired) {
-            await releaseSchedulerLock(trackerPool, 'nhso_portal_download', lockHolderId).catch(err => {
+            await releaseSchedulerLock(trackerPool, PORTAL_LOCK_KEY, lockHolderId).catch(err => {
                 logger.error({ err: err.message }, '❌ [Keep-Alive] Could not release portal lock:');
             });
         }

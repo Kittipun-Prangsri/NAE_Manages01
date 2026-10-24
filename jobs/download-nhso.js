@@ -22,7 +22,7 @@ import { execSync } from 'child_process';
 import { trackerPool } from '../backend/db.js';
 import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 import logger from '../backend/logger.js';
-import { saveNhsoSessionStatusInfo } from './keep-alive-nhso.js';
+import { saveNhsoSessionStatusInfo, acquirePortalLock, killProfileBrowsers, PORTAL_LOCK_KEY } from './keep-alive-nhso.js';
 import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
 import { loginWithThaid, createTelegramQrNotifier, saveQrFile } from './thaidLogin.js';
 
@@ -66,14 +66,14 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         // All portal jobs share one browser profile.  A database-backed lock
         // prevents manual, scheduled and Telegram triggers from launching
         // Chromium against that profile at the same time.
-        portalLockAcquired = await acquireSchedulerLock(trackerPool, 'nhso_portal_download', portalLockHolderId);
+        portalLockAcquired = await acquirePortalLock(portalLockHolderId);
         // The keep-alive holds this lock for a short time every 30 minutes;
         // wait for it instead of rejecting the user's request straight away.
         const lockWaitDeadline = Date.now() + 3 * 60 * 1000;
         if (!portalLockAcquired && statusCallback) statusCallback('waiting_lock', 'รอให้งานตรวจเซสชัน สปสช. ที่กำลังทำงานอยู่เสร็จก่อน...');
         while (!portalLockAcquired && Date.now() < lockWaitDeadline) {
             await new Promise(resolve => setTimeout(resolve, 5000));
-            portalLockAcquired = await acquireSchedulerLock(trackerPool, 'nhso_portal_download', portalLockHolderId);
+            portalLockAcquired = await acquirePortalLock(portalLockHolderId);
         }
         if (!portalLockAcquired) {
             const message = 'มีงานดาวน์โหลดรายงาน สปสช. กำลังทำงานอยู่แล้ว';
@@ -273,7 +273,7 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         }
         fs.rmSync(runDownloadDir, { recursive: true, force: true });
         if (portalLockAcquired) {
-            await releaseSchedulerLock(trackerPool, 'nhso_portal_download', portalLockHolderId);
+            await releaseSchedulerLock(trackerPool, PORTAL_LOCK_KEY, portalLockHolderId);
         }
     }
 }

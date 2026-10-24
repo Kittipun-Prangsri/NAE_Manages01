@@ -38,6 +38,7 @@ import { applySecurityHeaders, isPublicScreenshotAccessEnabled } from './securit
 import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
+import { runEndpointBatch } from '../jobs/nhso-endpoint.js';
 import { keepAliveNhsoSession, getNhsoSessionStatusInfo } from '../jobs/keep-alive-nhso.js';
 import visitRoutes from './routes/visitRoutes.js';
 import logger from './logger.js';
@@ -1773,6 +1774,38 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
         await finishSyncRun(syncRunId, 'failed', 0, 'NHSO portal sync crashed', err.message);
     }
 }
+
+// --- NHSO endpoint batch (web button) ---
+// Same job as the Telegram "endpoint" command; the officer still scans each
+// ThaiD QR in Telegram.  Only one batch runs at a time per server process.
+let endpointRunStatus = { status: 'idle', dryRun: true, total: 0, done: 0, message: '', results: null, startedAt: null, finishedAt: null };
+
+app.post('/api/endpoint/run', authenticateToken, requireAdmin, (req, res) => {
+    if (endpointRunStatus.status === 'running') {
+        return res.status(409).json({ success: false, message: 'มีงาน Endpoint กำลังทำงานอยู่ กรุณารอให้เสร็จก่อน' });
+    }
+    const dryRun = req.body?.dry_run !== false;
+    logger.info(`🩺 [Endpoint] Web ${dryRun ? 'dry run' : 'save'} requested by ${req.user?.username}`);
+    endpointRunStatus = { status: 'running', dryRun, total: 0, done: 0, message: 'กำลังเริ่ม...', results: null, startedAt: new Date(), finishedAt: null };
+
+    runEndpointBatch({
+        dryRun,
+        onProgress: progress => { endpointRunStatus = { ...endpointRunStatus, ...progress }; }
+    })
+        .then(results => {
+            endpointRunStatus = { ...endpointRunStatus, status: 'done', results, finishedAt: new Date() };
+        })
+        .catch(err => {
+            logger.error({ err: err.message }, '❌ [Endpoint] Web batch failed:');
+            endpointRunStatus = { ...endpointRunStatus, status: 'failed', message: err.message, finishedAt: new Date() };
+        });
+
+    res.json({ success: true, message: 'เริ่มงาน Endpoint แล้ว' });
+});
+
+app.get('/api/endpoint/status', authenticateToken, (req, res) => {
+    res.json(endpointRunStatus);
+});
 
 app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
     try {

@@ -362,7 +362,7 @@ export function parseEndpointCommand(text) {
     };
 }
 
-export async function runEndpointBatch({ visitDate = today(), dryRun = true, limit = 10, vn = null } = {}) {
+export async function runEndpointBatch({ visitDate = today(), dryRun = true, limit = 10, vn = null, onProgress = () => {} } = {}) {
     if (!dryRun && visitDate !== today()) {
         throw new Error('บันทึกจริงได้เฉพาะวันนี้ (วันที่เข้ารับบริการในฟอร์มตั้งเป็นวันนี้อัตโนมัติ)');
     }
@@ -377,6 +377,7 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
     const batch = candidates.slice(0, limit);
     const mode = dryRun ? 'ทดลอง (ไม่บันทึก)' : 'บันทึกจริง';
     logger.info(`🩺 [Endpoint] ${mode}: ${batch.length}/${candidates.length} case(s) for ${visitDate}`);
+    onProgress({ total: batch.length, done: 0, message: `${mode}: ${batch.length} ราย` });
     if (batch.length === 0) {
         await sendTelegram(`🩺 Endpoint ${visitDate}: ไม่มีรายการที่ต้องทำ`);
         return { processed: 0 };
@@ -406,6 +407,7 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
         for (const [index, row] of batch.entries()) {
             const amount = Number(row.uc_money).toFixed(2);
             let reason = null;
+            onProgress({ total: batch.length, done: index, message: `ราย ${index + 1}/${batch.length} (VN ${row.vn}, ${amount} บาท): ${dryRun ? 'กำลังเติมฟอร์ม' : 'เติมฟอร์ม แล้วรอสแกน QR ผู้รับรองใน Telegram'}` });
             try {
                 reason = await fillForm(page, row);
                 const caption = `🩺 Endpoint ราย ${index + 1}/${batch.length}\nVN ${row.vn} • อายุ ${row.age_y} ปี\nค่าบริการที่เบิกได้ ${amount} บาท\nเหตุผล: ${reason}`;
@@ -463,6 +465,7 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
         : `🩺 จบ Endpoint ${visitDate}: บันทึก ${results.saved} ราย, ข้าม ${results.skipped}, ผิดพลาด ${results.failed}`;
     await sendTelegram(summary);
     logger.info(summary);
+    onProgress({ total: batch.length, done: batch.length, message: summary });
     return results;
 }
 

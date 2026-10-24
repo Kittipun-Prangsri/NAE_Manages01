@@ -5,7 +5,7 @@ import { appState, domRefs, TRACKER_PAGE_SIZE, TRACKER_COLUMN_FILTERS, activeCol
 import { handleApiResponse } from './auth.js';
 import { escapeHtml } from './uploader.js';
 import { exportToCsv } from './utils.js';
-import { notify } from './notify.js';
+import { notify, confirmDialog } from './notify.js';
 
 export function closeTrackerColumnFilterMenu() {
     document.getElementById('tracker-column-filter-menu')?.remove();
@@ -437,6 +437,13 @@ export async function openUcPendingListModal() {
     if (!dialog || !tbody) return;
 
     tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500"><i class="fas fa-spinner fa-spin mr-2"></i> กำลังโหลดข้อมูล...</td></tr>';
+    // Endpoint buttons call admin-only APIs.
+    document.getElementById('endpoint-run-bar')?.classList.toggle('hidden', appState.user?.role !== 'admin');
+    api.fetchEndpointStatus(appState.token).then(response => {
+        if (!response.ok) return;
+        if (response.data.status !== 'idle') renderEndpointStatus(response.data);
+        if (response.data.status === 'running' && !endpointPollTimer) pollEndpointStatus();
+    }).catch(() => {});
     emptyState?.classList.add('hidden');
 
     if (typeof dialog.showModal === 'function') {
@@ -512,6 +519,57 @@ export async function openUcPendingListModal() {
             tbody.appendChild(tr);
         });
     }
+}
+
+let endpointPollTimer = null;
+
+function renderEndpointStatus(data) {
+    const statusEl = document.getElementById('endpoint-run-status');
+    const running = data.status === 'running';
+    ['endpoint-dry-run-btn', 'endpoint-save-run-btn'].forEach(id => {
+        const button = document.getElementById(id);
+        if (button) button.disabled = running;
+    });
+    if (!statusEl) return;
+    const prefix = running ? '⏳' : data.status === 'failed' ? '❌' : data.status === 'done' ? '✅' : '';
+    const progress = running && data.total ? ` (${data.done}/${data.total})` : '';
+    statusEl.textContent = `${prefix} ${data.message || ''}${progress}`.trim();
+}
+
+function pollEndpointStatus() {
+    clearInterval(endpointPollTimer);
+    endpointPollTimer = setInterval(async () => {
+        try {
+            const response = await api.fetchEndpointStatus(appState.token);
+            if (!response.ok) return;
+            renderEndpointStatus(response.data);
+            if (response.data.status !== 'running') {
+                clearInterval(endpointPollTimer);
+                endpointPollTimer = null;
+                // Refresh the list so saved visits drop off (only while it is open).
+                if (document.getElementById('uc-pending-list-dialog')?.open) openUcPendingListModal();
+            }
+        } catch (err) {
+            console.error('Failed to poll endpoint status:', err);
+        }
+    }, 3000);
+}
+
+/** Starts the NHSO endpoint batch from the web (same job as the Telegram "endpoint" command). */
+export async function handleEndpointRun(dryRun) {
+    const message = dryRun
+        ? 'ระบบจะเติมฟอร์ม Endpoint ของผู้ป่วยวันนี้ทุกราย แล้วส่งภาพให้ตรวจใน Telegram โดยยังไม่บันทึก'
+        : 'ระบบจะทำ Endpoint ผู้ป่วยวันนี้ทุกรายที่ยังไม่ได้ทำ (ครั้งละไม่เกิน 10 ราย)\nแต่ละรายจะส่ง QR ผู้รับรองเข้า Telegram — ตรวจยอดเงินและเหตุผลก่อนสแกนทุกครั้ง';
+    if (!await confirmDialog(message, { title: dryRun ? 'ทดลอง Endpoint' : 'ทำ Endpoint ทั้งหมด', confirmText: dryRun ? 'เริ่มทดลอง' : 'เริ่มบันทึก' })) return;
+
+    const response = await api.runEndpointBatch(dryRun, appState.token);
+    if (!response.ok) {
+        notify.warning(response.data?.message || 'เริ่มงาน Endpoint ไม่สำเร็จ');
+        return;
+    }
+    notify.success(dryRun ? 'เริ่มทดลอง Endpoint แล้ว ดูภาพใน Telegram' : 'เริ่มทำ Endpoint แล้ว รอสแกน QR ใน Telegram');
+    renderEndpointStatus({ status: 'running', message: 'กำลังเริ่ม...' });
+    pollEndpointStatus();
 }
 
 export function clearTrackerDashboardFilter() {

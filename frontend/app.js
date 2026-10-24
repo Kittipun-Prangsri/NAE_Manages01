@@ -43,6 +43,7 @@ import {
     clearTrackerDashboardFilter,
     handleExportErrors,
     openUcPendingListModal,
+    handleEndpointRun,
     handleGroupInsightDepartmentClick,
     applyTrackerDashboardFilter
 } from './tracker.js';
@@ -157,6 +158,8 @@ function setupEventListeners() {
     document.getElementById('tracker-retry-btn')?.addEventListener('click', () => loadDashboardData());
     document.getElementById('refresh-nhso-session-btn')?.addEventListener('click', handleRefreshNhsoSession);
     document.getElementById('uc-pending-total-count-card')?.addEventListener('click', openUcPendingListModal);
+    document.getElementById('endpoint-dry-run-btn')?.addEventListener('click', () => handleEndpointRun(true));
+    document.getElementById('endpoint-save-run-btn')?.addEventListener('click', () => handleEndpointRun(false));
     document.getElementById('uc-insight-refresh-btn')?.addEventListener('click', refreshGroupInsights);
     domRefs.visitDateInput?.addEventListener('change', () => loadDashboardData());
 

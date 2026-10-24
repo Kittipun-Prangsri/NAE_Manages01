@@ -1721,6 +1721,15 @@
                         aria-hidden="true"></i></button>
             </form>
         </div>
+        <div id="endpoint-run-bar" class="mx-5 mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-700 dark:bg-slate-800/50">
+            <button id="endpoint-dry-run-btn" type="button" class="btn btn-sm h-8">
+                <i class="fas fa-eye" aria-hidden="true"></i> ทดลอง Endpoint
+            </button>
+            <button id="endpoint-save-run-btn" type="button" class="btn btn-sm btn-success h-8">
+                <i class="fas fa-check-double" aria-hidden="true"></i> ทำ Endpoint ทั้งหมด
+            </button>
+            <span id="endpoint-run-status" class="text-slate-500 dark:text-slate-400">บันทึกจริงได้เฉพาะผู้ป่วยวันนี้ • สแกน QR ผู้รับรองใน Telegram ทีละราย</span>
+        </div>
         <div class="p-5 overflow-x-auto">
             <table class="data-table w-full text-left border-collapse min-w-[700px] text-xs">
                 <thead>

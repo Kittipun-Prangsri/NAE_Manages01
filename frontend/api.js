@@ -73,6 +73,22 @@ const rawApi = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
+    async runEndpointBatch(dryRun, token) {
+        const res = await fetch(`${API_BASE}/endpoint/run`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dry_run: dryRun })
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async fetchEndpointStatus(token) {
+        const res = await fetch(`${API_BASE}/endpoint/status`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
     async fetchSyncStatus(token) {
         const res = await fetch(`${API_BASE}/sync/status`, {
             headers: { 'Authorization': `Bearer ${token}` }

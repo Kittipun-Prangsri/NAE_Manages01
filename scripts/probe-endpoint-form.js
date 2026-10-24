@@ -125,15 +125,32 @@ async function run() {
 
         // The page opens on the patient self-verification tab; the endpoint flow
         // used by staff is the guardian/officer tab.  Tabs are styled radios/labels.
-        const switched = await page.evaluate(() => {
-            const tab = [...document.querySelectorAll('label, button, a, li, span')]
-                .find(el => /ยืนยันตัวตนแทนผู้เข้ารับบริการ/.test(el.innerText || '') && (el.innerText || '').length < 120);
-            tab?.click();
-            return tab ? tab.innerText.trim() : null;
-        });
-        console.log(switched ? `\n🗂️ เปลี่ยนไปแท็บ "${switched}"` : '\n⚠️ ไม่พบแท็บ "ยืนยันตัวตนแทนผู้เข้ารับบริการ"');
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        // Use the innermost element carrying the tab text and a real mouse click
+        // (some frameworks ignore synthetic element.click()).
+        const tabHandle = await page.evaluateHandle(() => [...document.querySelectorAll('label, button, a, li, span, div')]
+            .filter(el => /ยืนยันตัวตนแทนผู้เข้ารับบริการ/.test(el.innerText || '') && (el.innerText || '').length < 120)
+            .pop() || null);
+        const tabInfo = await tabHandle.evaluate(el => el && { tag: el.tagName.toLowerCase(), id: el.id, for: el.getAttribute('for'), cls: el.className, text: el.innerText.trim() });
+        if (tabInfo) {
+            await tabHandle.asElement().click();
+            console.log(`\n🗂️ คลิกแท็บ <${tabInfo.tag}${tabInfo.id ? ` id="${tabInfo.id}"` : ''}${tabInfo.for ? ` for="${tabInfo.for}"` : ''} class="${tabInfo.cls}"> "${tabInfo.text}"`);
+        } else {
+            console.log('\n⚠️ ไม่พบแท็บ "ยืนยันตัวตนแทนผู้เข้ารับบริการ"');
+        }
+        const textInputAppeared = await page.waitForFunction(
+            () => [...document.querySelectorAll('input')].some(i => !['radio', 'checkbox', 'hidden', 'submit', 'button'].includes(i.type) && i.offsetParent !== null),
+            { timeout: 8000 }
+        ).then(() => true, () => false);
         const proxyTab = await snapshot(page, '1b-proxy-tab');
+        if (!textInputAppeared) {
+            // Print every input, hidden ones included, to see how the tabs are built.
+            const allInputs = await page.evaluate(() => [...document.querySelectorAll('input, select, textarea')].map(el => ({
+                tag: el.tagName.toLowerCase(), type: el.type, id: el.id, name: el.name, value: el.type === 'radio' ? `${el.value}${el.checked ? ' (checked)' : ''}` : '',
+                visible: el.offsetParent !== null, placeholder: el.placeholder || ''
+            })));
+            console.log('\n🔎 ทุกช่องในหน้า (รวมช่องที่ซ่อนอยู่):');
+            for (const i of allInputs) console.log(`   ${i.visible ? '👁' : '🙈'} ${i.tag}[${i.type}] id="${i.id}" name="${i.name}" ${i.value} ${i.placeholder}`);
+        }
 
         if (cid) {
             // Type the CID into the 13-digit text field and search; never save.

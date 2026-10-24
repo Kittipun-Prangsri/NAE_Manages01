@@ -18,9 +18,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { execSync } from 'child_process';
 import { trackerPool } from '../backend/db.js';
-import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
+import { createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 import logger from '../backend/logger.js';
 import { saveNhsoSessionStatusInfo, acquirePortalLock, killProfileBrowsers, PORTAL_LOCK_KEY } from './keep-alive-nhso.js';
 import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
@@ -83,17 +82,10 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         }
         const sessionPath = path.join(__dirname, '../puppeteer_session');
         
-        // Terminate stale Chrome/Chromium processes under Linux to release lock handles
+        // Only kill browsers using this profile; other jobs (dashboard capture) keep running.
         if (process.platform === 'linux') {
-            try {
-                // Only kill browsers using this profile; other jobs (dashboard capture) keep running.
-                // "[u]ser" keeps the pattern from matching this pkill command itself.
-                execSync('pkill -f "[u]ser-data-dir=.*puppeteer_session" || true');
-                logger.info('🧹 Cleaned up stale background browser processes.');
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            } catch (err) {
-                logger.warn({ err: err.message }, '⚠️ Warning: Could not pkill stale browsers:');
-            }
+            killProfileBrowsers();
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
         const lockFile = path.join(sessionPath, 'SingletonLock');

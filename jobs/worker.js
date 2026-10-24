@@ -213,7 +213,7 @@ async function sendTelegramMessage(token, chatId, text) {
 }
 
 async function sendLineMessage(text) {
-    logger.info({ err: text }, 'ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:');
+    logger.info({ detail: text }, 'ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:');
 }
 
 async function runE2EPortalSyncAndCapture(targetChatId) {

@@ -46,12 +46,16 @@ module.exports = {
             env: {
                 PORT: 3005,
                 NODE_ENV: 'development',
-                ENABLE_SERVER_BACKGROUND_JOBS: 'false'
+                ENABLE_SERVER_BACKGROUND_JOBS: 'false',
+                // Silence dotenv's "injected env" banner that floods the logs.
+                DOTENV_CONFIG_QUIET: 'true'
             },
             env_production: {
                 PORT: 3005,
                 NODE_ENV: 'production',
-                ENABLE_SERVER_BACKGROUND_JOBS: 'false'
+                ENABLE_SERVER_BACKGROUND_JOBS: 'false',
+                // Silence dotenv's "injected env" banner that floods the logs.
+                DOTENV_CONFIG_QUIET: 'true'
             }
         },
         {
@@ -70,11 +74,15 @@ module.exports = {
             time: true,
             env: {
                 NODE_ENV: 'development',
-                ENABLE_SERVER_BACKGROUND_JOBS: 'false'
+                ENABLE_SERVER_BACKGROUND_JOBS: 'false',
+                // Silence dotenv's "injected env" banner that floods the logs.
+                DOTENV_CONFIG_QUIET: 'true'
             },
             env_production: {
                 NODE_ENV: 'production',
-                ENABLE_SERVER_BACKGROUND_JOBS: 'false'
+                ENABLE_SERVER_BACKGROUND_JOBS: 'false',
+                // Silence dotenv's "injected env" banner that floods the logs.
+                DOTENV_CONFIG_QUIET: 'true'
             }
         }
     ]

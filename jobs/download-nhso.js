@@ -166,7 +166,10 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         
         logger.info('⏳ Waiting for page elements to load...');
         await page.waitForSelector('button[type="submit"]', { timeout: 20000 });
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // Wait for the form itself instead of a fixed delay.
+        await page.waitForFunction(() => document.querySelectorAll('input[name="date"]').length >= 2, { timeout: 20000 });
+        // Short settle so the app does not reset the dates we are about to type.
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         // Format dates
         let dateToQuery = new Date();
@@ -184,63 +187,37 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         const date_be = `${dd}/${mm}/${yyyy_be}`;
         const date_ad = `${dd}/${mm}/${yyyy_ad}`;
 
-        logger.info(`📅 Prepared search dates -> BE: ${date_be}, AD: ${date_ad}`);
+        logger.info(`📅 Prepared search dates -> AD: ${date_ad}, BE: ${date_be}`);
         if (statusCallback) statusCallback('searching_data', `กำลังสืบค้นรายงานของวันที่ ${date_be}...`);
 
-        // Fill dates in inputs (try BE first)
-        logger.info(`✍️ Setting date inputs to (BE): ${date_be}...`);
-        await page.evaluate((val) => {
-            const inputs = document.querySelectorAll('input[name="date"]');
-            if (inputs.length >= 2) {
-                inputs[0].value = val;
-                inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
-                inputs[0].dispatchEvent(new Event('change', { bubbles: true }));
-                
-                inputs[1].value = val;
-                inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
-                inputs[1].dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        }, date_be);
-
-        // Click search (defaults to Today)
-        logger.info('🔍 Clicking "ค้นหา" to query today\'s report...');
-        await page.click('button[type="submit"]');
-
-        // Wait for download button to be enabled
-        logger.info('⏳ Waiting for "ดาวน์โหลดรายงาน" button to be active (BE Try)...');
-        let downloadBtnSelector = 'button.btn-default.float-end:not([disabled])';
-        let downloadBtnReady = false;
-
-        try {
-            await page.waitForSelector(downloadBtnSelector, { timeout: 15000 });
-            downloadBtnReady = true;
-        } catch (err) {
-            logger.info('⚠️ BE date search did not enable download button, trying AD year format...');
-            
-            // Fallback to AD date
-            logger.info(`✍️ Setting date inputs to (AD): ${date_ad}...`);
+        // The portal currently accepts the AD year; BE is kept as a fallback in
+        // case it switches back.  Trying AD first avoids a 15s timeout per run.
+        const downloadBtnSelector = 'button.btn-default.float-end:not([disabled])';
+        const attempts = [['AD', date_ad, 15000], ['BE', date_be, 30000]];
+        for (const [index, [label, value, timeout]] of attempts.entries()) {
+            logger.info(`✍️ Setting date inputs to (${label}): ${value}...`);
             await page.evaluate((val) => {
-                const inputs = document.querySelectorAll('input[name="date"]');
-                if (inputs.length >= 2) {
-                    inputs[0].value = val;
-                    inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
-                    inputs[0].dispatchEvent(new Event('change', { bubbles: true }));
-                    
-                    inputs[1].value = val;
-                    inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
-                    inputs[1].dispatchEvent(new Event('change', { bubbles: true }));
+                for (const input of [...document.querySelectorAll('input[name="date"]')].slice(0, 2)) {
+                    input.value = val;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
                 }
-            }, date_ad);
+            }, value);
 
-            logger.info('🔍 Clicking "ค้นหา" button again...');
+            logger.info(`🔍 Clicking "ค้นหา" (${label})...`);
             await page.click('button[type="submit"]');
-
-            logger.info('⏳ Waiting for "ดาวน์โหลดรายงาน" button to be active (AD Try)...');
-            await page.waitForSelector(downloadBtnSelector, { timeout: 30000 });
-            downloadBtnReady = true;
+            try {
+                await page.waitForSelector(downloadBtnSelector, { timeout });
+                break;
+            } catch (err) {
+                if (index === attempts.length - 1) {
+                    throw new Error(`ไม่พบรายงานของวันที่ ${date_be} (ปุ่มดาวน์โหลดไม่พร้อมใช้งาน)`);
+                }
+                logger.info(`⚠️ ${label} date search did not enable download button, trying next format...`);
+            }
         }
-        
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        // Let the result table finish rendering before downloading.
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         logger.info('📥 Clicking "ดาวน์โหลดรายงาน" button...');
         if (statusCallback) statusCallback('downloading_file', 'กำลังสั่งให้ระบบส่งรายงานและรอรับการดาวน์โหลดไฟล์ Excel...');

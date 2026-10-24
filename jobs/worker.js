@@ -27,6 +27,7 @@ import {
     runHosxpSync
 } from '../backend/dataService.js';
 import { processCrossCheck } from '../backend/crossCheckLogic.js';
+import { extractQueryDate } from '../backend/dateInput.js';
 import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
 import { keepAliveNhsoSession } from './keep-alive-nhso.js';
 import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
@@ -45,10 +46,10 @@ let activeCronTasks = [];
 let lastKnownSchedulesStr = '';
 const schedulerHolderId = createSchedulerHolderId();
 
-async function createScheduledSyncRun(visitDate) {
+async function createScheduledSyncRun(visitDate, source = 'worker-scheduler') {
     const [result] = await trackerPool.query(
         'INSERT INTO sync_runs (source, visit_date, status) VALUES (?, ?, "running")',
-        ['worker-scheduler', visitDate]
+        [source, visitDate]
     );
     return result.insertId;
 }
@@ -209,47 +210,42 @@ function formatSyncSummary(visitDate, processedData) {
     return `✅ นำเข้าข้อมูลวันที่ ${visitDate} สำเร็จ (${processedData.length} ราย)\nดูสรุปได้ที่ LINE OA กดปุ่ม "นำเข้าข้อมูล"`;
 }
 
-async function runE2EPortalSyncAndCapture(targetChatId) {
-    const visit_date = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+async function runE2EPortalSyncAndCapture(targetChatId, visit_date) {
     const token = process.env.WORKER_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+    let syncRunId = null;
     try {
-        const dlResult = await downloadNhsoReport();
-        if (dlResult.success && dlResult.filePath) {
-            logger.info(`📥 [Telegram Trigger] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
-            
-            // อ่าน Excel
-            const fileBuffer = fs.readFileSync(dlResult.filePath);
-            const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
-            const sheetName = workbook.SheetNames[0];
-            const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { 
-                raw: false, 
-                dateNF: 'yyyy-mm-dd hh:mm:ss' 
-            });
-            
-            // นำเข้าข้อมูลและประมวลผล Sync
-            await runHosxpSync(excelData, visit_date);
-            const hosxpData = await getHosxpVisits(visit_date);
-            const processedData = processCrossCheck(hosxpData, excelData);
-            await saveTrackingResults(processedData);
-            logger.info('✅ [Telegram Trigger] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
-            
-            // เคลียร์ไฟล์ดาวน์โหลด
-            cleanOldDownloads(downloadsDir);
-            
-            // แจ้งเตือนความสำเร็จ
-            await sendTelegramMessage(token, targetChatId, formatSyncSummary(visit_date, processedData));
-            await sendLineMessage(`✅ ดึงข้อมูลรายงานและประมวลผลข้อมูลประจำวันที่ ${visit_date} สำเร็จแล้ว!`);
-        } else {
+        // Recorded like scheduled runs so Telegram-triggered syncs show up in the sync history.
+        syncRunId = await createScheduledSyncRun(visit_date, 'telegram');
+        const dlResult = await downloadNhsoReport(visit_date);
+        if (!dlResult.success || !dlResult.filePath) {
             logger.warn(`⚠️ [Telegram Trigger] การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
-            await sendTelegramMessage(token, targetChatId, `❌ ดึงข้อมูลรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
-            await sendLineMessage(`❌ ดึงข้อมูลรายงานของวันที่ ${visit_date} ไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
+            await finishScheduledSyncRun(syncRunId, 'failed', 0, 'Telegram NHSO portal download failed', dlResult.error || 'Download failed');
+            await sendTelegramMessage(token, targetChatId, `❌ ดึงข้อมูลรายงานวันที่ ${visit_date} ไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
             return;
         }
+
+        logger.info(`📥 [Telegram Trigger] ดาวน์โหลดรายงานสำเร็จจาก สปสช: ${dlResult.filePath}`);
+        const fileBuffer = fs.readFileSync(dlResult.filePath);
+        const workbook = xlsx.read(fileBuffer, { type: 'buffer', cellDates: true });
+        const sheetName = workbook.SheetNames[0];
+        const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { 
+            raw: false, 
+            dateNF: 'yyyy-mm-dd hh:mm:ss' 
+        });
+
+        await runHosxpSync(excelData, visit_date);
+        const hosxpData = await getHosxpVisits(visit_date);
+        const processedData = processCrossCheck(hosxpData, excelData);
+        await saveTrackingResults(processedData);
+        cleanOldDownloads(downloadsDir);
+        logger.info('✅ [Telegram Trigger] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
+
+        await finishScheduledSyncRun(syncRunId, 'success', processedData.length, 'Telegram sync completed');
+        await sendTelegramMessage(token, targetChatId, formatSyncSummary(visit_date, processedData));
     } catch (err) {
         logger.error({ err: err }, '❌ [Telegram Trigger] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:');
+        if (syncRunId) await finishScheduledSyncRun(syncRunId, 'failed', 0, 'Telegram sync crashed', err.message).catch(() => {});
         await sendTelegramMessage(token, targetChatId, `❌ ข้อผิดพลาดภายในเซิร์ฟเวอร์: ${err.message}`);
-        await sendLineMessage(`❌ เกิดข้อผิดพลาดในเซิร์ฟเวอร์: ${err.message}`);
-        return;
     }
 }
 
@@ -317,15 +313,15 @@ async function startTelegramBotListener() {
                         const allowedChatIds = chatId.split(',').map(id => id.trim()).filter(id => id);
                         
                         if (allowedChatIds.includes(fromChatId)) {
-                            if (text === 'เข้าระบบ' || text === 'ดึงข้อมูล' || text.toLowerCase() === '/login' || text.toLowerCase() === '/sync') {
+                            // "ดึงข้อมูล" pulls today; "ดึงข้อมูล 23/10/2569" (any LINE date format) pulls that day.
+                            if (/^(เข้าระบบ|ดึงข้อมูล|\/login|\/sync)(\s|$)/i.test(text)) {
                                 logger.info(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
+                                const visitDate = extractQueryDate(text);
                                 
-                                // Send initial acknowledgment
-                                await sendTelegramMessage(token, fromChatId, '⏳ กำลังเตรียมการเข้าสู่ระบบ สปสช. และดึง QR Code ของ ThaiD...');
-                                await sendLineMessage('⏳ [Telegram Command] กำลังเตรียมการดึงข้อมูลและขอ QR Code สแกนผ่านแอป ThaiD...');
+                                await sendTelegramMessage(token, fromChatId, `⏳ กำลังดึงข้อมูลวันที่ ${visitDate} — เตรียมเข้าสู่ระบบ สปสช. และ QR Code ของ ThaiD...`);
                                 
-                                // Run the end-to-end sync and capture in the background
-                                runE2EPortalSyncAndCapture(fromChatId).catch(err => {
+                                // Run the end-to-end sync in the background
+                                runE2EPortalSyncAndCapture(fromChatId, visitDate).catch(err => {
                                     logger.error({ err: err }, 'Error running E2E portal sync via telegram command:');
                                 });
                             }

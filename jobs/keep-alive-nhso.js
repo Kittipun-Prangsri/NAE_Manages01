@@ -25,7 +25,7 @@ export function getNhsoSessionStatusInfo() {
             return JSON.parse(raw);
         }
     } catch (e) {
-        logger.warn('⚠️ Could not read session_status.json:', e.message);
+        logger.warn({ err: e.message }, '⚠️ Could not read session_status.json:');
     }
     return {
         status: 'unknown',
@@ -52,7 +52,7 @@ export function saveNhsoSessionStatusInfo(status, message, extraData = {}) {
         fs.writeFileSync(statusFilePath, JSON.stringify(data, null, 2), 'utf8');
         return data;
     } catch (e) {
-        logger.error('❌ Failed to save session status info:', e.message);
+        logger.error({ err: e.message }, '❌ Failed to save session status info:');
     }
 }
 
@@ -74,7 +74,7 @@ async function notifySessionExpired() {
         }
         logger.info('📲 Sent Session Expired notification to Telegram.');
     } catch (err) {
-        logger.error('❌ Failed to send session expired notification:', err.message);
+        logger.error({ err: err.message }, '❌ Failed to send session expired notification:');
     }
 }
 
@@ -101,7 +101,7 @@ export async function keepAliveNhsoSession() {
             logger.info('🧹 [Keep-Alive] Cleaned up Puppeteer SingletonLock.');
         } catch (e) {
             if (e.code !== 'ENOENT') {
-                logger.warn('⚠️ [Keep-Alive] Warning: Could not remove SingletonLock:', e.message);
+                logger.warn({ err: e.message }, '⚠️ [Keep-Alive] Warning: Could not remove SingletonLock:');
             }
         }
 
@@ -136,7 +136,7 @@ export async function keepAliveNhsoSession() {
                 await page.goto('https://authenservice.nhso.go.th/authencode/report/eclaim', { waitUntil: 'networkidle2', timeout: 30000 });
                 await new Promise(resolve => setTimeout(resolve, 2000));
             } catch (e) {
-                logger.warn('⚠️ [Keep-Alive] Deep ping navigation warning:', e.message);
+                logger.warn({ err: e.message }, '⚠️ [Keep-Alive] Deep ping navigation warning:');
             }
 
             logger.info('✅ [Keep-Alive] Session is active and healthy! Cookies refreshed.');
@@ -153,7 +153,7 @@ export async function keepAliveNhsoSession() {
         }
 
     } catch (error) {
-        logger.error('❌ [Keep-Alive] Error during session keep-alive:', error.message);
+        logger.error({ err: error.message }, '❌ [Keep-Alive] Error during session keep-alive:');
         saveNhsoSessionStatusInfo('error', `เกิดข้อผิดพลาดในการตรวจสอบเซสชัน: ${error.message}`);
     } finally {
         if (browser) {
@@ -162,7 +162,7 @@ export async function keepAliveNhsoSession() {
         }
         if (lockAcquired) {
             await releaseSchedulerLock(trackerPool, 'nhso_portal_download', lockHolderId).catch(err => {
-                logger.error('❌ [Keep-Alive] Could not release portal lock:', err.message);
+                logger.error({ err: err.message }, '❌ [Keep-Alive] Could not release portal lock:');
             });
         }
     }

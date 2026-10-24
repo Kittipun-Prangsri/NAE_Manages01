@@ -79,11 +79,12 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         if (process.platform === 'linux') {
             try {
                 // Only kill browsers using this profile; other jobs (dashboard capture) keep running.
-                execSync('pkill -f "user-data-dir=.*puppeteer_session" || true');
+                // "[u]ser" keeps the pattern from matching this pkill command itself.
+                execSync('pkill -f "[u]ser-data-dir=.*puppeteer_session" || true');
                 logger.info('🧹 Cleaned up stale background browser processes.');
                 await new Promise(resolve => setTimeout(resolve, 1000));
             } catch (err) {
-                logger.warn('⚠️ Warning: Could not pkill stale browsers:', err.message);
+                logger.warn({ err: err.message }, '⚠️ Warning: Could not pkill stale browsers:');
             }
         }
 
@@ -94,7 +95,7 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
             logger.info('🧹 Cleaned up stale Puppeteer SingletonLock.');
         } catch (e) {
             if (e.code !== 'ENOENT') {
-                logger.warn('⚠️ Warning: Could not remove SingletonLock:', e.message);
+                logger.warn({ err: e.message }, '⚠️ Warning: Could not remove SingletonLock:');
             }
         }
 
@@ -255,7 +256,7 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         return { success: true, filePath };
 
     } catch (error) {
-        logger.error('❌ Downloader Error:', error);
+        logger.error({ err: error }, '❌ Downloader Error:');
         return { success: false, error: error.message };
     } finally {
         if (browser) {
@@ -313,11 +314,11 @@ export function cleanOldDownloads(downloadsDir) {
                 fs.unlinkSync(filePath);
                 logger.info(`🗑️ Deleted old Excel download: ${sorted[i].name}`);
             } catch (err) {
-                logger.error(`❌ Error deleting old Excel file ${sorted[i].name}:`, err);
+                logger.error({ err: err }, `❌ Error deleting old Excel file ${sorted[i].name}:`);
             }
         }
     } catch (error) {
-        logger.error('❌ Error cleaning old downloads:', error);
+        logger.error({ err: error }, '❌ Error cleaning old downloads:');
     }
 }
 

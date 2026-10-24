@@ -104,7 +104,7 @@ export async function loginWithThaid(page, { portalUrl, timeoutMs = getThaidTime
         logger.info(`📲 [ThaiD] QR round ${round} ready (ref ${qr.refCode || '-'}, expires in ${qr.secondsLeft}s)`);
         if (onQr) {
             await Promise.resolve(onQr({ ...qr, buffer: dataUrlToBuffer(qr.dataUrl), expiresAt, round, deadline }))
-                .catch(err => logger.warn('⚠️ [ThaiD] onQr callback failed:', err.message));
+                .catch(err => logger.warn({ err: err.message }, '⚠️ [ThaiD] onQr callback failed:'));
         }
 
         // Wait for scan, expiry, or the overall deadline.
@@ -159,7 +159,7 @@ export function createTelegramQrNotifier(token, chatIds) {
                         messages.set(chatId, result.message_id);
                     }
                 } catch (err) {
-                    logger.warn(`⚠️ [ThaiD] Telegram QR update failed for ${chatId}:`, err.message);
+                    logger.warn({ err: err.message }, `⚠️ [ThaiD] Telegram QR update failed for ${chatId}:`);
                 }
             }
         },
@@ -173,7 +173,7 @@ export function createTelegramQrNotifier(token, chatIds) {
                     form.append('caption', caption);
                     await call('editMessageCaption', form);
                 } catch (err) {
-                    logger.warn(`⚠️ [ThaiD] Telegram QR finish failed for ${chatId}:`, err.message);
+                    logger.warn({ err: err.message }, `⚠️ [ThaiD] Telegram QR finish failed for ${chatId}:`);
                 }
             }
         }
@@ -185,6 +185,6 @@ export function saveQrFile(buffer, filePath) {
     try {
         fs.writeFileSync(filePath, buffer);
     } catch (err) {
-        logger.warn('⚠️ [ThaiD] Could not save QR file:', err.message);
+        logger.warn({ err: err.message }, '⚠️ [ThaiD] Could not save QR file:');
     }
 }

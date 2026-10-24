@@ -72,12 +72,12 @@ async function runScheduledSyncAndCaptureWithLock() {
         }
         await handleScheduledSyncAndCapture();
     } catch (error) {
-        logger.error('❌ [Worker-Scheduler] Could not acquire scheduled-job lock:', error.message);
+        logger.error({ err: error.message }, '❌ [Worker-Scheduler] Could not acquire scheduled-job lock:');
     } finally {
         try {
             await releaseSchedulerLock(trackerPool, lockKey, schedulerHolderId);
         } catch (error) {
-            logger.error('❌ [Worker-Scheduler] Could not release scheduled-job lock:', error.message);
+            logger.error({ err: error.message }, '❌ [Worker-Scheduler] Could not release scheduled-job lock:');
         }
     }
 }
@@ -122,7 +122,7 @@ async function handleScheduledSyncAndCapture() {
             await finishScheduledSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync and dashboard capture completed');
         }
     } catch (err) {
-        logger.error('❌ [Worker-Scheduler] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
+        logger.error({ err: err }, '❌ [Worker-Scheduler] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:');
         if (syncRunId) await finishScheduledSyncRun(syncRunId, 'failed', 0, 'Scheduled sync crashed', err.message);
     }
 }
@@ -160,7 +160,7 @@ async function reloadSchedules(rows) {
         }
         logger.info('✅ [Worker-Scheduler] Schedules reloaded and registered successfully.');
     } catch (error) {
-        logger.error('❌ [Worker-Scheduler] Error loading cron schedules:', error);
+        logger.error({ err: error }, '❌ [Worker-Scheduler] Error loading cron schedules:');
     }
 }
 
@@ -173,12 +173,23 @@ async function checkAndReloadSchedules() {
             await reloadSchedules(rows);
         }
     } catch (error) {
-        logger.error('❌ [Worker] Error fetching schedules from DB:', error);
+        logger.error({ err: error }, '❌ [Worker] Error fetching schedules from DB:');
     }
 }
 
 // --- Telegram Bot Command Listener (Polling) ---
 let lastUpdateId = 0;
+
+function reloadTelegramEnv() {
+    try {
+        const parsed = dotenv.parse(fs.readFileSync(path.join(__dirname, '../.env')));
+        for (const key of ['TELEGRAM_BOT_TOKEN', 'WORKER_TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'DISABLE_NOTIFICATIONS']) {
+            if (key in parsed) process.env[key] = parsed[key];
+        }
+    } catch (err) {
+        // Keep the values loaded at startup when .env cannot be read.
+    }
+}
 let warnedMissingTelegramConfig = false;
 
 async function sendTelegramMessage(token, chatId, text) {
@@ -197,12 +208,12 @@ async function sendTelegramMessage(token, chatId, text) {
         });
         clearTimeout(timeoutId);
     } catch (err) {
-        logger.error('Error sending message:', err);
+        logger.error({ err: err }, 'Error sending message:');
     }
 }
 
 async function sendLineMessage(text) {
-    logger.info('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
+    logger.info({ err: text }, 'ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:');
 }
 
 async function runE2EPortalSyncAndCapture(targetChatId) {
@@ -242,7 +253,7 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             return;
         }
     } catch (err) {
-        logger.error('❌ [Telegram Trigger] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
+        logger.error({ err: err }, '❌ [Telegram Trigger] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:');
         await sendTelegramMessage(token, targetChatId, `❌ ข้อผิดพลาดภายในเซิร์ฟเวอร์: ${err.message}`);
         await sendLineMessage(`❌ เกิดข้อผิดพลาดในเซิร์ฟเวอร์: ${err.message}`);
         return;
@@ -262,7 +273,7 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             await sendTelegramMessage(token, targetChatId, `⚠️ ซิงก์ข้อมูลสำเร็จ แต่บันทึกภาพ Dashboard ไม่สำเร็จ: ${captureResult.error || 'ไม่ทราบสาเหตุ'}`);
         }
     } catch (err) {
-        logger.error('❌ [Telegram Trigger] ข้อผิดพลาดในการบันทึกแดชบอร์ด/ส่งแจ้งเตือน:', err);
+        logger.error({ err: err }, '❌ [Telegram Trigger] ข้อผิดพลาดในการบันทึกแดชบอร์ด/ส่งแจ้งเตือน:');
     }
 }
 
@@ -276,8 +287,10 @@ async function startTelegramBotListener() {
         isPolling = true;
         
         try {
-            // Dynamically reload .env configuration changes
-            dotenv.config({ override: true });
+            // Reload only the Telegram settings from .env so they can change
+            // without a restart.  A full override would also restore values the
+            // process deliberately removed (e.g. an invalid PUPPETEER_EXECUTABLE_PATH).
+            reloadTelegramEnv();
             
             const token = process.env.WORKER_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
             const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -337,7 +350,7 @@ async function startTelegramBotListener() {
                                 
                                 // Run the end-to-end sync and capture in the background
                                 runE2EPortalSyncAndCapture(fromChatId).catch(err => {
-                                    logger.error('Error running E2E portal sync via telegram command:', err);
+                                    logger.error({ err: err }, 'Error running E2E portal sync via telegram command:');
                                 });
                             }
                         } else {
@@ -395,7 +408,7 @@ async function startTelegramBotListener() {
                 logger.warn(`⚠️ [Telegram Bot] Network connection/timeout while polling updates: ${details}. Retrying in 30s...`);
                 setTimeout(poll, 30000);
             } else {
-                logger.error('❌ [Telegram Bot] Error polling Telegram updates:', error);
+                logger.error({ err: error }, '❌ [Telegram Bot] Error polling Telegram updates:');
                 setTimeout(poll, 10000);
             }
         }
@@ -424,7 +437,7 @@ async function startWorker() {
         cron.schedule('*/30 * * * *', () => {
             logger.info('⏰ [Worker-Cron] Automatically triggering NHSO session keep-alive refresh...');
             keepAliveNhsoSession().catch(err => {
-                logger.error('❌ [Worker-Cron] NHSO session keep-alive error:', err);
+                logger.error({ err: err }, '❌ [Worker-Cron] NHSO session keep-alive error:');
             });
         }, {
             scheduled: true,
@@ -433,12 +446,12 @@ async function startWorker() {
 
         // Trigger session keep-alive once immediately on startup
         keepAliveNhsoSession().catch(err => {
-            logger.error('❌ [Worker-Cron] Initial NHSO session keep-alive error:', err);
+            logger.error({ err: err }, '❌ [Worker-Cron] Initial NHSO session keep-alive error:');
         });
         
         logger.info('✅ Background Cron Scheduler, Session Keep-Alive, and Telegram Polling are fully active.');
     } catch (err) {
-        logger.error('❌ Failed to start Worker Service:', err);
+        logger.error({ err: err }, '❌ Failed to start Worker Service:');
         process.exit(1);
     }
 }

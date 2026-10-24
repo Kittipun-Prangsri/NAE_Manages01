@@ -18,6 +18,7 @@ import { createTelegramQrNotifier, isThaidExpiredUrl, loginWithThaid, readThaidQ
 // caption shows the amount and the reason before they scan.
 //
 //   node jobs/nhso-endpoint.js                 # dry run: fill + screenshot, never save
+//   node jobs/nhso-endpoint.js --save --vn 691024090431   # one specific visit
 //   node jobs/nhso-endpoint.js --save --limit 1
 //   node jobs/nhso-endpoint.js --date 2026-10-24 --save
 //
@@ -162,19 +163,6 @@ async function fillForm(page, row) {
     }, reason);
 
     await setInputValue(page, '#paidAmount', Number(row.uc_money).toFixed(2));
-    await setInputValue(page, '#visitNumber', row.vn);
-
-    // Service time = actual visit time (the date already defaults to today).
-    if (row.vsttime) {
-        const [hh, mm] = row.vsttime.split(':');
-        const timeInputs = await page.$$('input.ngb-tp-input');
-        if (timeInputs.length >= 2) {
-            for (const [input, value] of [[timeInputs[0], hh], [timeInputs[1], mm]]) {
-                await input.click({ clickCount: 3 });
-                await input.type(value, { delay: 20 });
-            }
-        }
-    }
 
     const serviceTypeChecked = await page.$eval('#servicetype0', el => el.checked);
     if (!serviceTypeChecked) await page.click('#servicetype0');
@@ -187,10 +175,10 @@ async function fillForm(page, row) {
 async function formLooksFilled(page, row) {
     return page.evaluate(expected => {
         const paid = document.querySelector('#paidAmount')?.value || '';
-        const visit = document.querySelector('#visitNumber')?.value || '';
         const reason = document.querySelector('#identity-reason')?.selectedIndex > 0;
-        return Number(paid) === Number(expected.amount) && visit === expected.vn && reason;
-    }, { amount: Number(row.uc_money).toFixed(2), vn: row.vn });
+        const serviceType = document.querySelector('#servicetype0')?.checked;
+        return Number(paid) === Number(expected) && reason && serviceType;
+    }, Number(row.uc_money).toFixed(2));
 }
 
 /** Sends the officer QR to Telegram and waits for the scan.  Returns true when scanned. */
@@ -244,7 +232,7 @@ async function save(page) {
     return true;
 }
 
-export async function runEndpointBatch({ visitDate = today(), dryRun = true, limit = 10 } = {}) {
+export async function runEndpointBatch({ visitDate = today(), dryRun = true, limit = 10, vn = null } = {}) {
     if (!dryRun && visitDate !== today()) {
         throw new Error('บันทึกจริงได้เฉพาะวันนี้ (วันที่เข้ารับบริการในฟอร์มตั้งเป็นวันนี้อัตโนมัติ)');
     }
@@ -253,6 +241,7 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
 
     const candidates = [];
     for (const row of await getEndpointCandidates(visitDate)) {
+        if (vn && row.vn !== vn) continue;
         if (!(await alreadySaved(row.vn))) candidates.push(row);
     }
     const batch = candidates.slice(0, limit);
@@ -349,7 +338,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     runEndpointBatch({
         visitDate: valueOf('--date') || today(),
         dryRun: !args.includes('--save'),
-        limit: Number(valueOf('--limit')) || 10
+        limit: Number(valueOf('--limit')) || 10,
+        vn: valueOf('--vn') || null
     })
         .catch(err => logger.error({ err: err.message }, '❌ [Endpoint] Batch failed:'))
         .finally(() => process.exit(0));

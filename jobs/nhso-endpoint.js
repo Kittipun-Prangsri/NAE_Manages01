@@ -118,43 +118,59 @@ async function setInputValue(page, selector, value) {
     await page.$eval(selector, el => el.dispatchEvent(new Event('blur', { bubbles: true })));
 }
 
+// Page-side helpers shared by the certifier steps.  Radios on this form are
+// styled controls, so a radio's text is taken from its <label for>, else from
+// its nearest wrapper, and clicks go to that wrapper.
+const CERTIFIER_DOM_HELPERS = `
+    const radioText = r => {
+        const label = r.id && document.querySelector('label[for="' + CSS.escape(r.id) + '"]');
+        if (label) return label.innerText.trim();
+        const wrapper = r.closest('label, .form-check, .custom-control, .custom-radio, .radio, li') || r.parentElement;
+        return (wrapper ? wrapper.innerText : '').replace(/\\s+/g, ' ').trim();
+    };
+    const radioFor = text => [...document.querySelectorAll('input[type="radio"]')].find(r => radioText(r) === text);
+    const relationSelect = text => [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.text.trim() === text));
+`;
+
 /**
  * Sets the certifier section that appears after the officer scan:
  * "ผู้รับรอง" radio = ผู้ดูแล, then "ความสัมพันธ์" = เจ้าหน้าที่ผู้ดูแล.
- * Returns { ok, detail } after reading both values back.
+ * Returns { ok, detail, dom } after reading both values back; dom describes
+ * the section when it could not be set, for diagnosis.
  */
 export async function setCertifier(page) {
-    const radio = await page.evaluateHandle(role => {
-        const label = [...document.querySelectorAll('label')]
-            .find(el => el.getBoundingClientRect().width > 0 && el.innerText.trim() === role);
-        if (!label) return null;
-        const input = label.htmlFor ? document.getElementById(label.htmlFor) : label.querySelector('input');
-        return input?.checked ? null : label;
-    }, CERTIFIER_ROLE);
+    await page.waitForFunction(() => /ผู้รับรอง/.test(document.body.innerText), { timeout: 15000 }).catch(() => {});
+
+    const radio = await page.evaluateHandle(new Function('role', `${CERTIFIER_DOM_HELPERS}
+        const input = radioFor(role);
+        if (!input || input.checked) return null;
+        const label = input.id && document.querySelector('label[for="' + CSS.escape(input.id) + '"]');
+        return label || input.closest('label, .form-check, .custom-control, .custom-radio, .radio, li') || input;`), CERTIFIER_ROLE);
     if (radio.asElement()) {
         await radio.asElement().click();
         await sleep(800); // the relation list can depend on the chosen role
     }
+    await page.waitForFunction(new Function('relation', `${CERTIFIER_DOM_HELPERS} return !!relationSelect(relation);`), { timeout: 5000 }, CERTIFIER_RELATION).catch(() => {});
 
-    await page.evaluate(relation => {
-        for (const select of document.querySelectorAll('select')) {
-            const option = [...select.options].find(o => o.text.trim() === relation);
-            if (option && !option.selected) {
-                select.value = option.value;
-                select.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        }
-    }, CERTIFIER_RELATION);
+    await page.evaluate(new Function('relation', `${CERTIFIER_DOM_HELPERS}
+        const select = relationSelect(relation);
+        const option = select && [...select.options].find(o => o.text.trim() === relation);
+        if (option && !option.selected) {
+            select.value = option.value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        }`), CERTIFIER_RELATION);
     await sleep(300);
 
-    return page.evaluate((role, relation) => {
-        const label = [...document.querySelectorAll('label')].find(el => el.innerText.trim() === role);
-        const input = label && (label.htmlFor ? document.getElementById(label.htmlFor) : label.querySelector('input'));
-        const select = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.text.trim() === relation));
-        const selected = select?.options[select.selectedIndex]?.text.trim();
+    return page.evaluate(new Function('role', 'relation', `${CERTIFIER_DOM_HELPERS}
+        const input = radioFor(role);
+        const select = relationSelect(relation);
+        const selected = select ? select.options[select.selectedIndex]?.text.trim() : '';
         const ok = !!input?.checked && selected === relation;
-        return { ok, detail: `ผู้รับรอง=${input?.checked ? role : 'ไม่ได้เลือก'}, ความสัมพันธ์=${selected || 'ไม่พบ'}` };
-    }, CERTIFIER_ROLE, CERTIFIER_RELATION);
+        const dom = ok ? null : {
+            radios: [...document.querySelectorAll('input[type="radio"]')].map(r => (r.checked ? '●' : '○') + (r.disabled ? '(ปิด)' : '') + ' ' + radioText(r).slice(0, 40) + ' #' + r.id),
+            selects: [...document.querySelectorAll('select')].map(s => '#' + s.id + ': ' + [...s.options].map(o => o.text.trim()).join(' / ').slice(0, 160))
+        };
+        return { ok, dom, detail: 'ผู้รับรอง=' + (input?.checked ? role : (input ? 'ยังไม่ได้เลือก' : 'ไม่พบตัวเลือก')) + ', ความสัมพันธ์=' + (selected || 'ไม่พบ') };`), CERTIFIER_ROLE, CERTIFIER_RELATION);
 }
 
 /** Searches the patient and fills every field.  Returns the reason used. */
@@ -377,7 +393,12 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
                 if (!(await formLooksFilled(page, row))) throw new Error('ข้อมูลในฟอร์มหายหลังสแกน — ไม่บันทึก');
                 const certifier = await setCertifier(page);
                 if (!certifier.ok) {
-                    throw Object.assign(new Error(`ตั้งผู้รับรองไม่ได้ (${certifier.detail}) — ไม่บันทึก`), { status: 'needs_review' });
+                    // Keep what the section looked like, so the selectors can be fixed.
+                    await page.screenshot({ path: shot, fullPage: true });
+                    fs.writeFileSync(shot.replace(/\.png$/, '-certifier.json'), JSON.stringify(certifier.dom, null, 2));
+                    logger.warn(`🔎 [Endpoint] Certifier section VN ${row.vn}:\n  radios: ${certifier.dom.radios.join('\n          ')}\n  selects: ${certifier.dom.selects.join('\n           ')}`);
+                    await sendTelegram(`🔎 ราย ${index + 1} (VN ${row.vn}): ตั้งผู้รับรองไม่ได้ (${certifier.detail}) — ไม่บันทึก`, shot);
+                    throw Object.assign(new Error(`ตั้งผู้รับรองไม่ได้ (${certifier.detail}) — ไม่บันทึก`), { status: 'needs_review', notified: true });
                 }
                 const saved = await saveEndpointForm(page);
                 if (!saved.ok) {
@@ -394,7 +415,7 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
                 const status = err.status || 'failed';
                 logger.warn({ err: err.message }, `⚠️ [Endpoint] VN ${row.vn}:`);
                 await logCase(row, reason, status, err.message).catch(() => {});
-                await sendTelegram(`⚠️ ข้ามราย ${index + 1} (VN ${row.vn}): ${err.message}`);
+                if (!err.notified) await sendTelegram(`⚠️ ข้ามราย ${index + 1} (VN ${row.vn}): ${err.message}`);
                 if (status === 'failed') results.failed += 1; else results.skipped += 1;
             }
         }

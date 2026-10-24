@@ -11,6 +11,9 @@ export function getPuppeteerLaunchOptions(extraOptions = {}) {
         args: [
             '--no-sandbox', 
             '--disable-setuid-sandbox',
+            // Servers often have a small /dev/shm; Chrome hangs on startup when it fills up.
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
             '--disable-web-security',
             '--disable-features=IsolateOrigins,site-per-process'
         ],

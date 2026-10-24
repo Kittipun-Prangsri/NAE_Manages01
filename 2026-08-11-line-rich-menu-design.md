@@ -8,7 +8,8 @@ Create a production-ready LINE Rich Menu image for a hospital HOSxP reporting wo
 
 - Canvas: 2500 × 1686 px (LINE large Rich Menu)
 - Grid: 3 columns × 2 rows with six equal touch areas
-- Visual hierarchy: large icon, short Thai label, clear separation between tiles
+- Visual hierarchy: large icon, short Thai label, one-line hint, clear separation between tiles
+- No header band: card edges must match the touch areas in `scripts/line-rich-menu-config.json` (rows split at y=843, columns at x=833/1667)
 - Safe margins: keep essential text and icons away from tile edges
 
 ## Menu items
@@ -25,14 +26,16 @@ Bottom row:
 5. คู่มือใช้งาน
 6. ติดต่อผู้ดูแล
 
+## Source
+
+The image is generated, not hand-drawn: edit `scripts/line-rich-menu/rich-menu.html`, then run `npm run line:richmenu:render` (writes the PNG and a <1MB JPG; the render fails if any label overflows its card) and `npm run line:richmenu` to upload.
+
 ## Visual direction
 
-- Hospital blue-and-white palette with subtle cyan accents
-- Clean modern dashboard aesthetic
-- Faint background motifs inspired by charts and health information systems
+- Deep navy background with a faint grid; glass cards with a soft colored glow
+- One accent color per action (blue, violet, amber, emerald, teal, rose) on the icon tile
 - White line icons with strong contrast
 - Thai sans-serif typography, bold and highly legible
-- Header/brand: Smart Groupinsights, subordinate to the six primary actions
 - No unnecessary body copy or decorative clutter
 
 ## Deliverable

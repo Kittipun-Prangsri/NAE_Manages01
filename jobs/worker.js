@@ -179,6 +179,7 @@ async function checkAndReloadSchedules() {
 
 // --- Telegram Bot Command Listener (Polling) ---
 let lastUpdateId = 0;
+let warnedMissingTelegramConfig = false;
 
 async function sendTelegramMessage(token, chatId, text) {
     if (process.env.DISABLE_NOTIFICATIONS === 'true') {
@@ -282,9 +283,17 @@ async function startTelegramBotListener() {
             const chatId = process.env.TELEGRAM_CHAT_ID;
             
             if (!token || !chatId || chatId === 'your_telegram_chat_id_here') {
+                if (!warnedMissingTelegramConfig) {
+                    logger.warn('⚠️ [Telegram Bot] Not polling: TELEGRAM_BOT_TOKEN (or WORKER_TELEGRAM_BOT_TOKEN) and TELEGRAM_CHAT_ID must be set in .env');
+                    warnedMissingTelegramConfig = true;
+                }
                 isPolling = false;
                 setTimeout(poll, 10000);
                 return;
+            }
+            if (warnedMissingTelegramConfig) {
+                logger.info('✅ [Telegram Bot] Configuration found, polling started.');
+                warnedMissingTelegramConfig = false;
             }
 
             const controller = new AbortController();
@@ -331,6 +340,8 @@ async function startTelegramBotListener() {
                                     logger.error('Error running E2E portal sync via telegram command:', err);
                                 });
                             }
+                        } else {
+                            logger.warn(`⚠️ [Telegram Bot] Ignored message from chat ${fromChatId}: not listed in TELEGRAM_CHAT_ID`);
                         }
                     }
                 }

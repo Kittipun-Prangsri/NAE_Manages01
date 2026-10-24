@@ -433,22 +433,26 @@ async function startWorker() {
         // Start Telegram message listener
         startTelegramBotListener();
 
-        // Setup recurring keep-alive task (every 30 minutes: '*/30 * * * *')
-        cron.schedule('*/30 * * * *', () => {
-            logger.info('⏰ [Worker-Cron] Automatically triggering NHSO session keep-alive refresh...');
-            keepAliveNhsoSession().catch(err => {
-                logger.error({ err: err }, '❌ [Worker-Cron] NHSO session keep-alive error:');
+        // Session keep-alive launches a browser, which is heavy on this shared
+        // server.  It is off unless NHSO_KEEP_ALIVE_MINUTES is set (e.g. 60);
+        // without it the session may expire sooner and need another ThaiD scan.
+        const keepAliveMinutes = Number(process.env.NHSO_KEEP_ALIVE_MINUTES || 0);
+        if (Number.isInteger(keepAliveMinutes) && keepAliveMinutes > 0) {
+            const pattern = keepAliveMinutes >= 60 ? `0 */${Math.max(1, Math.floor(keepAliveMinutes / 60))} * * *` : `*/${keepAliveMinutes} * * * *`;
+            cron.schedule(pattern, () => {
+                logger.info('⏰ [Worker-Cron] Automatically triggering NHSO session keep-alive refresh...');
+                keepAliveNhsoSession().catch(err => {
+                    logger.error({ err: err }, '❌ [Worker-Cron] NHSO session keep-alive error:');
+                });
+            }, {
+                scheduled: true,
+                timezone: "Asia/Bangkok"
             });
-        }, {
-            scheduled: true,
-            timezone: "Asia/Bangkok"
-        });
+            logger.info(`⏰ [Worker-Cron] NHSO session keep-alive scheduled ("${pattern}").`);
+        } else {
+            logger.info('ℹ️ [Worker-Cron] NHSO session keep-alive is off (set NHSO_KEEP_ALIVE_MINUTES to enable).');
+        }
 
-        // Trigger session keep-alive once immediately on startup
-        keepAliveNhsoSession().catch(err => {
-            logger.error({ err: err }, '❌ [Worker-Cron] Initial NHSO session keep-alive error:');
-        });
-        
         logger.info('✅ Background Cron Scheduler, Session Keep-Alive, and Telegram Polling are fully active.');
     } catch (err) {
         logger.error({ err: err }, '❌ Failed to start Worker Service:');

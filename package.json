@@ -22,8 +22,8 @@
     "test": "node --test test/*.test.js",
     "line:richmenu": "node scripts/create-line-rich-menu.js",
     "line:richmenu:render": "node scripts/render-line-rich-menu.js",
-    "install:chrome": "npx puppeteer browsers install chrome",
-    "postinstall": "npx puppeteer browsers install chrome || true"
+    "install:chrome": "npx puppeteer browsers install chrome-headless-shell && npx puppeteer browsers install chrome",
+    "postinstall": "(npx puppeteer browsers install chrome-headless-shell && npx puppeteer browsers install chrome) || true"
   },
   "keywords": [],
   "author": "",

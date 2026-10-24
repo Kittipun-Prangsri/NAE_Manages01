@@ -8,12 +8,12 @@ import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
 import { trackerPool } from '../backend/db.js';
 import { createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 import { acquirePortalLock, PORTAL_LOCK_KEY } from '../jobs/keep-alive-nhso.js';
-import { loginWithThaid, createTelegramQrNotifier } from '../jobs/thaidLogin.js';
+import { loginWithThaid, createTelegramQrNotifier, readThaidQr } from '../jobs/thaidLogin.js';
 
 // Read-only survey of the NHSO "create endpoint" form, used to plan automation.
 // It NEVER clicks save.  Usage on the server (worker can stay running):
 //   node scripts/probe-endpoint-form.js                 # form structure only
-//   node scripts/probe-endpoint-form.js 1234567890123   # also search one CID to reveal the rest of the form
+//   node scripts/probe-endpoint-form.js 1234567890123   # also search one CID and open the officer ThaiD QR (still no save)
 // Output: downloads/endpoint-probe/*.json + *.png (downloads/ is git-ignored: may contain patient data).
 
 dotenv.config({ quiet: true });
@@ -134,6 +134,30 @@ async function run() {
             await page.waitForNetworkIdle({ idleTime: 1000, timeout: 20000 }).catch(() => {});
             await new Promise(resolve => setTimeout(resolve, 2000));
             await snapshot(page, '2-after-search');
+
+            // The officer must confirm each endpoint by scanning ThaiD.  Find out
+            // where that QR appears (popup window or in-page modal); still no save.
+            const popup = new Promise(resolve => {
+                browser.once('targetcreated', target => resolve(target));
+                setTimeout(() => resolve(null), 8000);
+            });
+            const clicked = await page.evaluate(() => {
+                const button = [...document.querySelectorAll('button, a')].find(el => /สแกน\s*ThaiD/i.test(el.innerText));
+                button?.click();
+                return !!button;
+            });
+            if (!clicked) {
+                console.log('\n⚠️ ไม่พบปุ่ม "คลิกเพื่อสแกน ThaiD QR code"');
+            } else {
+                const target = await popup;
+                const qrPage = target?.type() === 'page' ? await target.page() : null;
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                const where = qrPage || page;
+                const qr = await readThaidQr(where);
+                console.log(`\n📲 ปุ่มสแกน ThaiD ของผู้รับรอง: QR ${qrPage ? 'เปิดในหน้าต่างใหม่' : 'อยู่ในหน้าเดิม'} — ${where.url()}`);
+                console.log(qr ? `   พบรูป QR (ref ${qr.refCode || '-'}, หมดอายุใน ${qr.secondsLeft}s)` : '   ไม่พบรูป QR แบบ data:image — ดูภาพ 3-officer-qr.png');
+                await snapshot(where, '3-officer-qr');
+            }
         }
 
         console.log(`\n✅ เสร็จแล้ว (ไม่ได้กดบันทึก) ไฟล์อยู่ที่ ${outDir}`);

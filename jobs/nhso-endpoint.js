@@ -34,8 +34,10 @@ const outDir = path.join(__dirname, '../downloads/endpoint-runs');
 const PORTAL_URL = process.env.NHSO_PORTAL_URL || 'https://authenservice.nhso.go.th/authencode/';
 const BEHALF_URL = 'https://authenservice.nhso.go.th/authencode/nhso-endpoint/create/behalf';
 const OFFICER_SCAN_ATTEMPTS = 3;
-// Who verifies on the patient's behalf; the hospital uses its staff.
-const PROXY_ROLE = 'เจ้าหน้าที่ผู้ดูแล';
+// Who certifies on the patient's behalf (shown after the officer's ThaiD scan):
+// "ผู้รับรอง" = ผู้ดูแล and "ความสัมพันธ์" = เจ้าหน้าที่ผู้ดูแล.
+const CERTIFIER_ROLE = 'ผู้ดูแล';
+const CERTIFIER_RELATION = 'เจ้าหน้าที่ผู้ดูแล';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const today = () => new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
@@ -116,28 +118,42 @@ async function setInputValue(page, selector, value) {
 }
 
 /**
- * Selects the proxy role ("เจ้าหน้าที่ผู้ดูแล") wherever the form offers it:
- * a <select> option or a radio/label.  Returns false when it is not on the page.
+ * Sets the certifier section that appears after the officer scan:
+ * "ผู้รับรอง" radio = ผู้ดูแล, then "ความสัมพันธ์" = เจ้าหน้าที่ผู้ดูแล.
+ * Returns { ok, detail } after reading both values back.
  */
-async function selectProxyRole(page) {
-    return page.evaluate(role => {
+export async function setCertifier(page) {
+    const radio = await page.evaluateHandle(role => {
+        const label = [...document.querySelectorAll('label')]
+            .find(el => el.getBoundingClientRect().width > 0 && el.innerText.trim() === role);
+        if (!label) return null;
+        const input = label.htmlFor ? document.getElementById(label.htmlFor) : label.querySelector('input');
+        return input?.checked ? null : label;
+    }, CERTIFIER_ROLE);
+    if (radio.asElement()) {
+        await radio.asElement().click();
+        await sleep(800); // the relation list can depend on the chosen role
+    }
+
+    await page.evaluate(relation => {
         for (const select of document.querySelectorAll('select')) {
-            const option = [...select.options].find(o => o.text.trim() === role);
-            if (option) {
+            const option = [...select.options].find(o => o.text.trim() === relation);
+            if (option && !option.selected) {
                 select.value = option.value;
                 select.dispatchEvent(new Event('change', { bubbles: true }));
-                return true;
             }
         }
-        const label = [...document.querySelectorAll('label')].find(el => el.offsetParent !== null && el.innerText.trim() === role);
-        if (label) {
-            const input = label.htmlFor ? document.getElementById(label.htmlFor) : label.querySelector('input');
-            if (input && !input.checked) (input || label).click();
-            else if (!input) label.click();
-            return true;
-        }
-        return false;
-    }, PROXY_ROLE);
+    }, CERTIFIER_RELATION);
+    await sleep(300);
+
+    return page.evaluate((role, relation) => {
+        const label = [...document.querySelectorAll('label')].find(el => el.innerText.trim() === role);
+        const input = label && (label.htmlFor ? document.getElementById(label.htmlFor) : label.querySelector('input'));
+        const select = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.text.trim() === relation));
+        const selected = select?.options[select.selectedIndex]?.text.trim();
+        const ok = !!input?.checked && selected === relation;
+        return { ok, detail: `ผู้รับรอง=${input?.checked ? role : 'ไม่ได้เลือก'}, ความสัมพันธ์=${selected || 'ไม่พบ'}` };
+    }, CERTIFIER_ROLE, CERTIFIER_RELATION);
 }
 
 /** Searches the patient and fills every field.  Returns the reason used. */
@@ -168,8 +184,6 @@ async function fillForm(page, row) {
 
     const serviceTypeChecked = await page.$eval('#servicetype0', el => el.checked);
     if (!serviceTypeChecked) await page.click('#servicetype0');
-    // The role may only appear after the officer scan; it is checked again there.
-    await selectProxyRole(page);
     return reason;
 }
 
@@ -345,8 +359,9 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
                     continue;
                 }
                 if (!(await formLooksFilled(page, row))) throw new Error('ข้อมูลในฟอร์มหายหลังสแกน — ไม่บันทึก');
-                if (!(await selectProxyRole(page))) {
-                    throw Object.assign(new Error(`ไม่พบตัวเลือก "${PROXY_ROLE}" ในฟอร์ม — ไม่บันทึก`), { status: 'needs_review' });
+                const certifier = await setCertifier(page);
+                if (!certifier.ok) {
+                    throw Object.assign(new Error(`ตั้งผู้รับรองไม่ได้ (${certifier.detail}) — ไม่บันทึก`), { status: 'needs_review' });
                 }
                 const saved = await saveEndpointForm(page);
                 if (!saved.ok) {

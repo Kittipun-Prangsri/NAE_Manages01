@@ -118,59 +118,108 @@ async function setInputValue(page, selector, value) {
     await page.$eval(selector, el => el.dispatchEvent(new Event('blur', { bubbles: true })));
 }
 
-// Page-side helpers shared by the certifier steps.  Radios on this form are
-// styled controls, so a radio's text is taken from its <label for>, else from
-// its nearest wrapper, and clicks go to that wrapper.
+// Page-side helpers shared by the certifier steps.  The certifier controls are
+// styled widgets: a choice's text comes from its <label for> or nearest wrapper,
+// "chosen" may live on the wrapper (class/aria) rather than the input, and the
+// relation field may be a custom dropdown whose options exist only once opened.
 const CERTIFIER_DOM_HELPERS = `
-    const radioText = r => {
-        const label = r.id && document.querySelector('label[for="' + CSS.escape(r.id) + '"]');
-        if (label) return label.innerText.trim();
-        const wrapper = r.closest('label, .form-check, .custom-control, .custom-radio, .radio, li') || r.parentElement;
-        return (wrapper ? wrapper.innerText : '').replace(/\\s+/g, ' ').trim();
+    const visible = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const wrapperOf = input => {
+        const label = input.id && document.querySelector('label[for="' + CSS.escape(input.id) + '"]');
+        return label || input.closest('label, .form-check, .custom-control, .custom-radio, .custom-checkbox, .radio, li') || input.parentElement;
     };
-    const radioFor = text => [...document.querySelectorAll('input[type="radio"]')].find(r => radioText(r) === text);
-    const relationSelect = text => [...document.querySelectorAll('select')].find(s => [...s.options].some(o => o.text.trim() === text));
+    const choiceText = input => (wrapperOf(input)?.innerText || '').replace(/\\s+/g, ' ').trim();
+    const choicesFor = text => [...document.querySelectorAll('input[type="radio"], input[type="checkbox"]')].filter(i => choiceText(i) === text);
+    const isChosen = input => {
+        const w = wrapperOf(input);
+        const holder = w && (w.closest('.form-check, .custom-control, li') || w);
+        return input.checked || holder?.getAttribute('aria-checked') === 'true' || /(^|\\s)(active|checked|selected)(\\s|$)/.test(holder?.className || '');
+    };
+    const relationRow = () => {
+        const label = [...document.querySelectorAll('label, span, div, td, th')]
+            .find(el => /^ความสัมพันธ์\\s*\\*?$/.test(el.innerText.trim()));
+        return label ? (label.closest('.row, .form-group, .form-row, .mb-3, tr') || label.parentElement?.parentElement) : null;
+    };
+    const relationValue = () => {
+        const row = relationRow();
+        if (!row) return '';
+        const select = row.querySelector('select');
+        if (select && select.selectedIndex >= 0) return select.options[select.selectedIndex].text.trim();
+        const shown = row.querySelector('.ng-value-label, .ng-value, [class*="selected"], .dropdown-toggle, input:not([type="radio"]):not([type="checkbox"])');
+        return (shown?.value || shown?.innerText || '').trim();
+    };
 `;
 
 /**
  * Sets the certifier section that appears after the officer scan:
- * "ผู้รับรอง" radio = ผู้ดูแล, then "ความสัมพันธ์" = เจ้าหน้าที่ผู้ดูแล.
- * Returns { ok, detail, dom } after reading both values back; dom describes
- * the section when it could not be set, for diagnosis.
+ * "ผู้รับรอง" = ผู้ดูแล, then opens the "ความสัมพันธ์" dropdown and picks
+ * เจ้าหน้าที่ผู้ดูแล.  Returns { ok, detail, dom } after reading both back;
+ * dom describes the section when it could not be set, for diagnosis.
  */
 export async function setCertifier(page) {
+    const inPage = (args, body) => new Function(...args, `${CERTIFIER_DOM_HELPERS}\n${body}`);
     await page.waitForFunction(() => /ผู้รับรอง/.test(document.body.innerText), { timeout: 15000 }).catch(() => {});
 
-    const radio = await page.evaluateHandle(new Function('role', `${CERTIFIER_DOM_HELPERS}
-        const input = radioFor(role);
-        if (!input || input.checked) return null;
-        const label = input.id && document.querySelector('label[for="' + CSS.escape(input.id) + '"]');
-        return label || input.closest('label, .form-check, .custom-control, .custom-radio, .radio, li') || input;`), CERTIFIER_ROLE);
-    if (radio.asElement()) {
-        await radio.asElement().click();
+    // 1. ผู้รับรอง = ผู้ดูแล
+    const roleTarget = await page.evaluateHandle(inPage(['role'], `
+        const choices = choicesFor(role);
+        if (choices.length === 0 || choices.some(isChosen)) return null;
+        const input = choices.find(i => !i.disabled) || choices[0];
+        return visible(input) ? input : wrapperOf(input);`), CERTIFIER_ROLE);
+    if (roleTarget.asElement()) {
+        await roleTarget.asElement().click();
         await sleep(800); // the relation list can depend on the chosen role
     }
-    await page.waitForFunction(new Function('relation', `${CERTIFIER_DOM_HELPERS} return !!relationSelect(relation);`), { timeout: 5000 }, CERTIFIER_RELATION).catch(() => {});
 
-    await page.evaluate(new Function('relation', `${CERTIFIER_DOM_HELPERS}
-        const select = relationSelect(relation);
-        const option = select && [...select.options].find(o => o.text.trim() === relation);
-        if (option && !option.selected) {
+    // 2. ความสัมพันธ์ = เจ้าหน้าที่ผู้ดูแล (native select, else open the custom dropdown and click the option)
+    const relationSet = () => page.evaluate(inPage(['relation'], 'return relationValue() === relation;'), CERTIFIER_RELATION);
+    if (!(await relationSet())) {
+        const viaNative = await page.evaluate(inPage(['relation'], `
+            const select = relationRow()?.querySelector('select');
+            const option = select && [...select.options].find(o => o.text.trim() === relation);
+            if (!option) return false;
             select.value = option.value;
             select.dispatchEvent(new Event('change', { bubbles: true }));
-        }`), CERTIFIER_RELATION);
-    await sleep(300);
+            return true;`), CERTIFIER_RELATION);
+        if (!viaNative) {
+            const opener = await page.evaluateHandle(inPage([], `
+                const row = relationRow();
+                return row && [...row.querySelectorAll('ng-select, .ng-select, .ng-select-container, [role="combobox"], .dropdown-toggle, select, .form-select, .form-control, input:not([type="radio"]):not([type="checkbox"])')].find(visible) || null;`));
+            if (opener.asElement()) {
+                await opener.asElement().click();
+                await sleep(700);
+                const option = await page.evaluateHandle(inPage(['relation'], `
+                    const candidates = [...document.querySelectorAll('.ng-option, [role="option"], .dropdown-item, li, option, button, a, span, div')]
+                        .filter(el => visible(el) && el.innerText.trim() === relation);
+                    // The deepest match is the option itself, not a container holding it.
+                    return candidates.filter(el => !candidates.some(other => other !== el && el.contains(other))).pop() || null;`), CERTIFIER_RELATION);
+                if (option.asElement()) {
+                    await option.asElement().click();
+                    await sleep(500);
+                } else {
+                    // A native select whose options were loaded by the click above.
+                    await page.evaluate(inPage(['relation'], `
+                        const select = relationRow()?.querySelector('select');
+                        const option = select && [...select.options].find(o => o.text.trim() === relation);
+                        if (option) { select.value = option.value; select.dispatchEvent(new Event('change', { bubbles: true })); }`), CERTIFIER_RELATION);
+                }
+            }
+        }
+        await sleep(300);
+    }
 
-    return page.evaluate(new Function('role', 'relation', `${CERTIFIER_DOM_HELPERS}
-        const input = radioFor(role);
-        const select = relationSelect(relation);
-        const selected = select ? select.options[select.selectedIndex]?.text.trim() : '';
-        const ok = !!input?.checked && selected === relation;
+    return page.evaluate(inPage(['role', 'relation'], `
+        const choices = choicesFor(role);
+        const roleOk = choices.some(isChosen);
+        const relation_ = relationValue();
+        const ok = roleOk && relation_ === relation;
+        const row = relationRow();
         const dom = ok ? null : {
-            radios: [...document.querySelectorAll('input[type="radio"]')].map(r => (r.checked ? '●' : '○') + (r.disabled ? '(ปิด)' : '') + ' ' + radioText(r).slice(0, 40) + ' #' + r.id),
-            selects: [...document.querySelectorAll('select')].map(s => '#' + s.id + ': ' + [...s.options].map(o => o.text.trim()).join(' / ').slice(0, 160))
+            choices: [...document.querySelectorAll('input[type="radio"], input[type="checkbox"]')]
+                .map(i => (isChosen(i) ? '●' : '○') + (i.disabled ? '(ปิด)' : '') + ' ' + i.type + ' ' + choiceText(i).slice(0, 40) + ' #' + i.id),
+            relationHtml: row ? row.outerHTML.replace(/\\s+/g, ' ').slice(0, 1500) : 'ไม่พบแถว "ความสัมพันธ์"'
         };
-        return { ok, dom, detail: 'ผู้รับรอง=' + (input?.checked ? role : (input ? 'ยังไม่ได้เลือก' : 'ไม่พบตัวเลือก')) + ', ความสัมพันธ์=' + (selected || 'ไม่พบ') };`), CERTIFIER_ROLE, CERTIFIER_RELATION);
+        return { ok, dom, detail: 'ผู้รับรอง=' + (roleOk ? role : (choices.length ? 'ยังไม่ได้เลือก' : 'ไม่พบตัวเลือก')) + ', ความสัมพันธ์=' + (relation_ || 'ไม่พบ') };`), CERTIFIER_ROLE, CERTIFIER_RELATION);
 }
 
 /** Searches the patient and fills every field.  Returns the reason used. */
@@ -396,7 +445,7 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
                     // Keep what the section looked like, so the selectors can be fixed.
                     await page.screenshot({ path: shot, fullPage: true });
                     fs.writeFileSync(shot.replace(/\.png$/, '-certifier.json'), JSON.stringify(certifier.dom, null, 2));
-                    logger.warn(`🔎 [Endpoint] Certifier section VN ${row.vn}:\n  radios: ${certifier.dom.radios.join('\n          ')}\n  selects: ${certifier.dom.selects.join('\n           ')}`);
+                    logger.warn(`🔎 [Endpoint] Certifier section VN ${row.vn}:\n  choices: ${certifier.dom.choices.join('\n           ')}\n  relation row: ${certifier.dom.relationHtml}`);
                     await sendTelegram(`🔎 ราย ${index + 1} (VN ${row.vn}): ตั้งผู้รับรองไม่ได้ (${certifier.detail}) — ไม่บันทึก`, shot);
                     throw Object.assign(new Error(`ตั้งผู้รับรองไม่ได้ (${certifier.detail}) — ไม่บันทึก`), { status: 'needs_review', notified: true });
                 }

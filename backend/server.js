@@ -2821,19 +2821,7 @@ async function handleScheduledSyncAndCapture() {
         cleanOldDownloads(path.join(__dirname, '../downloads'));
         logger.info('✅ [Scheduler] อัปเดตข้อมูลและประมวลผลฐานข้อมูลเปรียบเทียบเรียบร้อยแล้ว');
 
-        if (!SYNC_REPORTS_ENABLED) {
-            await finishSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync completed; sync report disabled');
-            return;
-        }
-
-        // Do not publish a dashboard image unless this run actually updated the data.
-        logger.info('📸 [Scheduler] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
-        const captureResult = await captureAndNotify(visit_date);
-        if (captureResult?.success === false) {
-            await finishSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync completed; dashboard capture failed', captureResult.error || 'Dashboard capture failed');
-        } else {
-            await finishSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync and dashboard capture completed');
-        }
+        await finishSyncRun(syncRunId, 'success', processedData.length, 'Scheduled sync completed');
     } catch (err) {
         logger.error('❌ [Scheduler] ข้อผิดพลาดในขั้นตอนดาวน์โหลด/ประมวลผลข้อมูล:', err);
         await finishSyncRun(syncRunId, 'failed', 0, 'Scheduled sync crashed', err.message);
@@ -3073,6 +3061,15 @@ async function sendLineMessage(text) {
     logger.info('ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:', text);
 }
 
+function formatSyncSummary(visitDate, processedData) {
+    const count = color => processedData.filter(row => row.color_status === color).length;
+    return [
+        `✅ ดึงและนำเข้าข้อมูลวันที่ ${visitDate} สำเร็จ`,
+        `รับบริการทั้งหมด ${processedData.length} ราย`,
+        `🟢 ครบถ้วน ${count('GREEN')} • 🟡 รอปิด Endpoint ${count('YELLOW')} • 🔴 ยังไม่ขอ Authen ${count('RED')}`
+    ].join('\n');
+}
+
 async function runE2EPortalSyncAndCapture(targetChatId) {
     const visit_date = new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
     try {
@@ -3100,8 +3097,8 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
             cleanOldDownloads(path.join(__dirname, '../downloads'));
             
             // แจ้งเตือนความสำเร็จ
-            await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, '✅ ซิงก์ข้อมูลฐานข้อมูลสำเร็จแล้ว! กำลังเตรียมบันทึกหน้าจอ Grafana...');
-            await sendLineMessage(`✅ ดึงข้อมูลรายงานและประมวลผลข้อมูลประจำวันที่ ${visit_date} สำเร็จแล้ว! กำลังเตรียมส่งรายงาน Flex...`);
+            await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, formatSyncSummary(visit_date, processedData));
+            await sendLineMessage(`✅ ดึงข้อมูลรายงานและประมวลผลข้อมูลประจำวันที่ ${visit_date} สำเร็จแล้ว!`);
         } else {
             logger.warn(`⚠️ [Telegram Trigger] การดาวน์โหลดข้อมูลไม่สำเร็จ: ${dlResult.error || 'Unknown error'}`);
             await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `❌ ดึงข้อมูลรายงานไม่สำเร็จ: ${dlResult.error || 'ข้อผิดพลาดบราวเซอร์'}`);
@@ -3113,22 +3110,5 @@ async function runE2EPortalSyncAndCapture(targetChatId) {
         await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `❌ ข้อผิดพลาดภายในเซิร์ฟเวอร์: ${err.message}`);
         await sendLineMessage(`❌ เกิดข้อผิดพลาดในเซิร์ฟเวอร์: ${err.message}`);
         return;
-    }
-    
-    // บันทึกแดชบอร์ดสรุปผลและส่งแจ้งเตือนเข้าห้องแชท (LINE/Telegram)
-    logger.info('📸 [Telegram Trigger] กำลังสั่งแคปเจอร์ภาพแดชบอร์ดและแจ้งเตือน...');
-    try {
-        const telegramChatIdEnv = process.env.TELEGRAM_CHAT_ID || '';
-        const chatIds = new Set([
-            targetChatId,
-            ...telegramChatIdEnv.split(',').map(id => id.trim()).filter(id => id)
-        ]);
-        const finalChatIdList = Array.from(chatIds).join(',');
-        const captureResult = await captureAndNotify(visit_date, ['line', 'telegram'], ['summary', 'screenshot'], { telegram_chat_id: finalChatIdList });
-        if (!captureResult.success) {
-            await sendTelegramMessage(process.env.TELEGRAM_BOT_TOKEN, targetChatId, `⚠️ ซิงก์ข้อมูลสำเร็จ แต่บันทึกภาพ Dashboard ไม่สำเร็จ: ${captureResult.error || 'ไม่ทราบสาเหตุ'}`);
-        }
-    } catch (err) {
-        logger.error('❌ [Telegram Trigger] ข้อผิดพลาดในการบันทึกแดชบอร์ด/ส่งแจ้งเตือน:', err);
     }
 }

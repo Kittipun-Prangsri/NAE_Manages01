@@ -88,8 +88,10 @@ async function logCase(row, reason, status, message = null) {
     );
 }
 
+// "save_unconfirmed" may have been saved on the NHSO side: never retry it
+// automatically; staff check the portal and delete that log row to retry.
 async function alreadySaved(vn) {
-    const [rows] = await trackerPool.query("SELECT 1 FROM nhso_endpoint_log WHERE vn = ? AND status = 'saved' LIMIT 1", [vn]);
+    const [rows] = await trackerPool.query("SELECT 1 FROM nhso_endpoint_log WHERE vn = ? AND status IN ('saved', 'save_unconfirmed') LIMIT 1", [vn]);
     return rows.length > 0;
 }
 
@@ -214,22 +216,67 @@ async function officerScan(page, row, caption) {
     return false;
 }
 
-/** Clicks save and confirms success by the print dialog that follows it. */
+// Native browser dialogs: accepted only while saving (a "confirm save?" prompt),
+// dismissed otherwise.  Their text is kept for the log.
+const dialogState = { accept: false, messages: [] };
+
+function handleDialog(dialog) {
+    dialogState.messages.push(`${dialog.type()}: ${dialog.message()}`);
+    logger.info(`💬 [Endpoint] Browser ${dialog.type()} "${dialog.message()}" -> ${dialogState.accept ? 'accept' : 'dismiss'}`);
+    return (dialogState.accept ? dialog.accept() : dialog.dismiss()).catch(() => {});
+}
+
+/**
+ * Clicks save, confirms any in-page "are you sure" prompt, and treats the
+ * print prompt (or a success message) as proof the record was saved.
+ */
 async function save(page) {
-    if (!(await clickButtonByText(page, /^บันทึก$/))) throw new Error('ไม่พบปุ่ม "บันทึก"');
-    const printed = await page.waitForFunction(
-        () => [...document.querySelectorAll('button, a')].some(el => el.offsetParent !== null && /พิมพ์/.test(el.innerText)),
-        { timeout: 30000 }
-    ).then(() => true, () => false);
-    if (!printed) return false;
-    await sleep(500);
-    // Close the print prompt with its own "ยกเลิก", not the form's.
-    await page.evaluate(() => {
-        const modal = [...document.querySelectorAll('.modal, [role="dialog"], .swal2-popup')].find(el => el.offsetParent !== null) || document;
-        const cancel = [...modal.querySelectorAll('button, a')].filter(el => el.offsetParent !== null && el.innerText.trim() === 'ยกเลิก').pop();
-        cancel?.click();
-    });
-    return true;
+    dialogState.accept = true;
+    dialogState.messages = [];
+    try {
+        if (!(await clickButtonByText(page, /^บันทึก$/))) throw new Error('ไม่พบปุ่ม "บันทึก"');
+        let confirmClicks = 0;
+        const deadline = Date.now() + 30000;
+        while (Date.now() < deadline) {
+            await sleep(1000);
+            const state = await page.evaluate(() => {
+                const visible = el => el.offsetParent !== null || getComputedStyle(el).position === 'fixed';
+                const modal = [...document.querySelectorAll('.modal.show, .modal[style*="display: block"], [role="dialog"], .swal2-popup')].find(visible);
+                const buttons = [...(modal || document).querySelectorAll('button, a')].filter(visible);
+                return {
+                    printable: buttons.some(el => /พิมพ์/.test(el.innerText)),
+                    modalText: modal ? modal.innerText.replace(/\s+/g, ' ').trim().slice(0, 200) : '',
+                    hasConfirm: !!modal && buttons.some(el => /^(ยืนยัน|ตกลง|ใช่|OK|Yes)$/i.test(el.innerText.trim()))
+                };
+            });
+            if (state.printable || /สำเร็จ/.test(state.modalText)) {
+                await sleep(500);
+                // Close the print prompt with its own "ยกเลิก", not the form's.
+                await page.evaluate(() => {
+                    const modal = [...document.querySelectorAll('.modal.show, [role="dialog"], .swal2-popup')].find(el => el.offsetParent !== null) || document;
+                    const cancel = [...modal.querySelectorAll('button, a')].filter(el => el.offsetParent !== null && /^(ยกเลิก|ปิด)$/.test(el.innerText.trim())).pop();
+                    cancel?.click();
+                });
+                return { ok: true, detail: state.modalText };
+            }
+            if (state.hasConfirm && confirmClicks < 2) {
+                confirmClicks += 1;
+                logger.info(`🖱️ [Endpoint] Confirming save prompt: "${state.modalText}"`);
+                await page.evaluate(() => {
+                    const modal = [...document.querySelectorAll('.modal.show, .modal[style*="display: block"], [role="dialog"], .swal2-popup')].find(el => el.offsetParent !== null);
+                    const button = [...modal.querySelectorAll('button, a')].find(el => /^(ยืนยัน|ตกลง|ใช่|OK|Yes)$/i.test(el.innerText.trim()));
+                    button?.click();
+                });
+            }
+        }
+        const lastModal = await page.evaluate(() => {
+            const modal = [...document.querySelectorAll('.modal.show, [role="dialog"], .swal2-popup, .alert, .toast')].find(el => el.offsetParent !== null);
+            return modal ? modal.innerText.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+        });
+        return { ok: false, detail: [lastModal, ...dialogState.messages].filter(Boolean).join(' | ') || 'ไม่มีข้อความตอบกลับ' };
+    } finally {
+        dialogState.accept = false;
+    }
 }
 
 export async function runEndpointBatch({ visitDate = today(), dryRun = true, limit = 10, vn = null } = {}) {
@@ -263,7 +310,7 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
         browser = await puppeteer.launch(getPuppeteerLaunchOptions({ userDataDir: sessionPath }));
         const page = await browser.newPage();
         await page.setViewport({ width: 1440, height: 900 });
-        page.on('dialog', dialog => dialog.dismiss().catch(() => {}));
+        page.on('dialog', handleDialog);
 
         const loginQr = createTelegramQrNotifier(telegramTarget().token, telegramTarget().chatIds);
         const login = await loginWithThaid(page, {
@@ -298,14 +345,15 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
                 if (!(await selectProxyRole(page))) {
                     throw Object.assign(new Error(`ไม่พบตัวเลือก "${PROXY_ROLE}" ในฟอร์ม — ไม่บันทึก`), { status: 'needs_review' });
                 }
-                if (!(await save(page))) {
+                const saved = await save(page);
+                if (!saved.ok) {
                     await page.screenshot({ path: shot, fullPage: true });
-                    await logCase(row, reason, 'save_unconfirmed', 'กดบันทึกแล้วไม่เห็นหน้าพิมพ์');
-                    await sendTelegram(`⚠️ ราย ${index + 1}: กดบันทึกแล้วไม่เห็นหน้าพิมพ์ — หยุดทั้งชุด ให้ตรวจในเว็บ สปสช. ก่อน`, shot);
+                    await logCase(row, reason, 'save_unconfirmed', `กดบันทึกแล้วไม่เห็นหน้าพิมพ์: ${saved.detail}`);
+                    await sendTelegram(`⚠️ ราย ${index + 1} (VN ${row.vn}): กดบันทึกแล้วไม่เห็นหน้าพิมพ์ — หยุดทั้งชุด ให้ตรวจในเว็บ สปสช. ก่อน\nข้อความจากหน้าเว็บ: ${saved.detail}`, shot);
                     results.failed += 1;
                     break; // Never continue blindly after an unconfirmed save.
                 }
-                await logCase(row, reason, 'saved');
+                await logCase(row, reason, 'saved', saved.detail || null);
                 results.saved += 1;
                 await sendTelegram(`✅ บันทึก Endpoint ราย ${index + 1}/${batch.length} แล้ว (VN ${row.vn})`);
             } catch (err) {

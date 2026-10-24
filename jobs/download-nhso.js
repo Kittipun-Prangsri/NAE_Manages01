@@ -24,6 +24,7 @@ import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } f
 import logger from '../backend/logger.js';
 import { saveNhsoSessionStatusInfo } from './keep-alive-nhso.js';
 import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
+import { loginWithThaid, createTelegramQrNotifier, saveQrFile } from './thaidLogin.js';
 
 dotenv.config();
 puppeteer.use(StealthPlugin());
@@ -42,15 +43,8 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
     const url = process.env.NHSO_PORTAL_URL || 'https://authenservice.nhso.go.th/authencode/';
     const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
     const telegramChatId = process.env.TELEGRAM_CHAT_ID;
-    const lineAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const lineGroupId = process.env.LINE_GROUP_ID;
-    const imgbbApiKey = process.env.IMGBB_API_KEY;
-    const serverPublicUrl = process.env.SERVER_PUBLIC_URL || 'http://localhost:3000';
-
     const hasTelegram = telegramToken && telegramChatId && telegramChatId !== 'your_telegram_chat_id_here';
-    const hasLine = lineAccessToken && lineGroupId && lineGroupId !== 'your_group_id_here';
 
-    
     const downloadsDir = path.join(__dirname, '../downloads');
     if (!fs.existsSync(downloadsDir)) {
         fs.mkdirSync(downloadsDir, { recursive: true });
@@ -63,6 +57,9 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
     if (statusCallback) statusCallback('starting_browser', 'กำลังรันบราวเซอร์ Puppeteer เบื้องหลัง...');
     
     let browser;
+    // Download into a fresh per-run folder so the backup Excel kept in
+    // downloads/ can never be mistaken for the file of this run.
+    const runDownloadDir = path.join(downloadsDir, `.run-${Date.now()}`);
     const portalLockHolderId = createSchedulerHolderId();
     let portalLockAcquired = false;
     try {
@@ -81,7 +78,8 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         // Terminate stale Chrome/Chromium processes under Linux to release lock handles
         if (process.platform === 'linux') {
             try {
-                execSync('pkill -f "chrome|chromium" || true');
+                // Only kill browsers using this profile; other jobs (dashboard capture) keep running.
+                execSync('pkill -f "user-data-dir=.*puppeteer_session" || true');
                 logger.info('🧹 Cleaned up stale background browser processes.');
                 await new Promise(resolve => setTimeout(resolve, 1000));
             } catch (err) {
@@ -111,132 +109,49 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         const client = await page.target().createCDPSession();
         await client.send('Page.setDownloadBehavior', {
             behavior: 'allow',
-            downloadPath: downloadsDir
+            downloadPath: runDownloadDir
         });
 
         logger.info('🔗 Navigating to NHSO portal to check session...');
         if (statusCallback) statusCallback('checking_session', 'กำลังตรวจสอบเซสชันกับหน้าเว็บ สปสช....');
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-        await new Promise(resolve => setTimeout(resolve, 3000));
 
-        let authenticated = false;
-        const checkUrl = page.url();
-        logger.info(`📍 Initial check URL: ${checkUrl}`);
+        const screenshotsDir = path.join(__dirname, 'screenshots');
+        fs.mkdirSync(screenshotsDir, { recursive: true });
+        const thaidQrPath = path.join(screenshotsDir, 'thaid_qr.png');
+        const telegramQr = createTelegramQrNotifier(
+            hasTelegram ? telegramToken : null,
+            hasTelegram ? telegramChatId.split(',').map(id => id.trim()).filter(id => id) : []
+        );
 
-        // If we are already logged in (redirected to dashboard/authencode and no login button)
-        if (checkUrl.includes('authenservice.nhso.go.th/authencode') && !checkUrl.includes('login')) {
-            const hasLoginButton = await page.evaluate(() => {
-                return !!document.querySelector('a[href*="/broker/thaid/login"]');
-            });
-            if (!hasLoginButton) {
-                logger.info('✅ Existing active session found! Skipping ThaiD QR Code login.');
-                if (statusCallback) statusCallback('session_found', 'พบเซสชันเดิมที่ยังไม่หมดอายุ ข้ามขั้นตอนเข้าสู่ระบบ...');
-                authenticated = true;
+        const login = await loginWithThaid(page, {
+            portalUrl: url,
+            onQr: async ({ dataUrl, buffer, refCode, expiresAt, round, deadline }) => {
+                saveQrFile(buffer, thaidQrPath);
+                const minutesLeft = Math.max(1, Math.round((deadline - Date.now()) / 60000));
+                if (statusCallback) {
+                    statusCallback('waiting_thaid_scan', `กรุณาสแกน QR Code ด้วยแอป ThaiD (รอบที่ ${round} — QR จะสร้างใหม่อัตโนมัติเมื่อหมดอายุ)`, {
+                        qrCodeUrl: dataUrl,
+                        refCode,
+                        expiresAt: new Date(expiresAt).toISOString(),
+                        round
+                    });
+                }
+                await telegramQr.show(buffer, `📲 สแกน QR ด้วยแอป ThaiD เพื่อดึงรายงาน Authen Code\nเลขอ้างอิง: ${refCode || '-'} (รอบที่ ${round})\nQR อายุ ~1 นาที จะเปลี่ยนรูปให้อัตโนมัติ • รอได้อีก ~${minutesLeft} นาที`);
             }
-        }
+        });
+        const authenticated = login.authenticated;
 
-        if (!authenticated) {
-            logger.info(`🔗 Navigating to NHSO portal...`);
-            await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-
-            // Wait and click ThaiD
-            logger.info('🔑 Clicking ThaiD login option...');
-            if (statusCallback) statusCallback('generating_qr', 'กำลังสลับหน้าจอไปขอรหัส QR Code ล็อกอินด้วยแอป ThaiD...');
-            try {
-                await page.waitForSelector('a[href*="/broker/thaid/login"]', { timeout: 15000 });
-                await Promise.all([
-                    page.click('a[href*="/broker/thaid/login"]'),
-                    page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 45000 }).catch(() => {})
-                ]);
-            } catch (err) {
-                // If it failed to find the login button, maybe we got authenticated in the meantime
-                const currentUrl = page.url();
-                if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
-                    logger.info('🎉 Detected authentication during transition!');
-                    authenticated = true;
-                } else {
-                    throw err;
-                }
-            }
-
-            if (!authenticated) {
-                // Wait for ThaiD QR page to render
-                await new Promise(resolve => setTimeout(resolve, 5000));
-
-                const thaidUrl = page.url();
-                logger.info(`📍 Current URL (ThaiD Page): ${thaidUrl}`);
-
-                // Temporarily set a mobile viewport for large QR code rendering
-                await page.setViewport({ width: 440, height: 600 });
-                await new Promise(resolve => setTimeout(resolve, 1000));
-
-                // Capture QR Code page screenshot in screenshots directory
-                const screenshotsDir = path.join(__dirname, 'screenshots');
-                if (!fs.existsSync(screenshotsDir)) {
-                    fs.mkdirSync(screenshotsDir, { recursive: true });
-                }
-                const thaidQrFilename = 'thaid_qr.png';
-                const thaidQrPath = path.join(screenshotsDir, thaidQrFilename);
-                await page.screenshot({ path: thaidQrPath });
-
-                // Restore desktop viewport for subsequent operations
-                await page.setViewport({ width: 1440, height: 900 });
-
-                // Send QR Code to Telegram & LINE so the user can scan it
-                const caption = '📲 กรุณาสแกน QR Code เพื่อให้ระบบดาวน์โหลดรายงาน Authen Code อัตโนมัติ';
-                
-                if (hasTelegram) {
-                    const chatIds = telegramChatId.split(',').map(id => id.trim()).filter(id => id);
-                    for (const id of chatIds) {
-                        await sendTelegramPhoto(thaidQrPath, 'thaid_qr.png', telegramToken, id, caption, thaidUrl);
-                    }
-                    logger.info(`📲 QR Code sent to Telegram.`);
-                }
-
-                if (hasLine) {
-                    await sendToLineBot(thaidQrPath, thaidQrFilename, lineAccessToken, lineGroupId, imgbbApiKey, serverPublicUrl, caption, thaidUrl);
-                    logger.info(`📲 QR Code sent to LINE.`);
-                }
-
-                let qrUrl = `/screenshots/thaid_qr.png?t=${Date.now()}`;
-                try {
-                    if (fs.existsSync(thaidQrPath)) {
-                        const base64Image = fs.readFileSync(thaidQrPath, { encoding: 'base64' });
-                        qrUrl = `data:image/png;base64,${base64Image}`;
-                    }
-                } catch (err) {
-                    logger.error('❌ Failed to read QR Code as base64:', err);
-                }
-                
-                if (statusCallback) statusCallback('waiting_thaid_scan', 'กรุณาสแกน QR Code เพื่อล็อกอินผ่านแอป ThaiD', qrUrl);
-
-                // Wait for scan (Timeout: 10 minutes)
-                const startTime = Date.now();
-                const timeoutMs = 600000; // 10 minutes
-
-                while (Date.now() - startTime < timeoutMs) {
-                    const currentUrl = page.url();
-                    if (currentUrl.includes('authenservice.nhso.go.th/authencode') && !currentUrl.includes('/login')) {
-                        logger.info('🎉 Detected redirect to NHSO Portal! URL:', currentUrl);
-                        if (statusCallback) statusCallback('auth_success', 'ตรวจพบการยืนยันตัวตนสำเร็จแล้ว! กำลังโหลดเซสชัน...');
-                        logger.info('⏳ Waiting 5 seconds for session and cookies to settle...');
-                        await new Promise(resolve => setTimeout(resolve, 5000));
-                        authenticated = true;
-                        break;
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                }
-
-                if (authenticated) {
-                    logger.info('✅ Authentication successful!');
-                    saveNhsoSessionStatusInfo('active', 'ยืนยันตัวตนสำเร็จแล้ว เซสชันพร้อมใช้งาน');
-                } else {
-                    logger.warn('⚠️ Timed out waiting for scan.');
-                    saveNhsoSessionStatusInfo('expired', 'การสแกนยืนยันตัวตนหมดเวลา');
-                }
-            }
-        } else {
+        if (authenticated && login.rounds === 0) {
+            logger.info('✅ Existing active session found! Skipping ThaiD QR Code login.');
+            if (statusCallback) statusCallback('session_found', 'พบเซสชันเดิมที่ยังไม่หมดอายุ ข้ามขั้นตอนเข้าสู่ระบบ...');
             saveNhsoSessionStatusInfo('active', 'พบเซสชันเดิมที่ยังใช้งานได้ ข้ามการสแกน');
+        } else if (authenticated) {
+            if (statusCallback) statusCallback('auth_success', 'ตรวจพบการยืนยันตัวตนสำเร็จแล้ว! กำลังโหลดเซสชัน...');
+            saveNhsoSessionStatusInfo('active', 'ยืนยันตัวตนสำเร็จแล้ว เซสชันพร้อมใช้งาน');
+            await telegramQr.finish('✅ สแกน ThaiD สำเร็จ กำลังดาวน์โหลดรายงาน...');
+        } else {
+            logger.warn('⚠️ Timed out waiting for ThaiD scan.');
+            await telegramQr.finish('⌛ หมดเวลารอสแกน ThaiD — สั่งดึงข้อมูลใหม่อีกครั้งเมื่อพร้อม');
         }
 
         if (!authenticated) {
@@ -331,7 +246,9 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         await page.click('button.btn-default.float-end');
 
         logger.info('⏳ Waiting for file download to complete...');
-        const filePath = await waitForDownload(downloadsDir, 60000);
+        const runFilePath = await waitForDownload(runDownloadDir, 60000);
+        const filePath = path.join(downloadsDir, path.basename(runFilePath));
+        fs.renameSync(runFilePath, filePath);
         logger.info(`🎉 Download successful! Saved to: ${filePath}`);
         if (statusCallback) statusCallback('download_complete', 'ดาวน์โหลดไฟล์รายงาน Excel สำเร็จเรียบร้อยแล้ว!');
 
@@ -345,6 +262,7 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
             await browser.close();
             logger.info('🔒 Browser closed.');
         }
+        fs.rmSync(runDownloadDir, { recursive: true, force: true });
         if (portalLockAcquired) {
             await releaseSchedulerLock(trackerPool, 'nhso_portal_download', portalLockHolderId);
         }
@@ -354,7 +272,7 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
 async function waitForDownload(downloadsDir, timeoutMs) {
     const startTime = Date.now();
     while (Date.now() - startTime < timeoutMs) {
-        const files = fs.readdirSync(downloadsDir);
+        const files = fs.existsSync(downloadsDir) ? fs.readdirSync(downloadsDir) : [];
         const xlsxFiles = files.filter(f => f.endsWith('.xlsx') && !f.startsWith('.'));
         const inProgress = files.some(f => f.endsWith('.crdownload') || f.endsWith('.tmp'));
         
@@ -368,47 +286,6 @@ async function waitForDownload(downloadsDir, timeoutMs) {
         await new Promise(resolve => setTimeout(resolve, 1000));
     }
     throw new Error('การดาวน์โหลดไฟล์รายงานหมดเวลา (Timeout)');
-}
-
-async function sendTelegramPhoto(filepath, filename, token, chatId, text, actionUrl = null) {
-    if (process.env.DISABLE_NOTIFICATIONS === 'true') {
-        logger.info('ℹ️ Telegram photo sending is globally disabled via DISABLE_NOTIFICATIONS=true.');
-        return;
-    }
-    try {
-        const fileBuffer = fs.readFileSync(filepath);
-        const blob = new Blob([fileBuffer], { type: 'image/png' });
-
-        const formData = new FormData();
-        formData.append('chat_id', chatId);
-        formData.append('photo', blob, filename);
-        formData.append('caption', text);
-
-        if (actionUrl) {
-            const replyMarkup = {
-                inline_keyboard: [
-                    [
-                        {
-                            text: '📲 กดเพื่อเข้าสู่ระบบผ่านแอป ThaiD',
-                            url: actionUrl
-                        }
-                    ]
-                ]
-            };
-            formData.append('reply_markup', JSON.stringify(replyMarkup));
-        }
-
-        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-            method: 'POST',
-            body: formData
-        });
-    } catch (error) {
-        logger.error('Error sending photo to Telegram:', error);
-    }
-}
-
-async function sendToLineBot(filepath, filename, token, groupId, imgbbKey, publicUrl, captionText, actionUrl = null) {
-    logger.info('ℹ️ LINE Flex message push is disabled (only replies are allowed).');
 }
 
 export function cleanOldDownloads(downloadsDir) {

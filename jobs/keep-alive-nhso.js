@@ -7,6 +7,8 @@ import dotenv from 'dotenv';
 import { execSync } from 'child_process';
 import logger from '../backend/logger.js';
 import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
+import { trackerPool } from '../backend/db.js';
+import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 
 dotenv.config();
 puppeteer.use(StealthPlugin());
@@ -81,7 +83,16 @@ export async function keepAliveNhsoSession() {
     logger.info('⏰ [Keep-Alive] Starting background NHSO portal keep-alive...');
     
     let browser;
+    const lockHolderId = createSchedulerHolderId();
+    let lockAcquired = false;
     try {
+        // Share the downloader's lock: both use the same Chromium profile.
+        lockAcquired = await acquireSchedulerLock(trackerPool, 'nhso_portal_download', lockHolderId);
+        if (!lockAcquired) {
+            logger.info('ℹ️ [Keep-Alive] Portal download is running; skipping this keep-alive.');
+            return;
+        }
+
         // Cleanup singleton lock
         const lockFile = path.join(sessionPath, 'SingletonLock');
         try {
@@ -148,6 +159,11 @@ export async function keepAliveNhsoSession() {
         if (browser) {
             await browser.close();
             logger.info('🔒 [Keep-Alive] Browser closed.');
+        }
+        if (lockAcquired) {
+            await releaseSchedulerLock(trackerPool, 'nhso_portal_download', lockHolderId).catch(err => {
+                logger.error('❌ [Keep-Alive] Could not release portal lock:', err.message);
+            });
         }
     }
 }

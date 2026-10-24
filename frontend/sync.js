@@ -171,6 +171,7 @@ export async function handleAutoPortalSync(onLoadCallbackObj) {
     const syncProgressIcon = document.getElementById('sync-progress-icon');
     const syncQrContainer = document.getElementById('sync-qr-container');
     const syncQrImage = document.getElementById('sync-qr-image');
+    const syncQrMeta = document.getElementById('sync-qr-meta');
 
     const stepBrowser = document.getElementById('step-browser');
     const stepAuth = document.getElementById('step-auth');
@@ -227,12 +228,32 @@ export async function handleAutoPortalSync(onLoadCallbackObj) {
     }
 
     let pollInterval = null;
+    let qrInfo = null;
+
+    // Ticks every second so the countdown stays smooth between status polls.
+    const renderQrMeta = () => {
+        if (!syncQrMeta) return;
+        if (!qrInfo) {
+            syncQrMeta.textContent = '';
+            return;
+        }
+        const parts = [];
+        if (qrInfo.refCode) parts.push(`เลขอ้างอิง ${qrInfo.refCode}`);
+        if (qrInfo.expiresAt) {
+            const secondsLeft = Math.max(0, Math.round((new Date(qrInfo.expiresAt).getTime() - Date.now()) / 1000));
+            parts.push(secondsLeft > 0 ? `หมดอายุใน ${secondsLeft} วิ` : 'กำลังสร้าง QR ใหม่...');
+        }
+        if (qrInfo.round) parts.push(`รอบที่ ${qrInfo.round}`);
+        syncQrMeta.textContent = parts.join(' • ');
+    };
+    const qrTimer = setInterval(renderQrMeta, 1000);
 
     const handleClose = () => {
         if (pollInterval) {
             clearInterval(pollInterval);
             pollInterval = null;
         }
+        clearInterval(qrTimer);
         syncProgressModal.classList.add('hidden');
         closeSyncProgressBtn.removeEventListener('click', handleClose);
     };
@@ -275,11 +296,14 @@ export async function handleAutoPortalSync(onLoadCallbackObj) {
                 setStepState(activeIdx, data.status);
 
                 if (data.step === 'waiting_thaid_scan' && data.qrCodeUrl) {
-                    syncQrImage.src = data.qrCodeUrl;
+                    if (syncQrImage.src !== data.qrCodeUrl) syncQrImage.src = data.qrCodeUrl;
+                    qrInfo = { refCode: data.qrRefCode, expiresAt: data.qrExpiresAt, round: data.qrRound };
                     syncQrContainer.classList.remove('hidden');
                 } else {
+                    qrInfo = null;
                     syncQrContainer.classList.add('hidden');
                 }
+                renderQrMeta();
 
                 if (data.status === 'idle') {
                     clearInterval(pollInterval);

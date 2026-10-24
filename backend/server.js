@@ -1747,7 +1747,11 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
             currentSyncStatus.step = step;
             currentSyncStatus.message = message;
             if (step === 'waiting_thaid_scan' && extra) {
-                currentSyncStatus.qrCodeUrl = extra;
+                const qr = typeof extra === 'string' ? { qrCodeUrl: extra } : extra;
+                currentSyncStatus.qrCodeUrl = qr.qrCodeUrl || '';
+                currentSyncStatus.qrRefCode = qr.refCode || null;
+                currentSyncStatus.qrExpiresAt = qr.expiresAt || null;
+                currentSyncStatus.qrRound = qr.round || null;
             }
         });
         

@@ -233,47 +233,50 @@ function handleDialog(dialog) {
 async function save(page) {
     dialogState.accept = true;
     dialogState.messages = [];
+    // One page-side routine for every modal step, so detecting a prompt and
+    // clicking it always look at the same element.  Modals are position:fixed,
+    // which makes offsetParent null, so visibility is checked by size instead.
+    const modalStep = action => page.evaluate(step => {
+        const visible = el => {
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+        };
+        const modal = [...document.querySelectorAll('.modal.show, .modal[style*="display: block"], [role="dialog"], .swal2-popup')].find(visible);
+        const buttons = [...(modal || document).querySelectorAll('button, a')].filter(visible);
+        const text = modal ? modal.innerText.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+        if (step === 'confirm') {
+            buttons.find(el => /^(ยืนยัน|ตกลง|ใช่|OK|Yes)$/i.test(el.innerText.trim()))?.click();
+        } else if (step === 'close') {
+            buttons.filter(el => /^(ยกเลิก|ปิด)$/.test(el.innerText.trim())).pop()?.click();
+        }
+        return {
+            text,
+            printable: buttons.some(el => /พิมพ์/.test(el.innerText)),
+            hasConfirm: !!modal && buttons.some(el => /^(ยืนยัน|ตกลง|ใช่|OK|Yes)$/i.test(el.innerText.trim()))
+        };
+    }, action);
+
     try {
         if (!(await clickButtonByText(page, /^บันทึก$/))) throw new Error('ไม่พบปุ่ม "บันทึก"');
         let confirmClicks = 0;
+        let state = { text: '' };
         const deadline = Date.now() + 30000;
         while (Date.now() < deadline) {
             await sleep(1000);
-            const state = await page.evaluate(() => {
-                const visible = el => el.offsetParent !== null || getComputedStyle(el).position === 'fixed';
-                const modal = [...document.querySelectorAll('.modal.show, .modal[style*="display: block"], [role="dialog"], .swal2-popup')].find(visible);
-                const buttons = [...(modal || document).querySelectorAll('button, a')].filter(visible);
-                return {
-                    printable: buttons.some(el => /พิมพ์/.test(el.innerText)),
-                    modalText: modal ? modal.innerText.replace(/\s+/g, ' ').trim().slice(0, 200) : '',
-                    hasConfirm: !!modal && buttons.some(el => /^(ยืนยัน|ตกลง|ใช่|OK|Yes)$/i.test(el.innerText.trim()))
-                };
-            });
-            if (state.printable || /สำเร็จ/.test(state.modalText)) {
+            state = await modalStep('inspect');
+            if (state.printable || /สำเร็จ/.test(state.text)) {
                 await sleep(500);
                 // Close the print prompt with its own "ยกเลิก", not the form's.
-                await page.evaluate(() => {
-                    const modal = [...document.querySelectorAll('.modal.show, [role="dialog"], .swal2-popup')].find(el => el.offsetParent !== null) || document;
-                    const cancel = [...modal.querySelectorAll('button, a')].filter(el => el.offsetParent !== null && /^(ยกเลิก|ปิด)$/.test(el.innerText.trim())).pop();
-                    cancel?.click();
-                });
-                return { ok: true, detail: state.modalText };
+                await modalStep('close');
+                return { ok: true, detail: state.text };
             }
             if (state.hasConfirm && confirmClicks < 2) {
                 confirmClicks += 1;
-                logger.info(`🖱️ [Endpoint] Confirming save prompt: "${state.modalText}"`);
-                await page.evaluate(() => {
-                    const modal = [...document.querySelectorAll('.modal.show, .modal[style*="display: block"], [role="dialog"], .swal2-popup')].find(el => el.offsetParent !== null);
-                    const button = [...modal.querySelectorAll('button, a')].find(el => /^(ยืนยัน|ตกลง|ใช่|OK|Yes)$/i.test(el.innerText.trim()));
-                    button?.click();
-                });
+                logger.info(`🖱️ [Endpoint] Confirming save prompt: "${state.text}"`);
+                await modalStep('confirm');
             }
         }
-        const lastModal = await page.evaluate(() => {
-            const modal = [...document.querySelectorAll('.modal.show, [role="dialog"], .swal2-popup, .alert, .toast')].find(el => el.offsetParent !== null);
-            return modal ? modal.innerText.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
-        });
-        return { ok: false, detail: [lastModal, ...dialogState.messages].filter(Boolean).join(' | ') || 'ไม่มีข้อความตอบกลับ' };
+        return { ok: false, detail: [state.text, ...dialogState.messages].filter(Boolean).join(' | ') || 'ไม่มีข้อความตอบกลับ' };
     } finally {
         dialogState.accept = false;
     }

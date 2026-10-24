@@ -121,16 +121,35 @@ async function run() {
 
         await page.goto(FORM_URL, { waitUntil: 'networkidle2', timeout: 60000 });
         await new Promise(resolve => setTimeout(resolve, 2000));
-        const initial = await snapshot(page, '1-form');
+        await snapshot(page, '1-form');
+
+        // The page opens on the patient self-verification tab; the endpoint flow
+        // used by staff is the guardian/officer tab.  Tabs are styled radios/labels.
+        const switched = await page.evaluate(() => {
+            const tab = [...document.querySelectorAll('label, button, a, li, span')]
+                .find(el => /ยืนยันตัวตนแทนผู้เข้ารับบริการ/.test(el.innerText || '') && (el.innerText || '').length < 120);
+            tab?.click();
+            return tab ? tab.innerText.trim() : null;
+        });
+        console.log(switched ? `\n🗂️ เปลี่ยนไปแท็บ "${switched}"` : '\n⚠️ ไม่พบแท็บ "ยืนยันตัวตนแทนผู้เข้ารับบริการ"');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const proxyTab = await snapshot(page, '1b-proxy-tab');
 
         if (cid) {
-            // Type the CID into the first 13-digit-looking field and search; never save.
-            const target = initial.controls.find(c => c.maxLength === 13)
-                || initial.controls.find(c => /เลข|บัตร|pid|cid/i.test(`${c.placeholder} ${c.label} ${c.name}`) && c.tag === 'input');
+            // Type the CID into the 13-digit text field and search; never save.
+            const textInputs = proxyTab.controls.filter(c => c.tag === 'input' && !['radio', 'checkbox', 'submit', 'button', 'hidden'].includes(c.type));
+            const target = textInputs.find(c => c.maxLength === 13)
+                || textInputs.find(c => /13|เลข|บัตร|pid|cid/i.test(`${c.placeholder} ${c.label} ${c.name}`))
+                || textInputs[0];
             if (!target) throw new Error('ไม่พบช่องกรอกเลขบัตรประชาชน — ดูรายการช่องด้านบน');
             await page.type(target.selector, cid, { delay: 30 });
-            console.log(`\n✍️ กรอกเลขบัตรลงช่อง ${target.selector} แล้วกด Enter (ค้นหาเท่านั้น)`);
-            await page.keyboard.press('Enter');
+            const searched = await page.evaluate(() => {
+                const button = [...document.querySelectorAll('button')].find(el => el.innerText.trim() === 'ค้นหา');
+                button?.click();
+                return !!button;
+            });
+            if (!searched) await page.keyboard.press('Enter');
+            console.log(`\n✍️ กรอกเลขบัตรลงช่อง ${target.selector} แล้ว${searched ? 'กดปุ่ม "ค้นหา"' : 'กด Enter'} (ค้นหาเท่านั้น)`);
             await page.waitForNetworkIdle({ idleTime: 1000, timeout: 20000 }).catch(() => {});
             await new Promise(resolve => setTimeout(resolve, 2000));
             await snapshot(page, '2-after-search');

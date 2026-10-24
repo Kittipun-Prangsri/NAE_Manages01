@@ -19,6 +19,6 @@ test('reason follows age options and otherwise the configured default, never a g
     assert.equal(chooseEndpointReason(5, options, 'บัตรประจำตัวประชาชนไม่มี chip card'), 'เด็กอายุต่ำกว่า 7 ปี');
     assert.equal(chooseEndpointReason(12, options, 'บัตรประจำตัวประชาชนไม่มี chip card'), 'เด็กอายุต่ำกว่า 15 ปี');
     assert.equal(chooseEndpointReason(40, options, 'บัตรประจำตัวประชาชนไม่มี chip card'), 'บัตรประจำตัวประชาชนไม่มี chip card');
-    assert.equal(chooseEndpointReason(40, options, undefined), null);
+    assert.equal(chooseEndpointReason(40, options, ''), null);
     assert.equal(chooseEndpointReason(40, options, 'ไม่มีในรายการ'), null);
 });

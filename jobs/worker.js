@@ -203,13 +203,10 @@ async function sendLineMessage(text) {
     logger.info({ detail: text }, 'ℹ️ LINE push message is disabled (only replies are allowed). Message not sent:');
 }
 
+// The detailed summary lives in LINE OA (rich menu button "นำเข้าข้อมูล"),
+// so the chat only confirms that the import finished.
 function formatSyncSummary(visitDate, processedData) {
-    const count = color => processedData.filter(row => row.color_status === color).length;
-    return [
-        `✅ ดึงและนำเข้าข้อมูลวันที่ ${visitDate} สำเร็จ`,
-        `รับบริการทั้งหมด ${processedData.length} ราย`,
-        `🟢 ครบถ้วน ${count('GREEN')} • 🟡 รอปิด Endpoint ${count('YELLOW')} • 🔴 ยังไม่ขอ Authen ${count('RED')}`
-    ].join('\n');
+    return `✅ นำเข้าข้อมูลวันที่ ${visitDate} สำเร็จ (${processedData.length} ราย)\nดูสรุปได้ที่ LINE OA กดปุ่ม "นำเข้าข้อมูล"`;
 }
 
 async function runE2EPortalSyncAndCapture(targetChatId) {

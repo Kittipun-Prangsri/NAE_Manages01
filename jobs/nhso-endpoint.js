@@ -35,9 +35,12 @@ const outDir = path.join(__dirname, '../downloads/endpoint-runs');
 const PORTAL_URL = process.env.NHSO_PORTAL_URL || 'https://authenservice.nhso.go.th/authencode/';
 const BEHALF_URL = 'https://authenservice.nhso.go.th/authencode/nhso-endpoint/create/behalf';
 const OFFICER_SCAN_ATTEMPTS = 3;
-// Who certifies on the patient's behalf (shown after the officer's ThaiD scan):
-// "ผู้รับรอง" = ผู้ดูแล and "ความสัมพันธ์" = เจ้าหน้าที่ผู้ดูแล.
+// Who certifies on the patient's behalf (shown after the officer's ThaiD scan).
+// Choosing "ผู้ดูแล" opens the no-caregiver warning; confirming it makes the
+// portal set "ผู้รับรอง" = เจ้าหน้าที่ผู้บันทึกข้อมูล, the value the hospital wants,
+// with "ความสัมพันธ์" = เจ้าหน้าที่ผู้ดูแล.
 const CERTIFIER_ROLE = 'ผู้ดูแล';
+const CERTIFIER_FINAL_ROLE = 'เจ้าหน้าที่ผู้บันทึกข้อมูล';
 const CERTIFIER_RELATION = 'เจ้าหน้าที่ผู้ดูแล';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -151,21 +154,22 @@ const CERTIFIER_DOM_HELPERS = `
 `;
 
 /**
- * Sets the certifier section that appears after the officer scan:
- * "ผู้รับรอง" = ผู้ดูแล, then opens the "ความสัมพันธ์" dropdown and picks
- * เจ้าหน้าที่ผู้ดูแล.  Returns { ok, detail, dom } after reading both back;
+ * Sets the certifier section that appears after the officer scan: confirms
+ * "ยืนยันไม่มีผู้ดูแล" so ผู้รับรอง becomes เจ้าหน้าที่ผู้บันทึกข้อมูล, then picks
+ * "ความสัมพันธ์" = เจ้าหน้าที่ผู้ดูแล.  Returns { ok, detail, dom } after reading both back;
  * dom describes the section when it could not be set, for diagnosis.
  */
 export async function setCertifier(page) {
     const inPage = (args, body) => new Function(...args, `${CERTIFIER_DOM_HELPERS}\n${body}`);
     await page.waitForFunction(() => /ผู้รับรอง/.test(document.body.innerText), { timeout: 15000 }).catch(() => {});
 
-    // 1. ผู้รับรอง = ผู้ดูแล
-    const roleTarget = await page.evaluateHandle(inPage(['role'], `
-        const choices = choicesFor(role);
+    // 1. Click ผู้ดูแล to get the no-caregiver warning, unless it was already
+    //    confirmed (ผู้ดูแล disabled and เจ้าหน้าที่ผู้บันทึกข้อมูล chosen).
+    const roleTarget = await page.evaluateHandle(inPage(['role', 'finalRole'], `
+        const choices = choicesFor(role).filter(i => !i.disabled);
         if (choices.length === 0 || choices.some(isChosen)) return null;
-        const input = choices.find(i => !i.disabled) || choices[0];
-        return visible(input) ? input : wrapperOf(input);`), CERTIFIER_ROLE);
+        if (choicesFor(finalRole).some(isChosen) && choicesFor(role).every(i => i.disabled)) return null;
+        return visible(choices[0]) ? choices[0] : wrapperOf(choices[0]);`), CERTIFIER_ROLE, CERTIFIER_FINAL_ROLE);
     if (roleTarget.asElement()) {
         await roleTarget.asElement().click();
         // Choosing ผู้ดูแล opens "การแจ้งเตือน: กรณีผู้รับบริการไม่มีผู้ดูแล เจ้าหน้าที่สามารถรับรองได้…";
@@ -229,7 +233,8 @@ export async function setCertifier(page) {
                 .map(i => (isChosen(i) ? '●' : '○') + (i.disabled ? '(ปิด)' : '') + ' ' + i.type + ' ' + choiceText(i).slice(0, 40) + ' #' + i.id),
             relationHtml: row ? row.outerHTML.replace(/\\s+/g, ' ').slice(0, 1500) : 'ไม่พบแถว "ความสัมพันธ์"'
         };
-        return { ok, dom, detail: 'ผู้รับรอง=' + (roleOk ? role : (choices.length ? 'ยังไม่ได้เลือก' : 'ไม่พบตัวเลือก')) + ', ความสัมพันธ์=' + (relation_ || 'ไม่พบ') };`), CERTIFIER_ROLE, CERTIFIER_RELATION);
+        const chosenRole = [...document.querySelectorAll('input[type="radio"]')].filter(i => /^guarantorType/.test(i.id) && isChosen(i)).map(choiceText)[0];
+        return { ok, dom, detail: 'ผู้รับรอง=' + (chosenRole || (choices.length ? 'ยังไม่ได้เลือก' : 'ไม่พบตัวเลือก')) + ', ความสัมพันธ์=' + (relation_ || 'ไม่พบ') };`), CERTIFIER_FINAL_ROLE, CERTIFIER_RELATION);
 }
 
 /** Searches the patient and fills every field.  Returns the reason used. */

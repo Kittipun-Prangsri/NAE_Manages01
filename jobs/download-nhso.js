@@ -67,6 +67,14 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         // prevents manual, scheduled and Telegram triggers from launching
         // Chromium against that profile at the same time.
         portalLockAcquired = await acquireSchedulerLock(trackerPool, 'nhso_portal_download', portalLockHolderId);
+        // The keep-alive holds this lock for a short time every 30 minutes;
+        // wait for it instead of rejecting the user's request straight away.
+        const lockWaitDeadline = Date.now() + 3 * 60 * 1000;
+        if (!portalLockAcquired && statusCallback) statusCallback('waiting_lock', 'รอให้งานตรวจเซสชัน สปสช. ที่กำลังทำงานอยู่เสร็จก่อน...');
+        while (!portalLockAcquired && Date.now() < lockWaitDeadline) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            portalLockAcquired = await acquireSchedulerLock(trackerPool, 'nhso_portal_download', portalLockHolderId);
+        }
         if (!portalLockAcquired) {
             const message = 'มีงานดาวน์โหลดรายงาน สปสช. กำลังทำงานอยู่แล้ว';
             logger.warn(`ℹ️ ${message}`);

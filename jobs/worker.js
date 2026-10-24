@@ -29,6 +29,7 @@ import {
 import { processCrossCheck } from '../backend/crossCheckLogic.js';
 import { extractQueryDate } from '../backend/dateInput.js';
 import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
+import { parseEndpointCommand, runEndpointBatch } from './nhso-endpoint.js';
 import { keepAliveNhsoSession } from './keep-alive-nhso.js';
 import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 import logger from '../backend/logger.js';
@@ -323,6 +324,15 @@ async function startTelegramBotListener() {
                                 // Run the end-to-end sync in the background
                                 runE2EPortalSyncAndCapture(fromChatId, visitDate).catch(err => {
                                     logger.error({ err: err }, 'Error running E2E portal sync via telegram command:');
+                                });
+                            } else if (parseEndpointCommand(text)) {
+                                // "endpoint" = dry run with screenshots; "endpoint บันทึก" = save, one officer scan per case.
+                                const { dryRun, vn } = parseEndpointCommand(text);
+                                logger.info(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
+                                await sendTelegramMessage(token, fromChatId, `⏳ เริ่ม Endpoint ${dryRun ? 'แบบทดลอง (ไม่บันทึก)' : 'บันทึกจริง'}${vn ? ` เฉพาะ VN ${vn}` : ''}...`);
+                                runEndpointBatch({ dryRun, vn }).catch(async err => {
+                                    logger.error({ err: err.message }, '❌ [Telegram Bot] Endpoint batch failed:');
+                                    await sendTelegramMessage(token, fromChatId, `❌ Endpoint ไม่สำเร็จ: ${err.message}`);
                                 });
                             }
                         } else {

@@ -26,7 +26,8 @@ import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
 import { loginWithThaid, createTelegramQrNotifier, saveQrFile } from './thaidLogin.js';
 
 dotenv.config();
-puppeteer.use(StealthPlugin());
+// Several job modules share the puppeteer-extra singleton; register stealth once.
+if (!puppeteer.plugins.some(plugin => plugin.name === 'stealth')) puppeteer.use(StealthPlugin());
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

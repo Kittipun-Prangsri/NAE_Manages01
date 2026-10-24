@@ -22,3 +22,13 @@ test('reason follows age options and otherwise the configured default, never a g
     assert.equal(chooseEndpointReason(40, options, ''), null);
     assert.equal(chooseEndpointReason(40, options, 'ไม่มีในรายการ'), null);
 });
+
+test('telegram endpoint command: dry run by default, save only when asked, optional VN', async () => {
+    const { parseEndpointCommand } = await import('../jobs/nhso-endpoint.js');
+    assert.deepEqual(parseEndpointCommand('endpoint'), { dryRun: true, vn: null });
+    assert.deepEqual(parseEndpointCommand('/endpoint บันทึก'), { dryRun: false, vn: null });
+    assert.deepEqual(parseEndpointCommand('Endpoint บันทึก 691024085344'), { dryRun: false, vn: '691024085344' });
+    assert.deepEqual(parseEndpointCommand('ปิดสิทธิ 691024085344'), { dryRun: true, vn: '691024085344' });
+    assert.equal(parseEndpointCommand('ดึงข้อมูล'), null);
+    assert.equal(parseEndpointCommand('endpoints'), null);
+});

@@ -26,7 +26,8 @@ import { createTelegramQrNotifier, isThaidExpiredUrl, loginWithThaid, readThaidQ
 // defaults to today and the date picker is not automated yet.
 
 dotenv.config({ quiet: true });
-puppeteer.use(StealthPlugin());
+// Several job modules share the puppeteer-extra singleton; register stealth once.
+if (!puppeteer.plugins.some(plugin => plugin.name === 'stealth')) puppeteer.use(StealthPlugin());
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sessionPath = path.join(__dirname, '../puppeteer_session');
@@ -294,6 +295,21 @@ export async function saveEndpointForm(page) {
     } finally {
         dialogState.accept = false;
     }
+}
+
+/**
+ * Telegram command: "endpoint" = dry run, "endpoint บันทึก" = save,
+ * optionally followed by one VN ("endpoint บันทึก 691024085344").
+ * Returns null when the text is not an endpoint command.
+ */
+export function parseEndpointCommand(text) {
+    const match = /^\/?(endpoint|ปิดสิทธิ)(?:\s+(.*))?$/i.exec(String(text || '').trim());
+    if (!match) return null;
+    const rest = match[2] || '';
+    return {
+        dryRun: !/(บันทึก|save)/i.test(rest),
+        vn: (/\b(\d{12})\b/.exec(rest) || [])[1] || null
+    };
 }
 
 export async function runEndpointBatch({ visitDate = today(), dryRun = true, limit = 10, vn = null } = {}) {

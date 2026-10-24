@@ -132,6 +132,8 @@ function readCertifier(page) {
         return {
             chosen: roles.filter(r => r.checked).map(textOf)[0] || null,
             recorderChecked: !!document.getElementById(ids.recorder)?.checked,
+            recorderDisabled: !!document.getElementById(ids.recorder)?.disabled,
+            caregiverChecked: !!document.getElementById(ids.caregiver)?.checked,
             caregiverEnabled: !!document.getElementById(ids.caregiver) && !document.getElementById(ids.caregiver).disabled,
             relationText: relation ? relation.options[relation.selectedIndex]?.text.trim() : null,
             relationHasOption: !!relation && [...relation.options].some(o => o.text.trim() === 'เจ้าหน้าที่ผู้ดูแล'),
@@ -170,9 +172,9 @@ export async function setCertifier(page) {
         state = await readCertifier(page);
     }
 
-    // The warning confirmation is what selects the recorder and loads the
-    // relation list, so go through it unless both are already in place.
-    if ((!state.recorderChecked || !state.relationHasOption) && state.caregiverEnabled) {
+    // No role chosen yet: clicking ผู้ดูแล opens the warning whose confirmation
+    // selects the recorder.  If the portal already chose ผู้ดูแล itself, leave it.
+    if (!state.recorderChecked && !state.caregiverChecked && state.caregiverEnabled) {
         // Otherwise clicking ผู้ดูแล opens it.
         await page.click(`label[for="${CERTIFIER_IDS.caregiver}"]`).catch(() => page.click(`#${CERTIFIER_IDS.caregiver}`));
         if (!(await confirmNoCaregiver(page, 5000))) {
@@ -182,7 +184,7 @@ export async function setCertifier(page) {
         state = await readCertifier(page);
     }
 
-    if (state.recorderChecked && state.relationText !== 'เจ้าหน้าที่ผู้ดูแล') {
+    if ((state.recorderChecked || state.caregiverChecked) && state.relationText !== 'เจ้าหน้าที่ผู้ดูแล') {
         await page.waitForFunction(id => {
             const select = document.getElementById(id);
             return select && [...select.options].some(o => o.text.trim() === 'เจ้าหน้าที่ผู้ดูแล');
@@ -199,7 +201,11 @@ export async function setCertifier(page) {
     }
 
     logger.info(`👤 [Endpoint] Certifier after: ${state.roles.join(', ')} | ความสัมพันธ์=${state.relationText}`);
-    const ok = state.recorderChecked && state.relationText === 'เจ้าหน้าที่ผู้ดูแล';
+    // Two states the portal produces, both with ความสัมพันธ์ = เจ้าหน้าที่ผู้ดูแล:
+    // (a) เจ้าหน้าที่ผู้บันทึกข้อมูล after "ยืนยันไม่มีผู้ดูแล" — the hospital's choice;
+    // (b) ผู้ดูแล preselected by the portal with the recorder option disabled.
+    const roleOk = state.recorderChecked || (state.caregiverChecked && state.recorderDisabled);
+    const ok = roleOk && state.relationText === 'เจ้าหน้าที่ผู้ดูแล';
     return {
         ok,
         detail: `ผู้รับรอง=${state.chosen || 'ยังไม่ได้เลือก'}, ความสัมพันธ์=${state.relationText || 'ไม่พบ'}`,

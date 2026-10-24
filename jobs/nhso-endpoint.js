@@ -35,13 +35,8 @@ const outDir = path.join(__dirname, '../downloads/endpoint-runs');
 const PORTAL_URL = process.env.NHSO_PORTAL_URL || 'https://authenservice.nhso.go.th/authencode/';
 const BEHALF_URL = 'https://authenservice.nhso.go.th/authencode/nhso-endpoint/create/behalf';
 const OFFICER_SCAN_ATTEMPTS = 3;
-// Who certifies on the patient's behalf (shown after the officer's ThaiD scan).
-// Choosing "ผู้ดูแล" opens the no-caregiver warning; confirming it makes the
-// portal set "ผู้รับรอง" = เจ้าหน้าที่ผู้บันทึกข้อมูล, the value the hospital wants,
-// with "ความสัมพันธ์" = เจ้าหน้าที่ผู้ดูแล.
-const CERTIFIER_ROLE = 'ผู้ดูแล';
-const CERTIFIER_FINAL_ROLE = 'เจ้าหน้าที่ผู้บันทึกข้อมูล';
-const CERTIFIER_RELATION = 'เจ้าหน้าที่ผู้ดูแล';
+// Who certifies on the patient's behalf (hospital decision): ผู้รับรอง =
+// เจ้าหน้าที่ผู้บันทึกข้อมูล, ความสัมพันธ์ = เจ้าหน้าที่ผู้ดูแล.  See setCertifier.
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const today = () => new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
@@ -121,120 +116,95 @@ async function setInputValue(page, selector, value) {
     await page.$eval(selector, el => el.dispatchEvent(new Event('blur', { bubbles: true })));
 }
 
-// Page-side helpers shared by the certifier steps.  The certifier controls are
-// styled widgets: a choice's text comes from its <label for> or nearest wrapper,
-// "chosen" may live on the wrapper (class/aria) rather than the input, and the
-// relation field may be a custom dropdown whose options exist only once opened.
-const CERTIFIER_DOM_HELPERS = `
-    const visible = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-    const wrapperOf = input => {
-        const label = input.id && document.querySelector('label[for="' + CSS.escape(input.id) + '"]');
-        return label || input.closest('label, .form-check, .custom-control, .custom-radio, .custom-checkbox, .radio, li') || input.parentElement;
-    };
-    const choiceText = input => (wrapperOf(input)?.innerText || '').replace(/\\s+/g, ' ').trim();
-    const choicesFor = text => [...document.querySelectorAll('input[type="radio"], input[type="checkbox"]')].filter(i => choiceText(i) === text);
-    const isChosen = input => {
-        const w = wrapperOf(input);
-        const holder = w && (w.closest('.form-check, .custom-control, li') || w);
-        return input.checked || holder?.getAttribute('aria-checked') === 'true' || /(^|\\s)(active|checked|selected)(\\s|$)/.test(holder?.className || '');
-    };
-    const relationRow = () => {
-        const label = [...document.querySelectorAll('label, span, div, td, th')]
-            .find(el => /^ความสัมพันธ์\\s*\\*?$/.test(el.innerText.trim()));
-        return label ? (label.closest('.row, .form-group, .form-row, .mb-3, tr') || label.parentElement?.parentElement) : null;
-    };
-    const relationValue = () => {
-        const row = relationRow();
-        if (!row) return '';
-        const select = row.querySelector('select');
-        if (select && select.selectedIndex >= 0) return select.options[select.selectedIndex].text.trim();
-        const shown = row.querySelector('.ng-value-label, .ng-value, [class*="selected"], .dropdown-toggle, input:not([type="radio"]):not([type="checkbox"])');
-        return (shown?.value || shown?.innerText || '').trim();
-    };
-`;
+// Certifier controls on the behalf form (ids taken from the live page).
+const CERTIFIER_IDS = {
+    caregiver: 'guarantorType_T',     // ผู้ดูแล — clicking it opens the no-caregiver warning
+    recorder: 'guarantorType_S',      // เจ้าหน้าที่ผู้บันทึกข้อมูล — the value the hospital wants
+    relation: 'guarantor_relation-nosmc'
+};
+
+/** Reads the certifier section by id: which ผู้รับรอง is chosen and the ความสัมพันธ์ text. */
+function readCertifier(page) {
+    return page.evaluate(ids => {
+        const textOf = input => (document.querySelector(`label[for="${input.id}"]`)?.innerText || input.id).trim();
+        const roles = [...document.querySelectorAll('input[id^="guarantorType_"]')];
+        const relation = document.getElementById(ids.relation);
+        return {
+            chosen: roles.filter(r => r.checked).map(textOf)[0] || null,
+            recorderChecked: !!document.getElementById(ids.recorder)?.checked,
+            caregiverEnabled: !!document.getElementById(ids.caregiver) && !document.getElementById(ids.caregiver).disabled,
+            relationText: relation ? relation.options[relation.selectedIndex]?.text.trim() : null,
+            relationHasOption: !!relation && [...relation.options].some(o => o.text.trim() === 'เจ้าหน้าที่ผู้ดูแล'),
+            roles: roles.map(r => `${r.checked ? '●' : '○'}${r.disabled ? '(ปิด)' : ''} ${textOf(r)}`)
+        };
+    }, CERTIFIER_IDS);
+}
+
+/** Clicks "ยืนยันไม่มีผู้ดูแล" if that warning is (or becomes) visible within timeoutMs. */
+async function confirmNoCaregiver(page, timeoutMs) {
+    const button = await page.waitForFunction(
+        () => [...document.querySelectorAll('button')].find(b => b.innerText.trim() === 'ยืนยันไม่มีผู้ดูแล' && b.getBoundingClientRect().width > 0) || null,
+        { timeout: timeoutMs }
+    ).catch(() => null);
+    if (!button?.asElement()) return false;
+    await button.asElement().click();
+    logger.info('🖱️ [Endpoint] Confirmed "ยืนยันไม่มีผู้ดูแล"');
+    return true;
+}
 
 /**
- * Sets the certifier section that appears after the officer scan: confirms
- * "ยืนยันไม่มีผู้ดูแล" so ผู้รับรอง becomes เจ้าหน้าที่ผู้บันทึกข้อมูล, then picks
- * "ความสัมพันธ์" = เจ้าหน้าที่ผู้ดูแล.  Returns { ok, detail, dom } after reading both back;
- * dom describes the section when it could not be set, for diagnosis.
+ * Sets the certifier section that appears after the officer scan:
+ * click ผู้ดูแล → confirm "ยืนยันไม่มีผู้ดูแล" (the portal then chooses
+ * เจ้าหน้าที่ผู้บันทึกข้อมูล) → ความสัมพันธ์ = เจ้าหน้าที่ผู้ดูแล.
+ * Every step is logged; returns { ok, detail, dom } after reading back.
  */
 export async function setCertifier(page) {
-    const inPage = (args, body) => new Function(...args, `${CERTIFIER_DOM_HELPERS}\n${body}`);
-    await page.waitForFunction(() => /ผู้รับรอง/.test(document.body.innerText), { timeout: 15000 }).catch(() => {});
+    await page.waitForSelector(`#${CERTIFIER_IDS.recorder}`, { timeout: 15000 }).catch(() => {});
+    let state = await readCertifier(page);
+    logger.info(`👤 [Endpoint] Certifier before: ${state.roles.join(', ')} | ความสัมพันธ์=${state.relationText}`);
 
-    // 1. Click ผู้ดูแล to get the no-caregiver warning, unless it was already
-    //    confirmed (ผู้ดูแล disabled and เจ้าหน้าที่ผู้บันทึกข้อมูล chosen).
-    const roleTarget = await page.evaluateHandle(inPage(['role', 'finalRole'], `
-        const choices = choicesFor(role).filter(i => !i.disabled);
-        if (choices.length === 0 || choices.some(isChosen)) return null;
-        if (choicesFor(finalRole).some(isChosen) && choicesFor(role).every(i => i.disabled)) return null;
-        return visible(choices[0]) ? choices[0] : wrapperOf(choices[0]);`), CERTIFIER_ROLE, CERTIFIER_FINAL_ROLE);
-    if (roleTarget.asElement()) {
-        await roleTarget.asElement().click();
-        // Choosing ผู้ดูแล opens "การแจ้งเตือน: กรณีผู้รับบริการไม่มีผู้ดูแล เจ้าหน้าที่สามารถรับรองได้…";
-        // the choice only takes effect after "ยืนยันไม่มีผู้ดูแล" (approved by the hospital).
-        const confirmNoCaregiver = await page.waitForFunction(
-            () => [...document.querySelectorAll('button')].find(b => b.innerText.trim() === 'ยืนยันไม่มีผู้ดูแล' && b.getBoundingClientRect().width > 0) || null,
-            { timeout: 4000 }
-        ).catch(() => null);
-        if (confirmNoCaregiver?.asElement()) {
-            await confirmNoCaregiver.asElement().click();
-            logger.info('🖱️ [Endpoint] Confirmed "ยืนยันไม่มีผู้ดูแล"');
-        }
-        await sleep(800); // the relation list can depend on the chosen role
+    // The warning usually opens by itself right after the officer scan, with
+    // every ผู้รับรอง choice disabled until it is answered.
+    if (await confirmNoCaregiver(page, 5000)) {
+        await page.waitForFunction(id => document.getElementById(id)?.checked, { timeout: 5000 }, CERTIFIER_IDS.recorder).catch(() => {});
+        state = await readCertifier(page);
     }
 
-    // 2. ความสัมพันธ์ = เจ้าหน้าที่ผู้ดูแล (native select, else open the custom dropdown and click the option)
-    const relationSet = () => page.evaluate(inPage(['relation'], 'return relationValue() === relation;'), CERTIFIER_RELATION);
-    if (!(await relationSet())) {
-        const viaNative = await page.evaluate(inPage(['relation'], `
-            const select = relationRow()?.querySelector('select');
-            const option = select && [...select.options].find(o => o.text.trim() === relation);
-            if (!option) return false;
+    // The warning confirmation is what selects the recorder and loads the
+    // relation list, so go through it unless both are already in place.
+    if ((!state.recorderChecked || !state.relationHasOption) && state.caregiverEnabled) {
+        // Otherwise clicking ผู้ดูแล opens it.
+        await page.click(`label[for="${CERTIFIER_IDS.caregiver}"]`).catch(() => page.click(`#${CERTIFIER_IDS.caregiver}`));
+        if (!(await confirmNoCaregiver(page, 5000))) {
+            logger.warn('⚠️ [Endpoint] No "ยืนยันไม่มีผู้ดูแล" warning appeared after clicking ผู้ดูแล');
+        }
+        await page.waitForFunction(id => document.getElementById(id)?.checked, { timeout: 5000 }, CERTIFIER_IDS.recorder).catch(() => {});
+        state = await readCertifier(page);
+    }
+
+    if (state.recorderChecked && state.relationText !== 'เจ้าหน้าที่ผู้ดูแล') {
+        await page.waitForFunction(id => {
+            const select = document.getElementById(id);
+            return select && [...select.options].some(o => o.text.trim() === 'เจ้าหน้าที่ผู้ดูแล');
+        }, { timeout: 5000 }, CERTIFIER_IDS.relation).catch(() => {});
+        await page.evaluate(id => {
+            const select = document.getElementById(id);
+            const option = select && [...select.options].find(o => o.text.trim() === 'เจ้าหน้าที่ผู้ดูแล');
+            if (!option) return;
             select.value = option.value;
             select.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;`), CERTIFIER_RELATION);
-        if (!viaNative) {
-            const opener = await page.evaluateHandle(inPage([], `
-                const row = relationRow();
-                return row && [...row.querySelectorAll('ng-select, .ng-select, .ng-select-container, [role="combobox"], .dropdown-toggle, select, .form-select, .form-control, input:not([type="radio"]):not([type="checkbox"])')].find(visible) || null;`));
-            if (opener.asElement()) {
-                await opener.asElement().click();
-                await sleep(700);
-                const option = await page.evaluateHandle(inPage(['relation'], `
-                    const candidates = [...document.querySelectorAll('.ng-option, [role="option"], .dropdown-item, li, option, button, a, span, div')]
-                        .filter(el => visible(el) && el.innerText.trim() === relation);
-                    // The deepest match is the option itself, not a container holding it.
-                    return candidates.filter(el => !candidates.some(other => other !== el && el.contains(other))).pop() || null;`), CERTIFIER_RELATION);
-                if (option.asElement()) {
-                    await option.asElement().click();
-                    await sleep(500);
-                } else {
-                    // A native select whose options were loaded by the click above.
-                    await page.evaluate(inPage(['relation'], `
-                        const select = relationRow()?.querySelector('select');
-                        const option = select && [...select.options].find(o => o.text.trim() === relation);
-                        if (option) { select.value = option.value; select.dispatchEvent(new Event('change', { bubbles: true })); }`), CERTIFIER_RELATION);
-                }
-            }
-        }
-        await sleep(300);
+        }, CERTIFIER_IDS.relation);
+        await sleep(500);
+        state = await readCertifier(page);
     }
 
-    return page.evaluate(inPage(['role', 'relation'], `
-        const choices = choicesFor(role);
-        const roleOk = choices.some(isChosen);
-        const relation_ = relationValue();
-        const ok = roleOk && relation_ === relation;
-        const row = relationRow();
-        const dom = ok ? null : {
-            choices: [...document.querySelectorAll('input[type="radio"], input[type="checkbox"]')]
-                .map(i => (isChosen(i) ? '●' : '○') + (i.disabled ? '(ปิด)' : '') + ' ' + i.type + ' ' + choiceText(i).slice(0, 40) + ' #' + i.id),
-            relationHtml: row ? row.outerHTML.replace(/\\s+/g, ' ').slice(0, 1500) : 'ไม่พบแถว "ความสัมพันธ์"'
-        };
-        const chosenRole = [...document.querySelectorAll('input[type="radio"]')].filter(i => /^guarantorType/.test(i.id) && isChosen(i)).map(choiceText)[0];
-        return { ok, dom, detail: 'ผู้รับรอง=' + (chosenRole || (choices.length ? 'ยังไม่ได้เลือก' : 'ไม่พบตัวเลือก')) + ', ความสัมพันธ์=' + (relation_ || 'ไม่พบ') };`), CERTIFIER_FINAL_ROLE, CERTIFIER_RELATION);
+    logger.info(`👤 [Endpoint] Certifier after: ${state.roles.join(', ')} | ความสัมพันธ์=${state.relationText}`);
+    const ok = state.recorderChecked && state.relationText === 'เจ้าหน้าที่ผู้ดูแล';
+    return {
+        ok,
+        detail: `ผู้รับรอง=${state.chosen || 'ยังไม่ได้เลือก'}, ความสัมพันธ์=${state.relationText || 'ไม่พบ'}`,
+        dom: ok ? null : { choices: state.roles, relationHtml: `มีตัวเลือก "เจ้าหน้าที่ผู้ดูแล": ${state.relationHasOption}` }
+    };
 }
 
 /** Searches the patient and fills every field.  Returns the reason used. */

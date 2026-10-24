@@ -168,6 +168,16 @@ export async function setCertifier(page) {
         return visible(input) ? input : wrapperOf(input);`), CERTIFIER_ROLE);
     if (roleTarget.asElement()) {
         await roleTarget.asElement().click();
+        // Choosing ผู้ดูแล opens "การแจ้งเตือน: กรณีผู้รับบริการไม่มีผู้ดูแล เจ้าหน้าที่สามารถรับรองได้…";
+        // the choice only takes effect after "ยืนยันไม่มีผู้ดูแล" (approved by the hospital).
+        const confirmNoCaregiver = await page.waitForFunction(
+            () => [...document.querySelectorAll('button')].find(b => b.innerText.trim() === 'ยืนยันไม่มีผู้ดูแล' && b.getBoundingClientRect().width > 0) || null,
+            { timeout: 4000 }
+        ).catch(() => null);
+        if (confirmNoCaregiver?.asElement()) {
+            await confirmNoCaregiver.asElement().click();
+            logger.info('🖱️ [Endpoint] Confirmed "ยืนยันไม่มีผู้ดูแล"');
+        }
         await sleep(800); // the relation list can depend on the chosen role
     }
 

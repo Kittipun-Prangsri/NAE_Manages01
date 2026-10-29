@@ -82,6 +82,21 @@ const rawApi = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
+    async fetchEndpointAccess(token) {
+        const res = await fetch(`${API_BASE}/me/endpoint-access`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async createTelegramLink(token) {
+        const res = await fetch(`${API_BASE}/me/telegram-link`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
     async fetchEndpointStatus(token) {
         const res = await fetch(`${API_BASE}/endpoint/status`, {
             headers: { 'Authorization': `Bearer ${token}` }

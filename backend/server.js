@@ -39,6 +39,7 @@ import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
 import { thaidAppLink } from '../jobs/thaidLogin.js';
+import { createTelegramLink, ensureUserAccessColumns, getEndpointAccess } from './telegramLink.js';
 import { runEndpointBatch } from '../jobs/nhso-endpoint.js';
 import { keepAliveNhsoSession, getNhsoSessionStatusInfo } from '../jobs/keep-alive-nhso.js';
 import visitRoutes from './routes/visitRoutes.js';
@@ -1798,16 +1799,46 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
 // ThaiD QR in Telegram.  Only one batch runs at a time per server process.
 let endpointRunStatus = { status: 'idle', dryRun: true, total: 0, done: 0, message: '', results: null, startedAt: null, finishedAt: null };
 
-app.post('/api/endpoint/run', authenticateToken, requireAdmin, (req, res) => {
+// What this person may do with endpoints (checked against the database on every
+// request, so an admin's change applies at once).
+app.get('/api/me/endpoint-access', authenticateToken, async (req, res) => {
+    try {
+        const { canEndpoint, telegramLinked } = await getEndpointAccess(req.user.username);
+        res.json({ canEndpoint, telegramLinked });
+    } catch (error) {
+        logger.error({ err: error.message }, 'Endpoint access lookup failed:');
+        res.status(500).json({ message: 'ตรวจสอบสิทธิ์ไม่สำเร็จ' });
+    }
+});
+
+// One-time link: opening it and pressing Start in the bot ties this person's Telegram to the account.
+app.post('/api/me/telegram-link', authenticateToken, async (req, res) => {
+    try {
+        res.json(await createTelegramLink(req.user.username));
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+app.post('/api/endpoint/run', authenticateToken, async (req, res) => {
+    const access = await getEndpointAccess(req.user.username).catch(() => null);
+    if (!access?.canEndpoint) {
+        return res.status(403).json({ success: false, message: 'บัญชีนี้ยังไม่ได้รับสิทธิ์ทำ Endpoint (ให้ผู้ดูแลระบบเปิดสิทธิ์)' });
+    }
+    if (!access.telegramLinked) {
+        return res.status(400).json({ success: false, message: 'กรุณาเชื่อม Telegram ก่อน เพื่อรับ QR ผู้รับรอง' });
+    }
     if (endpointRunStatus.status === 'running') {
-        return res.status(409).json({ success: false, message: 'มีงาน Endpoint กำลังทำงานอยู่ กรุณารอให้เสร็จก่อน' });
+        return res.status(409).json({ success: false, message: `${endpointRunStatus.requestedBy || 'มีผู้ใช้'} กำลังทำ Endpoint อยู่ กรุณารอให้เสร็จก่อน` });
     }
     const dryRun = req.body?.dry_run !== false;
     logger.info(`🩺 [Endpoint] Web ${dryRun ? 'dry run' : 'save'} requested by ${req.user?.username}`);
-    endpointRunStatus = { status: 'running', dryRun, total: 0, done: 0, message: 'กำลังเริ่ม...', results: null, startedAt: new Date(), finishedAt: null };
+    endpointRunStatus = { status: 'running', dryRun, requestedBy: access.displayName, total: 0, done: 0, message: 'กำลังเริ่ม...', results: null, startedAt: new Date(), finishedAt: null };
 
     runEndpointBatch({
         dryRun,
+        chatIds: [access.chatId],
+        requestedBy: req.user.username,
         onProgress: progress => { endpointRunStatus = { ...endpointRunStatus, ...progress }; }
     })
         .then(results => {
@@ -2488,7 +2519,8 @@ function requireAdmin(req, res, next) {
 // 1. Get all users
 app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const [rows] = await trackerPool.query('SELECT id, username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, created_at, updated_at FROM users ORDER BY id ASC');
+        await ensureUserAccessColumns();
+        const [rows] = await trackerPool.query('SELECT id, username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint, created_at, updated_at FROM users ORDER BY id ASC');
         res.json(rows.map(({ line_token, telegram_token, ...user }) => ({
             ...user,
             has_line_token: Boolean(line_token),
@@ -2504,16 +2536,17 @@ app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =>
 // 2. Create user
 app.post('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const { username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id } = req.body;
+        const { username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint } = req.body;
         if (!username) {
             return res.status(400).json({ success: false, message: 'กรุณากรอก Username' });
         }
+        await ensureUserAccessColumns();
         const [result] = await trackerPool.query(
-            `INSERT INTO users (username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [username, full_name || '', role || 'user', department || '', encryptNotificationToken(line_token), line_group_id || null, encryptNotificationToken(telegram_token), telegram_chat_id || null]
+            `INSERT INTO users (username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [username, full_name || '', role || 'user', department || '', encryptNotificationToken(line_token), line_group_id || null, encryptNotificationToken(telegram_token), telegram_chat_id || null, can_endpoint ? 1 : 0]
         );
-        await writeAuditLog(req, 'user_create', 'user', result.insertId, { username, role: role || 'user', department: department || '' });
+        await writeAuditLog(req, 'user_create', 'user', result.insertId, { username, role: role || 'user', department: department || '', can_endpoint: Boolean(can_endpoint) });
         res.json({ success: true, message: 'เพิ่มผู้ใช้งานสำเร็จ' });
     } catch (error) {
         logger.error('Create user error:', error);
@@ -2525,19 +2558,20 @@ app.post('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =
 app.put('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        const { username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id } = req.body;
+        const { username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint } = req.body;
         if (!username) {
             return res.status(400).json({ success: false, message: 'กรุณากรอก Username' });
         }
+        await ensureUserAccessColumns();
         const [[existingUser]] = await trackerPool.query('SELECT line_token, telegram_token FROM users WHERE id = ?', [id]);
         if (!existingUser) return res.status(404).json({ success: false, message: 'ไม่พบผู้ใช้งาน' });
         await trackerPool.query(
             `UPDATE users 
-             SET username = ?, full_name = ?, role = ?, department = ?, line_token = ?, line_group_id = ?, telegram_token = ?, telegram_chat_id = ? 
+             SET username = ?, full_name = ?, role = ?, department = ?, line_token = ?, line_group_id = ?, telegram_token = ?, telegram_chat_id = ?, can_endpoint = ? 
              WHERE id = ?`,
-            [username, full_name || '', role || 'user', department || '', line_token ? encryptNotificationToken(line_token) : existingUser.line_token, line_group_id || null, telegram_token ? encryptNotificationToken(telegram_token) : existingUser.telegram_token, telegram_chat_id || null, id]
+            [username, full_name || '', role || 'user', department || '', line_token ? encryptNotificationToken(line_token) : existingUser.line_token, line_group_id || null, telegram_token ? encryptNotificationToken(telegram_token) : existingUser.telegram_token, telegram_chat_id || null, can_endpoint ? 1 : 0, id]
         );
-        await writeAuditLog(req, 'user_update', 'user', id, { username, role: role || 'user', department: department || '' });
+        await writeAuditLog(req, 'user_update', 'user', id, { username, role: role || 'user', department: department || '', can_endpoint: Boolean(can_endpoint) });
         res.json({ success: true, message: 'แก้ไขข้อมูลผู้ใช้งานสำเร็จ' });
     } catch (error) {
         logger.error('Update user error:', error);

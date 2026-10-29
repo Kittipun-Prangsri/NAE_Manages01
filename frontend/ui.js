@@ -1068,6 +1068,7 @@ export const ui = {
                 <td class="py-3.5 px-4 font-medium">${esc(user.full_name || '-')}</td>
                 <td class="py-3.5 px-4">
                     <span class="chip ${roleClass}">${roleText}</span>
+                    ${user.can_endpoint ? `<div class="mt-1"><span class="${CHIP_OK}"><i class="fas fa-check-double text-[9px]" aria-hidden="true"></i>ทำ Endpoint ได้</span></div>` : ''}
                 </td>
                 <td class="py-3.5 px-4 text-slate-500 dark:text-slate-400">${esc(user.department || '-')}</td>
                 <td class="py-3.5 px-4">

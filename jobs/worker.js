@@ -30,6 +30,7 @@ import { processCrossCheck } from '../backend/crossCheckLogic.js';
 import { extractQueryDate } from '../backend/dateInput.js';
 import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
 import { parseEndpointCommand, runEndpointBatch } from './nhso-endpoint.js';
+import { consumeTelegramLink, findUserByTelegramChat, parseStartCode } from '../backend/telegramLink.js';
 import { keepAliveNhsoSession } from './keep-alive-nhso.js';
 import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 import logger from '../backend/logger.js';
@@ -312,7 +313,37 @@ async function startTelegramBotListener() {
                         
                         // Split the comma-separated list of allowed chat IDs
                         const allowedChatIds = chatId.split(',').map(id => id.trim()).filter(id => id);
-                        
+
+                        // Per-person commands work from any chat: they are checked
+                        // against the account the chat is linked to, not the shared list.
+                        if (/^\/start(\s|$)/.test(text)) {
+                            const code = parseStartCode(text);
+                            const user = code ? await consumeTelegramLink(code, fromChatId) : null;
+                            logger.info(`🔗 [Telegram Bot] Link ${user ? `chat ${fromChatId} -> ${user.username}` : 'failed (bad or expired code)'}`);
+                            await sendTelegramMessage(token, fromChatId, user
+                                ? `✅ เชื่อม Telegram กับบัญชี ${user.full_name || user.username} แล้ว\nQR ผู้รับรองและผล Endpoint ที่คุณสั่งจะส่งมาที่แชตนี้`
+                                : '⚠️ ลิงก์เชื่อมบัญชีไม่ถูกต้องหรือหมดอายุ (15 นาที) กรุณากด "เชื่อม Telegram" บนหน้าเว็บอีกครั้ง');
+                            continue;
+                        }
+                        if (parseEndpointCommand(text)) {
+                            // "endpoint" = dry run with screenshots; "endpoint บันทึก" = save, one officer scan per case.
+                            const { dryRun, vn } = parseEndpointCommand(text);
+                            const user = await findUserByTelegramChat(fromChatId);
+                            logger.info(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId} (${user?.username || 'not linked'})`);
+                            if (!user?.can_endpoint) {
+                                await sendTelegramMessage(token, fromChatId, user
+                                    ? '⛔ บัญชีของคุณยังไม่ได้รับสิทธิ์ทำ Endpoint ให้ผู้ดูแลระบบเปิดสิทธิ์ในหน้า จัดการระบบ'
+                                    : '⛔ แชตนี้ยังไม่ได้เชื่อมกับบัญชีในระบบ กด "เชื่อม Telegram" บนหน้าเว็บก่อน');
+                                continue;
+                            }
+                            await sendTelegramMessage(token, fromChatId, `⏳ เริ่ม Endpoint ${dryRun ? 'แบบทดลอง (ไม่บันทึก)' : 'บันทึกจริง'}${vn ? ` เฉพาะ VN ${vn}` : ''}...`);
+                            runEndpointBatch({ dryRun, vn, chatIds: [fromChatId], requestedBy: user.username }).catch(async err => {
+                                logger.error({ err: err.message }, '❌ [Telegram Bot] Endpoint batch failed:');
+                                await sendTelegramMessage(token, fromChatId, `❌ Endpoint ไม่สำเร็จ: ${err.message}`);
+                            });
+                            continue;
+                        }
+
                         if (allowedChatIds.includes(fromChatId)) {
                             // "ดึงข้อมูล" pulls today; "ดึงข้อมูล 23/10/2569" (any LINE date format) pulls that day.
                             if (/^(เข้าระบบ|ดึงข้อมูล|\/login|\/sync)(\s|$)/i.test(text)) {
@@ -324,15 +355,6 @@ async function startTelegramBotListener() {
                                 // Run the end-to-end sync in the background
                                 runE2EPortalSyncAndCapture(fromChatId, visitDate).catch(err => {
                                     logger.error({ err: err }, 'Error running E2E portal sync via telegram command:');
-                                });
-                            } else if (parseEndpointCommand(text)) {
-                                // "endpoint" = dry run with screenshots; "endpoint บันทึก" = save, one officer scan per case.
-                                const { dryRun, vn } = parseEndpointCommand(text);
-                                logger.info(`🤖 [Telegram Bot] Received command: "${text}" from Chat: ${fromChatId}`);
-                                await sendTelegramMessage(token, fromChatId, `⏳ เริ่ม Endpoint ${dryRun ? 'แบบทดลอง (ไม่บันทึก)' : 'บันทึกจริง'}${vn ? ` เฉพาะ VN ${vn}` : ''}...`);
-                                runEndpointBatch({ dryRun, vn }).catch(async err => {
-                                    logger.error({ err: err.message }, '❌ [Telegram Bot] Endpoint batch failed:');
-                                    await sendTelegramMessage(token, fromChatId, `❌ Endpoint ไม่สำเร็จ: ${err.message}`);
                                 });
                             }
                         } else {

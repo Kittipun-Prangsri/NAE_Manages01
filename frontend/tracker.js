@@ -437,8 +437,7 @@ export async function openUcPendingListModal() {
     if (!dialog || !tbody) return;
 
     tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500"><i class="fas fa-spinner fa-spin mr-2"></i> กำลังโหลดข้อมูล...</td></tr>';
-    // Endpoint buttons call admin-only APIs.
-    document.getElementById('endpoint-run-bar')?.classList.toggle('hidden', appState.user?.role !== 'admin');
+    applyEndpointAccess();
     api.fetchEndpointStatus(appState.token).then(response => {
         if (!response.ok) return;
         if (response.data.status !== 'idle') renderEndpointStatus(response.data);
@@ -522,6 +521,41 @@ export async function openUcPendingListModal() {
 }
 
 let endpointPollTimer = null;
+
+/** Shows the endpoint bar only to people an admin enabled, and asks unlinked ones to link Telegram. */
+async function applyEndpointAccess() {
+    const bar = document.getElementById('endpoint-run-bar');
+    if (!bar) return;
+    bar.classList.add('hidden');
+    try {
+        const response = await api.fetchEndpointAccess(appState.token);
+        if (!response.ok || !response.data.canEndpoint) return;
+        const linked = response.data.telegramLinked;
+        bar.classList.remove('hidden');
+        document.getElementById('endpoint-link-telegram-btn')?.classList.toggle('hidden', linked);
+        ['endpoint-dry-run-btn', 'endpoint-save-run-btn'].forEach(id => {
+            const button = document.getElementById(id);
+            if (button) button.disabled = !linked;
+        });
+        if (!linked) {
+            const statusEl = document.getElementById('endpoint-run-status');
+            if (statusEl) statusEl.textContent = 'เชื่อม Telegram ก่อน เพื่อรับ QR ผู้รับรองในแชตของคุณ';
+        }
+    } catch (err) {
+        console.error('Failed to load endpoint access:', err);
+    }
+}
+
+/** Opens the bot with a one-time code; pressing Start there links this account. */
+export async function handleLinkTelegram() {
+    const response = await api.createTelegramLink(appState.token);
+    if (!response.ok) {
+        notify.warning(response.data?.message || 'สร้างลิงก์เชื่อม Telegram ไม่สำเร็จ');
+        return;
+    }
+    window.open(response.data.url, '_blank', 'noopener');
+    notify.success('กด Start ในบอต Telegram แล้วกลับมาเปิดหน้าต่างนี้ใหม่');
+}
 
 function renderEndpointStatus(data) {
     const statusEl = document.getElementById('endpoint-run-status');

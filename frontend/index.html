@@ -1477,6 +1477,10 @@
                                 <input type="text" id="modal-telegram-chat-id" class="field field-sm font-mono"
                                     placeholder="Telegram Chat ID">
                             </div>
+                            <label class="flex items-center gap-2 text-sm">
+                                <input type="checkbox" id="modal-can-endpoint">
+                                <span>ทำ Endpoint ได้ (รับ QR ผู้รับรองใน Telegram ของตัวเอง)</span>
+                            </label>
                         </div>
                     </fieldset>
                 </div>
@@ -1722,13 +1726,16 @@
             </form>
         </div>
         <div id="endpoint-run-bar" class="mx-5 mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-700 dark:bg-slate-800/50">
+            <button id="endpoint-link-telegram-btn" type="button" class="btn btn-sm h-8 hidden">
+                <i class="fab fa-telegram" aria-hidden="true"></i> เชื่อม Telegram
+            </button>
             <button id="endpoint-dry-run-btn" type="button" class="btn btn-sm h-8">
                 <i class="fas fa-eye" aria-hidden="true"></i> ทดลอง Endpoint
             </button>
             <button id="endpoint-save-run-btn" type="button" class="btn btn-sm btn-success h-8">
                 <i class="fas fa-check-double" aria-hidden="true"></i> ทำ Endpoint ทั้งหมด
             </button>
-            <span id="endpoint-run-status" class="text-slate-500 dark:text-slate-400">บันทึกจริงได้เฉพาะผู้ป่วยวันนี้ • สแกน QR ผู้รับรองใน Telegram ทีละราย</span>
+            <span id="endpoint-run-status" class="text-slate-500 dark:text-slate-400">บันทึกจริงได้เฉพาะผู้ป่วยวันนี้ • QR ผู้รับรองส่งเข้า Telegram ของคุณ สแกนทีละราย</span>
         </div>
         <div class="p-5 overflow-x-auto">
             <table class="data-table w-full text-left border-collapse min-w-[700px] text-xs">

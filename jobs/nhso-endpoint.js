@@ -41,9 +41,16 @@ const OFFICER_SCAN_ATTEMPTS = 3;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const today = () => new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
 
+// Who the running batch belongs to.  A batch started by a person sends its QR
+// codes and results only to that person's Telegram and is logged under their
+// name; otherwise the shared TELEGRAM_CHAT_ID chats are used.  One batch runs at
+// a time per process (the portal lock), so module state is enough.
+const batchContext = { chatIds: null, requestedBy: null };
+
 function telegramTarget() {
     const token = process.env.WORKER_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
-    const chatIds = (process.env.TELEGRAM_CHAT_ID || '').split(',').map(id => id.trim()).filter(Boolean);
+    const chatIds = batchContext.chatIds
+        || (process.env.TELEGRAM_CHAT_ID || '').split(',').map(id => id.trim()).filter(Boolean);
     return { token, chatIds };
 }
 
@@ -80,12 +87,16 @@ async function ensureLogTable() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_vn (vn)
     ) DEFAULT CHARSET=utf8mb4`);
+    const [cols] = await trackerPool.query("SHOW COLUMNS FROM nhso_endpoint_log LIKE 'requested_by'");
+    if (cols.length === 0) {
+        await trackerPool.query('ALTER TABLE nhso_endpoint_log ADD COLUMN requested_by VARCHAR(100) NULL AFTER message');
+    }
 }
 
 async function logCase(row, reason, status, message = null) {
     await trackerPool.query(
-        'INSERT INTO nhso_endpoint_log (vn, cid, visit_date, amount, reason, status, message) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [row.vn, row.cid, row.vstdate, Number(row.uc_money), reason, status, message]
+        'INSERT INTO nhso_endpoint_log (vn, cid, visit_date, amount, reason, status, message, requested_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [row.vn, row.cid, row.vstdate, Number(row.uc_money), reason, status, message, batchContext.requestedBy]
     );
 }
 
@@ -368,7 +379,22 @@ export function parseEndpointCommand(text) {
     };
 }
 
-export async function runEndpointBatch({ visitDate = today(), dryRun = true, limit = 10, vn = null, onProgress = () => {} } = {}) {
+/**
+ * Runs one endpoint batch.  chatIds/requestedBy: the person who asked for it
+ * (QR codes and results go only to them); omitted = shared chats, no name.
+ */
+export async function runEndpointBatch({ chatIds = null, requestedBy = null, ...options } = {}) {
+    batchContext.chatIds = chatIds?.length ? chatIds.map(String) : null;
+    batchContext.requestedBy = requestedBy;
+    try {
+        return await runBatch(options);
+    } finally {
+        batchContext.chatIds = null;
+        batchContext.requestedBy = null;
+    }
+}
+
+async function runBatch({ visitDate = today(), dryRun = true, limit = 10, vn = null, onProgress = () => {} } = {}) {
     if (!dryRun && visitDate !== today()) {
         throw new Error('บันทึกจริงได้เฉพาะวันนี้ (วันที่เข้ารับบริการในฟอร์มตั้งเป็นวันนี้อัตโนมัติ)');
     }
@@ -389,7 +415,7 @@ export async function runEndpointBatch({ visitDate = today(), dryRun = true, lim
         return { processed: 0 };
     }
     const total = batch.reduce((sum, row) => sum + Number(row.uc_money), 0);
-    await sendTelegram(`🩺 เริ่ม Endpoint ${visitDate} — ${mode}\n${batch.length} ราย รวม ${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท${dryRun ? '' : '\nแต่ละรายจะส่ง QR มาให้ผู้รับรองสแกน ตรวจยอดและเหตุผลก่อนสแกนทุกครั้ง'}`);
+    await sendTelegram(`🩺 เริ่ม Endpoint ${visitDate} — ${mode}${batchContext.requestedBy ? ` (สั่งโดย ${batchContext.requestedBy})` : ''}\n${batch.length} ราย รวม ${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท${dryRun ? '' : '\nแต่ละรายจะส่ง QR มาให้ผู้รับรองสแกน ตรวจยอดและเหตุผลก่อนสแกนทุกครั้ง'}`);
 
     const holderId = createSchedulerHolderId();
     if (!(await acquirePortalLock(holderId))) throw new Error('มีงาน สปสช. อื่นกำลังทำงานอยู่ ลองใหม่อีกครั้ง');

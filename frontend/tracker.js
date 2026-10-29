@@ -688,7 +688,11 @@ export async function handleEndpointRun(dryRun) {
 
     const response = await api.runEndpointBatch(dryRun, appState.token, picked.length ? picked : null);
     if (!response.ok) {
-        notify.warning(response.data?.message || 'เริ่มงาน Endpoint ไม่สำเร็จ');
+        const reason = response.data?.message || 'เริ่มงาน Endpoint ไม่สำเร็จ';
+        notify.warning(reason);
+        // Toasts sit behind the open UC dialog; repeat the reason in its status line.
+        const statusEl = document.getElementById('endpoint-run-status');
+        if (statusEl) statusEl.textContent = `⚠️ ${reason}`;
         return;
     }
     renderEndpointStatus({ status: 'running', dryRun, total: 0, done: 0, message: 'กำลังเริ่ม...', events: [] });

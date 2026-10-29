@@ -108,7 +108,14 @@ export function confirmDialog(message, {
 
     return new Promise(resolve => {
         const previousFocus = document.activeElement;
-        const overlay = document.createElement('div');
+        // A <dialog> opened with showModal() sits in the browser's top layer, above
+        // every fixed overlay. While one is open (e.g. the UC list), the confirm must
+        // be a modal dialog too, or it would render hidden behind it.
+        const aboveDialog = Boolean(document.querySelector('dialog[open]'));
+        const overlay = document.createElement(aboveDialog ? 'dialog' : 'div');
+        if (aboveDialog) {
+            overlay.style.cssText = 'margin:0;width:100vw;height:100vh;max-width:none;max-height:none;border:0;';
+        }
         overlay.className = 'modal';
         overlay.setAttribute('role', 'alertdialog');
         overlay.setAttribute('aria-modal', 'true');
@@ -161,6 +168,10 @@ export function confirmDialog(message, {
         document.addEventListener('keydown', onKey, true);
 
         document.body.appendChild(overlay);
+        if (aboveDialog) {
+            overlay.addEventListener('cancel', (e) => { e.preventDefault(); finish(false); });
+            overlay.showModal();
+        }
         // Destructive actions default to Cancel so a stray Enter can't delete data.
         (danger ? cancelBtn : confirmBtn).focus();
     });

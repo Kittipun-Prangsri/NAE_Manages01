@@ -287,9 +287,32 @@ async function officerScan(page, row, caption) {
     for (let attempt = 1; attempt <= OFFICER_SCAN_ATTEMPTS; attempt += 1) {
         if (!(await clickButtonByText(page, /สแกน\s*ThaiD/))) throw new Error('ไม่พบปุ่ม "คลิกเพื่อสแกน ThaiD QR code"');
         await page.waitForFunction(() => location.host.includes('imauth.bora.dopa.go.th'), { timeout: 20000 });
-        await page.waitForFunction(() => [...document.querySelectorAll('img')].some(i => (i.getAttribute('src') || '').startsWith('data:image')), { timeout: 20000 }).catch(() => {});
+        // Wait for the QR, or for the portal to take us straight back (already confirmed).
+        await page.waitForFunction(
+            () => [...document.querySelectorAll('img')].some(i => (i.getAttribute('src') || '').startsWith('data:image'))
+                || (location.host.includes('authenservice.nhso.go.th') && location.pathname.includes('/nhso-endpoint/')),
+            { timeout: 30000 }
+        ).catch(() => {});
+        if (page.url().includes('authenservice.nhso.go.th') && page.url().includes('/nhso-endpoint/')) {
+            logger.info(`🖱️ [Endpoint] VN ${row.vn}: ThaiD returned without a QR (already confirmed)`);
+            await page.waitForSelector('#paidAmount', { timeout: 20000 });
+            await sleep(1500);
+            return true;
+        }
         const qr = await readThaidQr(page);
-        if (!qr) throw new Error('ไม่พบ QR ของผู้รับรอง');
+        if (!qr) {
+            // Keep what ThaiD showed instead of the QR, so the cause can be fixed.
+            const shot = path.join(outDir, `${row.vstdate}-${row.vn}-officer-noqr.png`);
+            await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
+            const seen = await page.evaluate(() => ({
+                text: document.body?.innerText.replace(/\s+/g, ' ').trim().slice(0, 200) || '',
+                imgs: [...document.querySelectorAll('img, canvas, svg')].map(el => `${el.tagName.toLowerCase()}:${(el.getAttribute('src') || '').slice(0, 25)}:${Math.round(el.getBoundingClientRect().width)}px`).slice(0, 6)
+            })).catch(() => ({ text: '', imgs: [] }));
+            const where = page.url().replace(/txID=[^&]+/, 'txID=…').replace(/AUTHEN-[^&]+/, 'AUTHEN-…');
+            logger.warn(`🔎 [Endpoint] Officer QR missing VN ${row.vn}: ${where} | text="${seen.text}" | ${seen.imgs.join(', ')}`);
+            await sendTelegram(`🔎 ไม่พบ QR ผู้รับรอง (VN ${row.vn})\nหน้า: ${where}\nข้อความบนหน้า: ${seen.text || '-'}`, shot);
+            throw Object.assign(new Error(`ไม่พบ QR ของผู้รับรอง (หน้า ThaiD แสดง: ${seen.text.slice(0, 80) || 'ว่าง'})`), { notified: true });
+        }
 
         const notifier = createTelegramQrNotifier(telegramTarget().token, telegramTarget().chatIds);
         await notifier.show(qr.buffer || Buffer.from(qr.dataUrl.split(',')[1], 'base64'), `${caption}\nเลขอ้างอิง ${qr.refCode || '-'} • QR อายุ ~1 นาที`, thaidOpenPageUrl(qr.txId));

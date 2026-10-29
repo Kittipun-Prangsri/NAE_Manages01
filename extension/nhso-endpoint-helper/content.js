@@ -79,20 +79,44 @@
         if (general && !general.checked) general.click();
     }
 
-    /** Officer = the card in this PC's reader, read by the page through the NHSO Agent. */
-    async function readOfficerCard() {
+    const MANUAL_CARD_WAIT_MS = 3 * 60 * 1000;
+
+    /**
+     * Officer = the card in this PC's reader.  The portal reads it when someone
+     * presses "ตรวจสอบข้อมูลจากบัตร Smart Card" for every case.
+     * mode 'auto': the helper presses it.  mode 'manual': the helper points at it
+     * and waits for the officer to press it (their own confirmation of the case).
+     */
+    async function readOfficerCard(mode, setStatus) {
         const ready = () => document.querySelector('input[id^="guarantorType_"]') || buttonByText(/^ยืนยันไม่มีผู้ดูแล$/);
-        if (!ready()) {
+        if (ready()) return;
+        const cardButton = () => buttonByText(/ตรวจสอบข้อมูลจากบัตร/);
+        if (!cardButton()) {
+            // Agent not connected yet: ask the page to look for it again.
             buttonByText(/ตรวจสอบ\s*Agent/)?.click();
-            try {
-                await waitFor(ready, 20000, 'อ่านบัตรผู้รับรองจากเครื่องอ่านบัตร');
-            } catch {
-                const agentDown = /ไม่สามารถเชื่อมต่อ Smart Card/.test(document.body.innerText);
-                throw new Error(agentDown
-                    ? 'ต่อเครื่องอ่านบัตรไม่ได้: เปิดโปรแกรม Agent ของ สปสช. และเสียบบัตรประชาชนของคุณ แล้วกดเริ่มใหม่'
-                    : 'อ่านบัตรผู้รับรองไม่สำเร็จ: ตรวจว่าเสียบบัตรประชาชนของคุณแล้ว');
-            }
+            await waitFor(cardButton, 10000, 'ปุ่มตรวจสอบข้อมูลจากบัตร').catch(() => {
+                throw new Error('ต่อเครื่องอ่านบัตรไม่ได้: เปิดโปรแกรม Agent ของ สปสช. และเสียบบัตรประชาชนของคุณ แล้วกดเริ่มใหม่');
+            });
         }
+        if (mode === 'manual') {
+            const button = cardButton();
+            button.scrollIntoView({ block: 'center' });
+            button.style.outline = '4px solid #f59e0b';
+            button.style.outlineOffset = '3px';
+            await setStatus('👉 กดปุ่ม "ตรวจสอบข้อมูลจากบัตร Smart Card" (กรอบสีส้ม) เพื่อรับรองรายนี้');
+            const deadline = Date.now() + MANUAL_CARD_WAIT_MS;
+            while (!ready()) {
+                if (Date.now() > deadline) throw new Error('รอการกดอ่านบัตรนานเกิน 3 นาที');
+                if (!(await getRun())?.running) throw new Error('หยุดโดยผู้ใช้');
+                await sleep(500);
+            }
+            button.style.outline = '';
+            return;
+        }
+        cardButton().click();
+        await waitFor(ready, 20000, 'อ่านบัตรผู้รับรอง').catch(() => {
+            throw new Error('อ่านบัตรผู้รับรองไม่สำเร็จ: ตรวจว่าเสียบบัตรประชาชนของคุณในเครื่องอ่านบัตรแล้ว');
+        });
     }
 
     /** Same rules as the server bot: recorder after "ยืนยันไม่มีผู้ดูแล", or caregiver when the portal locks it. */
@@ -151,10 +175,10 @@
         throw Object.assign(new Error(`กดบันทึกแล้วไม่เห็นหน้าพิมพ์${shown ? ` (หน้าเว็บแสดง: ${shown})` : ''} — หยุด ให้ตรวจในเมนู "ค้นหา/ลบรายการที่ยืนยันแล้ว" ก่อน`), { unconfirmed: true });
     }
 
-    async function doCase(c) {
+    async function doCase(c, mode, setStatus) {
         await searchPatient(c);
         fillForm(c);
-        await readOfficerCard();
+        await readOfficerCard(mode, setStatus);
         await setCertifier();
         if (!formLooksFilled(c)) throw new Error('ข้อมูลในฟอร์มไม่ครบ — ไม่บันทึก');
         await save();
@@ -175,8 +199,15 @@
         run.message = `ราย ${run.index + 1}/${run.queue.length}: VN ${c.vn} (${c.amount} บาท)`;
         await setRun(run);
         render();
+        const setStatus = async text => {
+            const current = await getRun();
+            if (!current) return;
+            current.message = `ราย ${run.index + 1}/${run.queue.length}: VN ${c.vn} (${c.amount} บาท) — ${text}`;
+            await setRun(current);
+            render();
+        };
         try {
-            await doCase(c);
+            await doCase(c, run.cardMode || 'auto', setStatus);
             await api('/endpoint/manual-done', { method: 'POST', body: { vn: c.vn, method: 'extension' } });
             run.results.push({ vn: c.vn, ok: true, text: `✅ บันทึกแล้ว VN ${c.vn} (${c.amount} บาท)` });
             run.index += 1;
@@ -243,24 +274,42 @@
         const list = el.querySelector('#nae-list');
         if (pendingCases.length === 0) { list.textContent = 'วันนี้ไม่มีรายการที่ต้องทำ Endpoint'; return; }
         const total = pendingCases.reduce((sum, c) => sum + Number(c.amount), 0);
-        // One radio group: "ทั้งหมด" (value "") or a single case, like the web app's list.
-        list.innerHTML = `<label style="display:block;margin-top:4px;color:#0f172a;cursor:pointer"><input type="radio" name="nae-pick" value="" checked> <b>ทั้งหมด</b> (${pendingCases.length} ราย • ${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท)</label>
-            ${pendingCases.map(c => `<label style="display:block;margin-top:6px;color:#0f172a;cursor:pointer"><input type="radio" name="nae-pick" value="${esc(c.vn)}"> VN ${esc(c.vn)} • ${esc(c.amount)} บาท<br><span style="margin-left:20px;color:#64748b;font-size:12px">${esc(c.reason || 'ไม่มีเหตุผล (จะหยุดที่รายนี้)')}</span></label>`).join('')}
-            <div style="margin-top:8px;font-size:12px;color:#92400e">บัตรที่เสียบอยู่จะใช้รับรองทุกรายที่เลือก ตรวจยอดและเหตุผลก่อนกดอนุมัติ</div>
-            <button id="nae-start" style="${btn}margin-top:10px;background:#059669;color:#fff;width:100%">อนุมัติและเริ่ม (${pendingCases.length} ราย)</button>`;
-        const picked = () => pendingCases.find(c => c.vn === el.querySelector('input[name="nae-pick"]:checked')?.value) || null;
-        el.querySelectorAll('input[name="nae-pick"]').forEach(radio => radio.addEventListener('change', () => {
-            const one = picked();
-            el.querySelector('#nae-start').textContent = one ? `อนุมัติและทำ VN ${one.vn}` : `อนุมัติและเริ่ม (${pendingCases.length} ราย)`;
-        }));
+        // Tick the cases to do; choose who presses "ตรวจสอบข้อมูลจากบัตร Smart Card".
+        const cardMode = (await chrome.storage.local.get('cardMode')).cardMode || 'manual';
+        list.innerHTML = `<label style="display:block;margin-top:4px;color:#0f172a;cursor:pointer"><input type="checkbox" id="nae-all" checked> <b>เลือกทั้งหมด</b> (${pendingCases.length} ราย)</label>
+            ${pendingCases.map(c => `<label style="display:block;margin-top:6px;color:#0f172a;cursor:pointer"><input type="checkbox" class="nae-pick" value="${esc(c.vn)}" checked> VN ${esc(c.vn)} • ${esc(c.amount)} บาท<br><span style="margin-left:20px;color:#64748b;font-size:12px">${esc(c.reason || 'ไม่มีเหตุผล (จะหยุดที่รายนี้)')}</span></label>`).join('')}
+            <div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;color:#0f172a"><b>ปุ่ม "ตรวจสอบข้อมูลจากบัตร Smart Card"</b>
+                <label style="display:block;margin-top:4px;cursor:pointer"><input type="radio" name="nae-mode" value="manual" ${cardMode === 'manual' ? 'checked' : ''}> กดเองทุกราย (ระบบกรอกให้แล้วรอให้กด)</label>
+                <label style="display:block;margin-top:4px;cursor:pointer"><input type="radio" name="nae-mode" value="auto" ${cardMode === 'auto' ? 'checked' : ''}> ให้ระบบกดให้ (อัตโนมัติทั้งหมด)</label>
+            </div>
+            <div id="nae-sum" style="margin-top:8px;color:#0f172a"></div>
+            <div style="margin-top:6px;font-size:12px;color:#92400e">บัตรที่เสียบอยู่จะใช้รับรองทุกรายที่เลือก ตรวจยอดและเหตุผลก่อนกดอนุมัติ</div>
+            <button id="nae-start" style="${btn}margin-top:10px;background:#059669;color:#fff;width:100%"></button>`;
+        const selected = () => [...el.querySelectorAll('.nae-pick:checked')].map(box => pendingCases.find(c => c.vn === box.value)).filter(Boolean);
+        const refresh = () => {
+            const chosen = selected();
+            const sum = chosen.reduce((s, c) => s + Number(c.amount), 0);
+            el.querySelector('#nae-all').checked = chosen.length === pendingCases.length;
+            el.querySelector('#nae-sum').textContent = `เลือก ${chosen.length} ราย • ${sum.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`;
+            const start = el.querySelector('#nae-start');
+            start.textContent = chosen.length ? `อนุมัติและเริ่ม (${chosen.length} ราย)` : 'เลือกอย่างน้อย 1 ราย';
+            start.disabled = chosen.length === 0;
+        };
+        el.querySelector('#nae-all').addEventListener('change', event => {
+            el.querySelectorAll('.nae-pick').forEach(box => { box.checked = event.target.checked; });
+            refresh();
+        });
+        el.querySelectorAll('.nae-pick').forEach(box => box.addEventListener('change', refresh));
+        el.querySelectorAll('input[name="nae-mode"]').forEach(radio => radio.addEventListener('change', () => chrome.storage.local.set({ cardMode: radio.value })));
+        refresh();
         el.querySelector('#nae-start').onclick = async () => {
-            const one = picked();
-            const queue = one ? [one] : pendingCases;
+            const queue = selected();
+            if (!queue.length) return;
+            const mode = el.querySelector('input[name="nae-mode"]:checked')?.value || 'manual';
             const sum = queue.reduce((s, c) => s + Number(c.amount), 0);
-            if (!confirm(one
-                ? `ยืนยันทำ Endpoint VN ${one.vn} (${one.amount} บาท) โดยใช้บัตรที่เสียบอยู่รับรอง?`
-                : `ยืนยันทำ Endpoint ${queue.length} ราย รวม ${sum.toFixed(2)} บาท โดยใช้บัตรที่เสียบอยู่รับรองทุกราย?`)) return;
-            await setRun({ running: true, queue, index: 0, results: [], message: 'กำลังเริ่ม...', startedAt: Date.now() });
+            if (!confirm(`ยืนยันทำ Endpoint ${queue.length} ราย รวม ${sum.toFixed(2)} บาท\n${mode === 'manual' ? 'คุณจะกดอ่านบัตรเองทีละราย' : 'ระบบจะกดอ่านบัตรที่เสียบอยู่ให้ทุกราย'}`)) return;
+            await chrome.storage.local.set({ cardMode: mode });
+            await setRun({ running: true, queue, cardMode: mode, index: 0, results: [], message: 'กำลังเริ่ม...', startedAt: Date.now() });
             if (!onBehalfPage()) { location.href = BEHALF_URL; return; }
             continueRun();
         };

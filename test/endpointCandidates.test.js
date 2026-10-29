@@ -32,3 +32,16 @@ test('telegram endpoint command: dry run by default, save only when asked, optio
     assert.equal(parseEndpointCommand('ดึงข้อมูล'), null);
     assert.equal(parseEndpointCommand('endpoints'), null);
 });
+
+test('claim time is the visit time plus the fixed offset, and waits until it has passed', async () => {
+    const { endpointTimes, getClaimOffsetMinutes } = await import('../backend/endpointCandidates.js');
+    assert.deepEqual(endpointTimes('10:06', '10:40', 30), { service: '10:06', claim: '10:36', ready: true });
+    assert.deepEqual(endpointTimes('10:06', '10:20', 30), { service: '10:06', claim: '10:36', ready: false });
+    assert.deepEqual(endpointTimes('09:50:12', '11:00', 45), { service: '09:50', claim: '10:35', ready: true });
+    // Late visits: the claim stays on the visit day, capped at 23:59.
+    assert.deepEqual(endpointTimes('23:50', '23:59', 30), { service: '23:50', claim: '23:59', ready: true });
+    assert.equal(endpointTimes('23:40', '23:45', 30).ready, false);
+    assert.equal(endpointTimes(null, '10:00', 30).ready, false);
+    assert.equal(getClaimOffsetMinutes('45'), 45);
+    assert.equal(getClaimOffsetMinutes('abc'), 30);
+});

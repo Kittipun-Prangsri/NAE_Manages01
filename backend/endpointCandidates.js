@@ -68,3 +68,35 @@ export async function getEndpointCandidates(visitDate) {
     );
     return rows.filter(isEndpointCandidate);
 }
+
+export function getClaimOffsetMinutes(value = process.env.ENDPOINT_CLAIM_OFFSET_MINUTES) {
+    const minutes = Number(value);
+    return Number.isInteger(minutes) && minutes >= 0 && minutes <= 240 ? minutes : 30;
+}
+
+const LAST_MINUTE_OF_DAY = 23 * 60 + 59;
+
+/**
+ * Times for the NHSO form: service = the visit time in HOSxP; claim
+ * ("วันที่เบิกสิทธิ") = service + the hospital's fixed offset, capped at 23:59 so it
+ * stays on the visit day (missed cases are closed the same day).  A claim time
+ * still in the future is not ready yet, so the case waits for a later run.
+ */
+export function endpointTimes(vsttime, nowHHMM, offsetMinutes = getClaimOffsetMinutes()) {
+    const match = /^(\d{1,2}):(\d{2})/.exec(String(vsttime || ''));
+    if (!match) return { service: null, claim: null, ready: false };
+    const serviceMin = Number(match[1]) * 60 + Number(match[2]);
+    const claimMin = Math.min(serviceMin + offsetMinutes, LAST_MINUTE_OF_DAY);
+    const fmt = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const [nh, nm] = String(nowHHMM).split(':').map(Number);
+    return {
+        service: fmt(serviceMin),
+        claim: fmt(claimMin),
+        ready: claimMin <= nh * 60 + nm
+    };
+}
+
+/** Current time in Bangkok as HH:MM (the server's clock zone may differ). */
+export function bangkokNowHHMM(date = new Date()) {
+    return date.toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hour12: false });
+}

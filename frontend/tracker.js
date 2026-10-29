@@ -623,15 +623,15 @@ export async function openCardReaderGuide() {
     const tbody = document.getElementById('endpoint-card-tbody');
     if (!dialog || !tbody) return;
     if (!dialog.open) dialog.showModal();
-    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">กำลังโหลด...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-slate-500">กำลังโหลด...</td></tr>';
     const response = await api.fetchManualEndpointCases(appState.token);
     if (!response.ok) {
-        tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-red-600">${escapeHtml(response.data?.message || 'โหลดรายการไม่สำเร็จ')}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-red-600">${escapeHtml(response.data?.message || 'โหลดรายการไม่สำเร็จ')}</td></tr>`;
         return;
     }
     const cases = response.data.cases || [];
     if (cases.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">วันนี้ไม่มีรายการที่ต้องทำ Endpoint</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-slate-500">วันนี้ไม่มีรายการที่ต้องทำ Endpoint</td></tr>';
         return;
     }
     tbody.innerHTML = '';
@@ -642,6 +642,7 @@ export async function openCardReaderGuide() {
             <td class="py-2 px-3"><button type="button" class="btn btn-sm h-7 font-mono" data-copy="cid">${escapeHtml(c.cid)} <i class="fas fa-copy" aria-hidden="true"></i></button></td>
             <td class="py-2 px-3">${c.reason ? `<button type="button" class="btn btn-sm h-7 text-left whitespace-normal" data-copy="reason">${escapeHtml(c.reason)} <i class="fas fa-copy" aria-hidden="true"></i></button>` : '<span class="text-amber-600">เลือกเอง (ผู้ใหญ่)</span>'}</td>
             <td class="py-2 px-3 text-right"><button type="button" class="btn btn-sm h-7 font-mono" data-copy="amount">${escapeHtml(c.amount)} <i class="fas fa-copy" aria-hidden="true"></i></button></td>
+            <td class="py-2 px-3 font-mono whitespace-nowrap">${escapeHtml(c.serviceTime || '-')} → ${escapeHtml(c.claimTime || '-')}${c.ready ? '' : '<div class="text-[10px] text-amber-600">รอถึงเวลาเบิก</div>'}</td>
             <td class="py-2 px-3 whitespace-nowrap">${c.done
                 ? '<span class="text-emerald-600">✅ ทำแล้ว</span>'
                 : `<a class="btn btn-sm h-7" href="https://authenservice.nhso.go.th/authencode/nhso-endpoint/create/behalf" target="_blank" rel="noopener">เปิดหน้า สปสช.</a>

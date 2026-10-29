@@ -71,12 +71,31 @@
         if (drugs > 0) throw new Error(`มีรายการรับยาผิดปกติ ${drugs} รายการ ต้องให้เจ้าหน้าที่ตรวจเอง`);
     }
 
+    const toMinutes = hhmm => { const [h, m] = String(hhmm).split(':').map(Number); return h * 60 + m; };
+    const nowMinutes = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+    const isReady = c => Boolean(c.claimTime) && toMinutes(c.claimTime) <= nowMinutes();
+
+    /** Hospital rule: service = HOSxP visit time, claim = visit + fixed offset (from NHSO Tracker). */
+    function setTimes(c) {
+        if (!c.serviceTime || !c.claimTime) throw new Error('ไม่มีเวลามารับบริการใน HOSxP');
+        if (!isReady(c)) throw new Error(`ยังไม่ถึงเวลาเบิกสิทธิ (${c.claimTime})`);
+        const inputs = [...document.querySelectorAll('input.ngb-tp-input')];
+        if (inputs.length < 4) throw new Error('ไม่พบช่องเวลาในฟอร์ม');
+        const values = [...c.serviceTime.split(':'), ...c.claimTime.split(':')];
+        inputs.slice(0, 4).forEach((input, i) => setValue(input, values[i]));
+        const read = inputs.slice(0, 4).map(input => String(Number(input.value)).padStart(2, '0'));
+        if (`${read[0]}:${read[1]}` !== c.serviceTime || `${read[2]}:${read[3]}` !== c.claimTime) {
+            throw new Error(`ใส่เวลาในฟอร์มไม่สำเร็จ (ได้ ${read[0]}:${read[1]} / ${read[2]}:${read[3]})`);
+        }
+    }
+
     function fillForm(c) {
         if (!c.reason) throw new Error('ไม่มีเหตุผลที่ตรงเงื่อนไข (ให้ผู้ดูแลระบบตั้ง ENDPOINT_DEFAULT_REASON)');
         if (!selectByText(document.getElementById('identity-reason'), c.reason)) throw new Error(`ไม่พบเหตุผล "${c.reason}" ในฟอร์ม`);
         setValue(document.getElementById('paidAmount'), c.amount);
         const general = document.getElementById('servicetype0');
         if (general && !general.checked) general.click();
+        setTimes(c);
     }
 
     const MANUAL_CARD_WAIT_MS = 3 * 60 * 1000;
@@ -277,7 +296,9 @@
         // Tick the cases to do; choose who presses "ตรวจสอบข้อมูลจากบัตร Smart Card".
         const cardMode = (await chrome.storage.local.get('cardMode')).cardMode || 'manual';
         list.innerHTML = `<label style="display:block;margin-top:4px;color:#0f172a;cursor:pointer"><input type="checkbox" id="nae-all" checked> <b>เลือกทั้งหมด</b> (${pendingCases.length} ราย)</label>
-            ${pendingCases.map(c => `<label style="display:block;margin-top:6px;color:#0f172a;cursor:pointer"><input type="checkbox" class="nae-pick" value="${esc(c.vn)}" checked> VN ${esc(c.vn)} • ${esc(c.amount)} บาท<br><span style="margin-left:20px;color:#64748b;font-size:12px">${esc(c.reason || 'ไม่มีเหตุผล (จะหยุดที่รายนี้)')}</span></label>`).join('')}
+            ${pendingCases.map(c => isReady(c)
+                ? `<label style="display:block;margin-top:6px;color:#0f172a;cursor:pointer"><input type="checkbox" class="nae-pick" value="${esc(c.vn)}" checked> VN ${esc(c.vn)} • ${esc(c.amount)} บาท<br><span style="margin-left:20px;color:#64748b;font-size:12px">${esc(c.reason || 'ไม่มีเหตุผล (จะหยุดที่รายนี้)')} • มา ${esc(c.serviceTime)} → เบิก ${esc(c.claimTime)}</span></label>`
+                : `<div style="margin-top:6px;color:#94a3b8"><input type="checkbox" disabled> VN ${esc(c.vn)} • ${esc(c.amount)} บาท<br><span style="margin-left:20px;font-size:12px">รอถึงเวลาเบิก ${esc(c.claimTime || 'ไม่มีเวลามา')} (มา ${esc(c.serviceTime || '-')})</span></div>`).join('')}
             <div style="margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0;color:#0f172a"><b>ปุ่ม "ตรวจสอบข้อมูลจากบัตร Smart Card"</b>
                 <label style="display:block;margin-top:4px;cursor:pointer"><input type="radio" name="nae-mode" value="manual" ${cardMode === 'manual' ? 'checked' : ''}> กดเองทุกราย (ระบบกรอกให้แล้วรอให้กด)</label>
                 <label style="display:block;margin-top:4px;cursor:pointer"><input type="radio" name="nae-mode" value="auto" ${cardMode === 'auto' ? 'checked' : ''}> ให้ระบบกดให้ (อัตโนมัติทั้งหมด)</label>
@@ -289,14 +310,14 @@
         const refresh = () => {
             const chosen = selected();
             const sum = chosen.reduce((s, c) => s + Number(c.amount), 0);
-            el.querySelector('#nae-all').checked = chosen.length === pendingCases.length;
+            el.querySelector('#nae-all').checked = chosen.length === el.querySelectorAll('.nae-pick').length;
             el.querySelector('#nae-sum').textContent = `เลือก ${chosen.length} ราย • ${sum.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`;
             const start = el.querySelector('#nae-start');
             start.textContent = chosen.length ? `อนุมัติและเริ่ม (${chosen.length} ราย)` : 'เลือกอย่างน้อย 1 ราย';
             start.disabled = chosen.length === 0;
         };
         el.querySelector('#nae-all').addEventListener('change', event => {
-            el.querySelectorAll('.nae-pick').forEach(box => { box.checked = event.target.checked; });
+            el.querySelectorAll('.nae-pick').forEach(box => { box.checked = event.target.checked; }); // only ready cases have .nae-pick
             refresh();
         });
         el.querySelectorAll('.nae-pick').forEach(box => box.addEventListener('change', refresh));

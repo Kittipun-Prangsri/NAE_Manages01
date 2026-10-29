@@ -8,7 +8,7 @@ import logger from '../backend/logger.js';
 import { trackerPool } from '../backend/db.js';
 import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
 import { createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
-import { chooseEndpointReason, getEndpointCandidates } from '../backend/endpointCandidates.js';
+import { bangkokNowHHMM, chooseEndpointReason, endpointTimes, getEndpointCandidates } from '../backend/endpointCandidates.js';
 import { acquirePortalLock, PORTAL_LOCK_KEY } from './keep-alive-nhso.js';
 import { createTelegramQrNotifier, isThaidExpiredUrl, loginWithThaid, readThaidQr, thaidOpenPageUrl } from './thaidLogin.js';
 
@@ -141,7 +141,8 @@ export async function listManualEndpointCases(visitDate = today()) {
             amount: Number(row.uc_money).toFixed(2),
             department: row.department,
             reason: chooseEndpointReason(Number(row.age_y), PORTAL_REASON_OPTIONS),
-            done: await alreadySaved(row.vn)
+            done: await alreadySaved(row.vn),
+            ...(({ service, claim, ready }) => ({ serviceTime: service, claimTime: claim, ready }))(endpointTimes(row.vsttime, bangkokNowHHMM()))
         });
     }
     return cases;
@@ -317,6 +318,21 @@ async function fillForm(page, row) {
 
     await setInputValue(page, '#paidAmount', Number(row.uc_money).toFixed(2));
 
+    // Times (hospital rule): service = HOSxP visit time, claim = service + fixed offset.
+    // Inputs in form order: service HH, MM, claim HH, MM.
+    const times = endpointTimes(row.vsttime, bangkokNowHHMM());
+    if (!times.ready) throw Object.assign(new Error(`ยังไม่ถึงเวลาเบิกสิทธิ (${times.claim || '-'})`), { status: 'not_ready' });
+    const timeInputs = await page.$$('input.ngb-tp-input');
+    if (timeInputs.length < 4) throw new Error('ไม่พบช่องเวลาในฟอร์ม');
+    const [sh, sm] = times.service.split(':');
+    const [ch, cm] = times.claim.split(':');
+    for (const [input, value] of [[timeInputs[0], sh], [timeInputs[1], sm], [timeInputs[2], ch], [timeInputs[3], cm]]) {
+        await input.click({ clickCount: 3 });
+        await input.type(value, { delay: 20 });
+        await input.evaluate(el => el.dispatchEvent(new Event('blur', { bubbles: true })));
+    }
+    row.formTimes = times;
+
     const serviceTypeChecked = await page.$eval('#servicetype0', el => el.checked);
     if (!serviceTypeChecked) await page.click('#servicetype0');
     return reason;
@@ -328,8 +344,10 @@ async function formLooksFilled(page, row) {
         const paid = document.querySelector('#paidAmount')?.value || '';
         const reason = document.querySelector('#identity-reason')?.selectedIndex > 0;
         const serviceType = document.querySelector('#servicetype0')?.checked;
-        return Number(paid) === Number(expected) && reason && serviceType;
-    }, Number(row.uc_money).toFixed(2));
+        const t = [...document.querySelectorAll('input.ngb-tp-input')].map(i => String(Number(i.value)).padStart(2, '0'));
+        const timesOk = !expected.times || (`${t[0]}:${t[1]}` === expected.times.service && `${t[2]}:${t[3]}` === expected.times.claim);
+        return Number(paid) === Number(expected.amount) && reason && serviceType && timesOk;
+    }, { amount: Number(row.uc_money).toFixed(2), times: row.formTimes || null });
 }
 
 /** Sends the officer QR to Telegram and waits for the scan.  Returns true when scanned. */
@@ -535,15 +553,18 @@ async function runBatch({ visitDate = today(), dryRun = true, limit = 10, vn = n
     const picked = vn ? [String(vn)] : (Array.isArray(vns) && vns.length ? vns.map(String) : null);
     const candidates = [];
     const done = [];
+    const waiting = []; // claim time (visit + offset) not reached yet: done in a later run
     for (const row of await getEndpointCandidates(visitDate)) {
         if (picked && !picked.includes(row.vn)) continue;
         if (await alreadySaved(row.vn)) done.push(row.vn);
+        else if (!endpointTimes(row.vsttime, bangkokNowHHMM()).ready) waiting.push(`${row.vn} (เบิกได้ ${endpointTimes(row.vsttime, bangkokNowHHMM()).claim || 'ไม่มีเวลามา'})`);
         else candidates.push(row);
     }
-    const notEligible = picked ? picked.filter(v => !done.includes(v) && !candidates.some(row => row.vn === v)) : [];
+    const notEligible = picked ? picked.filter(v => !done.includes(v) && !candidates.some(row => row.vn === v) && !waiting.some(w => w.startsWith(v))) : [];
     const skippedNote = [
         done.length ? `ทำไปแล้ว: ${done.join(', ')}` : '',
-        notEligible.length ? `ไม่อยู่ในเงื่อนไข Endpoint (ไม่ใช่ UC/ไม่มียอด/ทำแล้วหรือ Admit): ${notEligible.join(', ')}` : ''
+        notEligible.length ? `ไม่อยู่ในเงื่อนไข Endpoint (ไม่ใช่ UC/ไม่มียอด/ทำแล้วหรือ Admit): ${notEligible.join(', ')}` : '',
+        waiting.length ? `รอถึงเวลาเบิกสิทธิ: ${waiting.join(', ')}` : ''
     ].filter(Boolean).join('\n');
 
     const batch = candidates.slice(0, limit);

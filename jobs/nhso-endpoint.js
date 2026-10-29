@@ -333,7 +333,8 @@ async function officerScan(page, row, caption) {
         }).catch(() => null);
         if (refusal) {
             await reportPageState(page, row, 'ThaiD ปฏิเสธคำขอผู้รับรอง');
-            throw Object.assign(new Error('ThaiD ปฏิเสธคำขอสแกนผู้รับรอง (redirect url mismatch) — ลองทำ Endpoint นี้ด้วยมือในเว็บ สปสช. ว่าได้ไหม'), { notified: true });
+            // A portal-side fault: every remaining case would fail the same way.
+            throw Object.assign(new Error('ThaiD ปฏิเสธคำขอสแกนผู้รับรอง (redirect url mismatch) — ปัญหาฝั่ง สปสช./ThaiD ทำด้วยมือก็ไม่ได้ หยุดทั้งชุด'), { notified: true, abortBatch: true });
         }
         if (isEndpointFormUrl(page.url())) {
             logger.info(`🖱️ [Endpoint] VN ${row.vn}: ThaiD returned without a QR (already confirmed)`);
@@ -590,6 +591,10 @@ async function runBatch({ visitDate = today(), dryRun = true, limit = 10, vn = n
                 await logCase(row, reason, status, err.message).catch(() => {});
                 if (!err.notified) await sendTelegram(`⚠️ ข้ามราย ${index + 1} (VN ${row.vn}): ${err.message}`);
                 if (status === 'failed') results.failed += 1; else results.skipped += 1;
+                if (err.abortBatch) {
+                    await sendTelegram('⛔ หยุด Endpoint ทั้งชุด: ThaiD ปฏิเสธคำขอผู้รับรองจากเว็บ สปสช. (ทำด้วยมือก็ไม่ได้) รอ สปสช. แก้ไขก่อน');
+                    break;
+                }
             }
         }
     } finally {

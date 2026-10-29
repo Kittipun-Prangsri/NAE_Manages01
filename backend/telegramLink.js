@@ -5,7 +5,8 @@ import logger from './logger.js';
 // Per-person Telegram link and endpoint permission.
 // - users.telegram_chat_id is filled when the person presses Start in the bot
 //   from the one-time link the web app gives them (no chat id to look up).
-// - users.can_endpoint is switched on per person by an admin.
+// - users.can_endpoint / users.can_portal are switched on per person by an admin
+//   (endpoint batches, and pulling reports through the NHSO portal).
 
 const LINK_TTL_MINUTES = 15;
 let columnsReady = null;
@@ -16,6 +17,7 @@ export function ensureUserAccessColumns(pool = trackerPool) {
         columnsReady = (async () => {
             const wanted = {
                 can_endpoint: 'ADD COLUMN can_endpoint TINYINT(1) NOT NULL DEFAULT 0',
+                can_portal: 'ADD COLUMN can_portal TINYINT(1) NOT NULL DEFAULT 0',
                 telegram_link_code: 'ADD COLUMN telegram_link_code VARCHAR(32) NULL',
                 telegram_link_expires: 'ADD COLUMN telegram_link_expires DATETIME NULL'
             };
@@ -84,21 +86,22 @@ export async function consumeTelegramLink(code, chatId) {
 export async function findUserByTelegramChat(chatId) {
     await ensureUserAccessColumns();
     const [[user]] = await trackerPool.query(
-        'SELECT username, full_name, role, can_endpoint, telegram_chat_id FROM users WHERE telegram_chat_id = ? LIMIT 1',
+        'SELECT username, full_name, role, can_endpoint, can_portal, telegram_chat_id FROM users WHERE telegram_chat_id = ? LIMIT 1',
         [String(chatId)]
     );
     return user || null;
 }
 
-/** What the web app needs to show the endpoint buttons for this person. */
+/** What this person may do (endpoint batches, portal pulls) and where their Telegram is. */
 export async function getEndpointAccess(username) {
     await ensureUserAccessColumns();
     const [[user]] = await trackerPool.query(
-        'SELECT username, full_name, can_endpoint, telegram_chat_id FROM users WHERE username = ?',
+        'SELECT username, full_name, can_endpoint, can_portal, telegram_chat_id FROM users WHERE username = ?',
         [username]
     );
     return {
         canEndpoint: Boolean(user?.can_endpoint),
+        canPortal: Boolean(user?.can_portal),
         telegramLinked: Boolean(user?.telegram_chat_id),
         chatId: user?.telegram_chat_id || null,
         displayName: user?.full_name || username

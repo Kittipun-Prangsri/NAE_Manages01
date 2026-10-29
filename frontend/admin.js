@@ -45,6 +45,7 @@ export function openUserModal(user = null) {
         document.getElementById('modal-telegram-token').placeholder = user.has_telegram_token ? 'เก็บค่าเดิมไว้ (กรอกเมื่อต้องการเปลี่ยน)' : '';
         document.getElementById('modal-telegram-chat-id').value = user.telegram_chat_id || '';
         document.getElementById('modal-can-endpoint').checked = Boolean(user.can_endpoint);
+        document.getElementById('modal-can-portal').checked = Boolean(user.can_portal);
     } else {
         title.textContent = 'เพิ่มผู้ใช้งานใหม่';
         document.getElementById('modal-user-id').value = '';
@@ -71,7 +72,8 @@ export async function handleUserFormSubmit(e) {
         line_group_id: document.getElementById('modal-line-group-id').value || null,
         telegram_token: document.getElementById('modal-telegram-token').value || null,
         telegram_chat_id: document.getElementById('modal-telegram-chat-id').value || null,
-        can_endpoint: document.getElementById('modal-can-endpoint').checked
+        can_endpoint: document.getElementById('modal-can-endpoint').checked,
+        can_portal: document.getElementById('modal-can-portal').checked
     };
 
     ui.setLoading(true);

@@ -154,6 +154,18 @@ export async function handleSyncProcess(onLoadCallbackObj) {
     }
 }
 
+/** Shows the Portal button only to people an admin enabled for portal pulls. */
+export async function applyPortalAccess() {
+    const button = document.getElementById('auto-portal-btn');
+    if (!button) return;
+    try {
+        const response = await api.fetchEndpointAccess(appState.token);
+        button.classList.toggle('hidden', !(response.ok && response.data.canPortal));
+    } catch (err) {
+        console.error('Failed to load portal access:', err);
+    }
+}
+
 export async function handleAutoPortalSync(onLoadCallbackObj) {
     const visitDate = domRefs.visitDateInput?.value;
     if (!visitDate) {

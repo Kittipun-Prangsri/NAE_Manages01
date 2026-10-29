@@ -86,6 +86,9 @@ export async function handleLogin(e, onLoadCallbackObj) {
         if (onLoadCallbackObj && typeof onLoadCallbackObj.loadHipdataCodes === 'function') {
             onLoadCallbackObj.loadHipdataCodes();
         }
+        if (onLoadCallbackObj && typeof onLoadCallbackObj.applyPortalAccess === 'function') {
+            onLoadCallbackObj.applyPortalAccess();
+        }
         if (onLoadCallbackObj && typeof onLoadCallbackObj.loadWeeklySummary === 'function') {
             onLoadCallbackObj.loadWeeklySummary();
         }

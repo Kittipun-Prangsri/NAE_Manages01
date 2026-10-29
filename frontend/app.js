@@ -32,6 +32,7 @@ import {
 import {
     handleApiSync,
     handleAutoPortalSync,
+    applyPortalAccess,
     handlePasteSync,
     handleSyncProcess
 } from './sync.js';
@@ -80,7 +81,8 @@ const callbacks = {
     loadHipdataCodes,
     loadWeeklySummary,
     stopLiveDashboardAutoRefresh,
-    handleTabSwitch
+    handleTabSwitch,
+    applyPortalAccess
 };
 
 // Initialize Application
@@ -110,6 +112,7 @@ function init() {
         loadDashboardData();
         loadNhsoSessionStatus();
         loadHipdataCodes();
+        applyPortalAccess();
     } else {
         ui.showLogin();
     }

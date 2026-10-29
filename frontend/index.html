@@ -330,7 +330,7 @@
                                         <span>เริ่มประมวลผลเปรียบเทียบ (Sync)</span>
                                     </button>
                                     <div class="grid grid-cols-3 gap-2">
-                                        <button id="auto-portal-btn" class="btn btn-sm btn-soft-emerald h-9"
+                                        <button id="auto-portal-btn" class="btn btn-sm btn-soft-emerald h-9 hidden"
                                             title="ดาวน์โหลดรายงานจากเว็บ สปสช. อัตโนมัติและ Sync ข้อมูลทันที">
                                             <i class="fas fa-cloud-arrow-down"></i>
                                             <span>Portal</span>
@@ -1480,6 +1480,10 @@
                             <label class="flex items-center gap-2 text-sm">
                                 <input type="checkbox" id="modal-can-endpoint">
                                 <span>ทำ Endpoint ได้ (รับ QR ผู้รับรองใน Telegram ของตัวเอง)</span>
+                            </label>
+                            <label class="flex items-center gap-2 text-sm">
+                                <input type="checkbox" id="modal-can-portal">
+                                <span>ดึงข้อมูล Portal ได้ (ปุ่ม Portal และคำสั่ง ดึงข้อมูล)</span>
                             </label>
                         </div>
                     </fieldset>

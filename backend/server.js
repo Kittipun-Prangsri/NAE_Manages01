@@ -1630,8 +1630,12 @@ app.post('/api/sync/capture-grafana', authenticateToken, requireDashboardModules
 /**
  * Endpoint สำหรับสั่งดาวน์โหลดรายงาน สปสช และ Sync แบบแมนนวลผ่านเว็บ
  */
-app.post('/api/sync/nhso-portal-download', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/sync/nhso-portal-download', authenticateToken, async (req, res) => {
     try {
+        const access = await getEndpointAccess(req.user.username).catch(() => null);
+        if (!access?.canPortal) {
+            return res.status(403).json({ success: false, message: 'บัญชีนี้ยังไม่ได้รับสิทธิ์ดึงข้อมูลจาก Portal (ให้ผู้ดูแลระบบเปิดสิทธิ์)' });
+        }
         const visit_date = req.body.visit_date || new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
         if (!isValidDateString(visit_date)) return res.status(400).json({ success: false, message: 'รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้ YYYY-MM-DD' });
         logger.info(`📥 [Manual Trigger] NHSO Portal Download requested for date: ${visit_date} by user: ${req.user.username}`);
@@ -1657,7 +1661,8 @@ app.post('/api/sync/nhso-portal-download', authenticateToken, requireAdmin, asyn
         };
 
         // Run the sync process in the background to prevent HTTP connection timeouts
-        runManualPortalSyncInBackground(visit_date, req.user.username).catch(err => {
+        // The ThaiD QR goes to this person's Telegram if linked; it always shows on the web.
+        runManualPortalSyncInBackground(visit_date, req.user.username, access.chatId ? [access.chatId] : []).catch(err => {
             logger.error('❌ Error in manual portal background sync:', err);
             currentSyncStatus.status = 'failed';
             currentSyncStatus.step = 'failed';
@@ -1721,7 +1726,7 @@ app.post('/api/nhso/refresh-session', authenticateToken, async (req, res) => {
     }
 });
 
-async function runManualPortalSyncInBackground(visit_date, username = null) {
+async function runManualPortalSyncInBackground(visit_date, username = null, chatIds = []) {
     logger.info(`📥 [Background Portal Sync] Starting for date: ${visit_date}`);
     const syncRunId = await createSyncRun('nhso-portal', visit_date, username);
 
@@ -1736,7 +1741,7 @@ async function runManualPortalSyncInBackground(visit_date, username = null) {
                 currentSyncStatus.qrExpiresAt = qr.expiresAt || null;
                 currentSyncStatus.qrRound = qr.round || null;
             }
-        });
+        }, { chatIds });
         
         if (!dlResult.success || !dlResult.filePath) {
             logger.error(`❌ [Background Portal Sync] Download failed: ${dlResult.error}`);
@@ -1803,8 +1808,8 @@ let endpointRunStatus = { status: 'idle', dryRun: true, total: 0, done: 0, messa
 // request, so an admin's change applies at once).
 app.get('/api/me/endpoint-access', authenticateToken, async (req, res) => {
     try {
-        const { canEndpoint, telegramLinked } = await getEndpointAccess(req.user.username);
-        res.json({ canEndpoint, telegramLinked });
+        const { canEndpoint, canPortal, telegramLinked } = await getEndpointAccess(req.user.username);
+        res.json({ canEndpoint, canPortal, telegramLinked });
     } catch (error) {
         logger.error({ err: error.message }, 'Endpoint access lookup failed:');
         res.status(500).json({ message: 'ตรวจสอบสิทธิ์ไม่สำเร็จ' });
@@ -2520,7 +2525,7 @@ function requireAdmin(req, res, next) {
 app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
     try {
         await ensureUserAccessColumns();
-        const [rows] = await trackerPool.query('SELECT id, username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint, created_at, updated_at FROM users ORDER BY id ASC');
+        const [rows] = await trackerPool.query('SELECT id, username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint, can_portal, created_at, updated_at FROM users ORDER BY id ASC');
         res.json(rows.map(({ line_token, telegram_token, ...user }) => ({
             ...user,
             has_line_token: Boolean(line_token),
@@ -2536,17 +2541,17 @@ app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =>
 // 2. Create user
 app.post('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const { username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint } = req.body;
+        const { username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint, can_portal } = req.body;
         if (!username) {
             return res.status(400).json({ success: false, message: 'กรุณากรอก Username' });
         }
         await ensureUserAccessColumns();
         const [result] = await trackerPool.query(
-            `INSERT INTO users (username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [username, full_name || '', role || 'user', department || '', encryptNotificationToken(line_token), line_group_id || null, encryptNotificationToken(telegram_token), telegram_chat_id || null, can_endpoint ? 1 : 0]
+            `INSERT INTO users (username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint, can_portal) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [username, full_name || '', role || 'user', department || '', encryptNotificationToken(line_token), line_group_id || null, encryptNotificationToken(telegram_token), telegram_chat_id || null, can_endpoint ? 1 : 0, can_portal ? 1 : 0]
         );
-        await writeAuditLog(req, 'user_create', 'user', result.insertId, { username, role: role || 'user', department: department || '', can_endpoint: Boolean(can_endpoint) });
+        await writeAuditLog(req, 'user_create', 'user', result.insertId, { username, role: role || 'user', department: department || '', can_endpoint: Boolean(can_endpoint), can_portal: Boolean(can_portal) });
         res.json({ success: true, message: 'เพิ่มผู้ใช้งานสำเร็จ' });
     } catch (error) {
         logger.error('Create user error:', error);
@@ -2558,7 +2563,7 @@ app.post('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =
 app.put('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        const { username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint } = req.body;
+        const { username, full_name, role, department, line_token, line_group_id, telegram_token, telegram_chat_id, can_endpoint, can_portal } = req.body;
         if (!username) {
             return res.status(400).json({ success: false, message: 'กรุณากรอก Username' });
         }
@@ -2567,11 +2572,11 @@ app.put('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res
         if (!existingUser) return res.status(404).json({ success: false, message: 'ไม่พบผู้ใช้งาน' });
         await trackerPool.query(
             `UPDATE users 
-             SET username = ?, full_name = ?, role = ?, department = ?, line_token = ?, line_group_id = ?, telegram_token = ?, telegram_chat_id = ?, can_endpoint = ? 
+             SET username = ?, full_name = ?, role = ?, department = ?, line_token = ?, line_group_id = ?, telegram_token = ?, telegram_chat_id = ?, can_endpoint = ?, can_portal = ? 
              WHERE id = ?`,
-            [username, full_name || '', role || 'user', department || '', line_token ? encryptNotificationToken(line_token) : existingUser.line_token, line_group_id || null, telegram_token ? encryptNotificationToken(telegram_token) : existingUser.telegram_token, telegram_chat_id || null, can_endpoint ? 1 : 0, id]
+            [username, full_name || '', role || 'user', department || '', line_token ? encryptNotificationToken(line_token) : existingUser.line_token, line_group_id || null, telegram_token ? encryptNotificationToken(telegram_token) : existingUser.telegram_token, telegram_chat_id || null, can_endpoint ? 1 : 0, can_portal ? 1 : 0, id]
         );
-        await writeAuditLog(req, 'user_update', 'user', id, { username, role: role || 'user', department: department || '', can_endpoint: Boolean(can_endpoint) });
+        await writeAuditLog(req, 'user_update', 'user', id, { username, role: role || 'user', department: department || '', can_endpoint: Boolean(can_endpoint), can_portal: Boolean(can_portal) });
         res.json({ success: true, message: 'แก้ไขข้อมูลผู้ใช้งานสำเร็จ' });
     } catch (error) {
         logger.error('Update user error:', error);

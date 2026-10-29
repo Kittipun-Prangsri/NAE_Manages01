@@ -32,7 +32,12 @@ if (!puppeteer.plugins.some(plugin => plugin.name === 'stealth')) puppeteer.use(
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export async function downloadNhsoReport(targetDateOrCallback = null, statusCallback = null) {
+/**
+ * options.chatIds: who receives the ThaiD QR in Telegram — the person who asked
+ * (an empty list = web only).  Omitted = the shared TELEGRAM_CHAT_ID chats
+ * (scheduled runs).
+ */
+export async function downloadNhsoReport(targetDateOrCallback = null, statusCallback = null, options = {}) {
     let targetDate = null;
     if (typeof targetDateOrCallback === 'function') {
         statusCallback = targetDateOrCallback;
@@ -120,10 +125,10 @@ export async function downloadNhsoReport(targetDateOrCallback = null, statusCall
         const screenshotsDir = path.join(__dirname, 'screenshots');
         fs.mkdirSync(screenshotsDir, { recursive: true });
         const thaidQrPath = path.join(screenshotsDir, 'thaid_qr.png');
-        const telegramQr = createTelegramQrNotifier(
-            hasTelegram ? telegramToken : null,
-            hasTelegram ? telegramChatId.split(',').map(id => id.trim()).filter(id => id) : []
-        );
+        const qrChatIds = Array.isArray(options.chatIds)
+            ? options.chatIds.map(String)
+            : (hasTelegram ? telegramChatId.split(',').map(id => id.trim()).filter(id => id) : []);
+        const telegramQr = createTelegramQrNotifier(telegramToken || null, qrChatIds);
 
         const login = await loginWithThaid(page, {
             portalUrl: url,

@@ -47,6 +47,12 @@
         return [...root.querySelectorAll('button, a')].filter(el => visible(el) && pattern.test(el.innerText.trim())).pop() || null;
     }
 
+    /** Error texts the portal shows next to fields or in alerts, for messages to staff. */
+    function portalErrors() {
+        return [...document.querySelectorAll('gt-error, .invalid-feedback, .text-danger, .alert-danger, .toast, .swal2-html-container')]
+            .filter(visible).map(el => el.innerText.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 4).join(' | ');
+    }
+
     function openModal() {
         return [...document.querySelectorAll('.modal.show, .modal[style*="display: block"], [role="dialog"], .swal2-popup')].find(visible) || null;
     }
@@ -124,6 +130,9 @@
     async function save() {
         const button = buttonByText(/^บันทึก$/);
         if (!button) throw new Error('ไม่พบปุ่ม "บันทึก"');
+        if (button.disabled || button.getAttribute('aria-disabled') === 'true') {
+            throw new Error(`ปุ่มบันทึกยังกดไม่ได้ — ฟอร์มยังไม่ครบ${portalErrors() ? `: ${portalErrors()}` : ''}`);
+        }
         button.click();
         let confirms = 0;
         const deadline = Date.now() + 30000;
@@ -138,7 +147,8 @@
             const confirm = modal && buttonByText(/^(ยืนยัน|ตกลง|ใช่|OK|Yes)$/i, modal);
             if (confirm && confirms < 2) { confirms += 1; confirm.click(); }
         }
-        throw new Error('กดบันทึกแล้วไม่เห็นหน้าพิมพ์ — หยุด ให้ตรวจในเมนู "ค้นหา/ลบรายการที่ยืนยันแล้ว" ก่อน');
+        const shown = portalErrors() || openModal()?.innerText.replace(/\s+/g, ' ').trim().slice(0, 150) || '';
+        throw Object.assign(new Error(`กดบันทึกแล้วไม่เห็นหน้าพิมพ์${shown ? ` (หน้าเว็บแสดง: ${shown})` : ''} — หยุด ให้ตรวจในเมนู "ค้นหา/ลบรายการที่ยืนยันแล้ว" ก่อน`), { unconfirmed: true });
     }
 
     async function doCase(c) {
@@ -176,7 +186,11 @@
         } catch (err) {
             // Stop on the first problem: staff check it before anything else is certified.
             run.running = false;
-            run.results.push({ vn: c.vn, ok: false, text: `⛔ หยุดที่ VN ${c.vn}: ${err.message}` });
+            if (err.unconfirmed) {
+                // May have been saved on the portal: hold it back from the next run until checked.
+                await api('/endpoint/manual-done', { method: 'POST', body: { vn: c.vn, method: 'extension', status: 'unconfirmed', note: err.message } });
+            }
+            run.results.push({ vn: c.vn, ok: false, text: `⛔ หยุดที่ VN ${c.vn}: ${err.message}${err.unconfirmed ? ' (รายนี้ถูกพักไว้ ไม่ทำซ้ำจนกว่าผู้ดูแลระบบจะปลดล็อก)' : ''}` });
             run.message = `หยุดที่ราย ${run.index + 1}/${run.queue.length}`;
             await setRun(run);
             render();
@@ -194,7 +208,7 @@
         if (panel && document.body.contains(panel)) return panel;
         panel = document.createElement('div');
         panel.id = 'nae-endpoint-helper';
-        panel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;width:340px;max-height:60vh;overflow:auto;background:#fff;color:#0f172a;border:1px solid #cbd5e1;border-radius:14px;box-shadow:0 12px 32px rgba(15,23,42,.25);font:13px system-ui,sans-serif;padding:12px;';
+        panel.style.cssText = 'position:fixed;right:16px;top:72px;z-index:2147483647;width:340px;max-height:45vh;overflow:auto;background:#fff;color:#0f172a;border:1px solid #cbd5e1;border-radius:14px;box-shadow:0 12px 32px rgba(15,23,42,.25);font:13px system-ui,sans-serif;padding:12px;';
         document.body.appendChild(panel);
         return panel;
     }
@@ -229,13 +243,24 @@
         const list = el.querySelector('#nae-list');
         if (pendingCases.length === 0) { list.textContent = 'วันนี้ไม่มีรายการที่ต้องทำ Endpoint'; return; }
         const total = pendingCases.reduce((sum, c) => sum + Number(c.amount), 0);
-        list.innerHTML = `${pendingCases.map(c => `<div style="margin-top:4px;color:#0f172a">VN ${esc(c.vn)} • ${esc(c.amount)} บาท<br><span style="color:#64748b;font-size:12px">${esc(c.reason || 'ไม่มีเหตุผล (จะหยุดที่รายนี้)')}</span></div>`).join('')}
-            <div style="margin-top:8px;color:#0f172a">รวม ${pendingCases.length} ราย • ${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท</div>
-            <div style="margin-top:6px;font-size:12px;color:#92400e">บัตรที่เสียบอยู่จะใช้รับรองทุกรายในรายการนี้ ตรวจยอดและเหตุผลก่อนกดอนุมัติ</div>
+        // One radio group: "ทั้งหมด" (value "") or a single case, like the web app's list.
+        list.innerHTML = `<label style="display:block;margin-top:4px;color:#0f172a;cursor:pointer"><input type="radio" name="nae-pick" value="" checked> <b>ทั้งหมด</b> (${pendingCases.length} ราย • ${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท)</label>
+            ${pendingCases.map(c => `<label style="display:block;margin-top:6px;color:#0f172a;cursor:pointer"><input type="radio" name="nae-pick" value="${esc(c.vn)}"> VN ${esc(c.vn)} • ${esc(c.amount)} บาท<br><span style="margin-left:20px;color:#64748b;font-size:12px">${esc(c.reason || 'ไม่มีเหตุผล (จะหยุดที่รายนี้)')}</span></label>`).join('')}
+            <div style="margin-top:8px;font-size:12px;color:#92400e">บัตรที่เสียบอยู่จะใช้รับรองทุกรายที่เลือก ตรวจยอดและเหตุผลก่อนกดอนุมัติ</div>
             <button id="nae-start" style="${btn}margin-top:10px;background:#059669;color:#fff;width:100%">อนุมัติและเริ่ม (${pendingCases.length} ราย)</button>`;
+        const picked = () => pendingCases.find(c => c.vn === el.querySelector('input[name="nae-pick"]:checked')?.value) || null;
+        el.querySelectorAll('input[name="nae-pick"]').forEach(radio => radio.addEventListener('change', () => {
+            const one = picked();
+            el.querySelector('#nae-start').textContent = one ? `อนุมัติและทำ VN ${one.vn}` : `อนุมัติและเริ่ม (${pendingCases.length} ราย)`;
+        }));
         el.querySelector('#nae-start').onclick = async () => {
-            if (!confirm(`ยืนยันทำ Endpoint ${pendingCases.length} ราย รวม ${total.toFixed(2)} บาท โดยใช้บัตรที่เสียบอยู่รับรองทุกราย?`)) return;
-            await setRun({ running: true, queue: pendingCases, index: 0, results: [], message: 'กำลังเริ่ม...', startedAt: Date.now() });
+            const one = picked();
+            const queue = one ? [one] : pendingCases;
+            const sum = queue.reduce((s, c) => s + Number(c.amount), 0);
+            if (!confirm(one
+                ? `ยืนยันทำ Endpoint VN ${one.vn} (${one.amount} บาท) โดยใช้บัตรที่เสียบอยู่รับรอง?`
+                : `ยืนยันทำ Endpoint ${queue.length} ราย รวม ${sum.toFixed(2)} บาท โดยใช้บัตรที่เสียบอยู่รับรองทุกราย?`)) return;
+            await setRun({ running: true, queue, index: 0, results: [], message: 'กำลังเริ่ม...', startedAt: Date.now() });
             if (!onBehalfPage()) { location.href = BEHALF_URL; return; }
             continueRun();
         };

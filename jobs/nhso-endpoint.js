@@ -153,14 +153,16 @@ const MANUAL_METHOD_LABEL = {
 };
 
 /** Records an endpoint completed in the NHSO portal on a staff PC (by hand or by the Chrome helper). */
-export async function recordManualEndpoint(vn, username, visitDate = today(), method = 'manual') {
+// status 'save_unconfirmed': save was clicked but the portal never confirmed it;
+// the case is then held back (like the server bot) until staff check the portal.
+export async function recordManualEndpoint(vn, username, visitDate = today(), method = 'manual', status = 'saved', note = null) {
     await ensureLogTable();
     const row = (await getEndpointCandidates(visitDate)).find(r => r.vn === String(vn));
     if (!row) throw new Error('ไม่พบ VN นี้ในรายการที่ต้องทำ Endpoint วันนี้');
     if (await alreadySaved(row.vn)) return { already: true };
     await trackerPool.query(
         'INSERT INTO nhso_endpoint_log (vn, cid, visit_date, amount, reason, status, message, requested_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [row.vn, row.cid, row.vstdate, Number(row.uc_money), chooseEndpointReason(Number(row.age_y), PORTAL_REASON_OPTIONS), 'saved', MANUAL_METHOD_LABEL[method] || MANUAL_METHOD_LABEL.manual, username]
+        [row.vn, row.cid, row.vstdate, Number(row.uc_money), chooseEndpointReason(Number(row.age_y), PORTAL_REASON_OPTIONS), status, [MANUAL_METHOD_LABEL[method] || MANUAL_METHOD_LABEL.manual, note].filter(Boolean).join(': ').slice(0, 1000), username]
     );
     return { already: false };
 }

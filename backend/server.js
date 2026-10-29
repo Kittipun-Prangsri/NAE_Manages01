@@ -1884,8 +1884,10 @@ app.post('/api/endpoint/manual-done', authenticateToken, async (req, res) => {
     if (!/^\d{6,20}$/.test(vn)) return res.status(400).json({ message: 'VN ไม่ถูกต้อง' });
     try {
         const method = req.body?.method === 'extension' ? 'extension' : 'manual';
-        const result = await recordManualEndpoint(vn, req.user.username, undefined, method);
-        await writeAuditLog(req, 'endpoint_manual_done', 'visit', vn, { by: req.user.username, method });
+        const status = req.body?.status === 'unconfirmed' ? 'save_unconfirmed' : 'saved';
+        const note = typeof req.body?.note === 'string' ? req.body.note : null;
+        const result = await recordManualEndpoint(vn, req.user.username, undefined, method, status, note);
+        await writeAuditLog(req, 'endpoint_manual_done', 'visit', vn, { by: req.user.username, method, status });
         res.json({ success: true, ...result });
     } catch (error) {
         res.status(400).json({ message: error.message });

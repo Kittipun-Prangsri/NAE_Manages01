@@ -147,15 +147,20 @@ export async function listManualEndpointCases(visitDate = today()) {
     return cases;
 }
 
-/** Records an endpoint a person completed by hand in the NHSO portal (card reader). */
-export async function recordManualEndpoint(vn, username, visitDate = today()) {
+const MANUAL_METHOD_LABEL = {
+    manual: 'ทำด้วยมือ (เครื่องอ่านบัตร Smart Card)',
+    extension: 'ส่วนเสริม Chrome อัตโนมัติ (เครื่องอ่านบัตร Smart Card)'
+};
+
+/** Records an endpoint completed in the NHSO portal on a staff PC (by hand or by the Chrome helper). */
+export async function recordManualEndpoint(vn, username, visitDate = today(), method = 'manual') {
     await ensureLogTable();
     const row = (await getEndpointCandidates(visitDate)).find(r => r.vn === String(vn));
     if (!row) throw new Error('ไม่พบ VN นี้ในรายการที่ต้องทำ Endpoint วันนี้');
     if (await alreadySaved(row.vn)) return { already: true };
     await trackerPool.query(
         'INSERT INTO nhso_endpoint_log (vn, cid, visit_date, amount, reason, status, message, requested_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [row.vn, row.cid, row.vstdate, Number(row.uc_money), chooseEndpointReason(Number(row.age_y), PORTAL_REASON_OPTIONS), 'saved', 'ทำด้วยมือ (เครื่องอ่านบัตร Smart Card)', username]
+        [row.vn, row.cid, row.vstdate, Number(row.uc_money), chooseEndpointReason(Number(row.age_y), PORTAL_REASON_OPTIONS), 'saved', MANUAL_METHOD_LABEL[method] || MANUAL_METHOD_LABEL.manual, username]
     );
     return { already: false };
 }

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>NHSO Endpoint Helper</title>
+<style>
+  body { font-family: system-ui, sans-serif; width: 280px; margin: 0; padding: 14px; font-size: 13px; color: #0f172a; }
+  h1 { font-size: 14px; margin: 0 0 10px; }
+  label { display: block; margin: 8px 0 3px; color: #475569; }
+  input { width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; }
+  button { margin-top: 12px; width: 100%; padding: 8px; border: 0; border-radius: 8px; background: #059669; color: #fff; font-size: 13px; cursor: pointer; }
+  button.secondary { background: #e2e8f0; color: #0f172a; }
+  .msg { margin-top: 8px; color: #b91c1c; min-height: 1em; }
+  .hint { margin-top: 10px; color: #64748b; font-size: 12px; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <h1>NHSO Endpoint Helper</h1>
+  <div id="logged-in" hidden>
+    <div>เข้าสู่ระบบเป็น <b id="who"></b></div>
+    <div class="hint">เปิดหน้า "ยืนยันตัวตนแทนผู้เข้ารับบริการ" ในเว็บ สปสช. แล้วใช้แผงที่มุมขวาล่าง</div>
+    <button id="logout" class="secondary">ออกจากระบบ</button>
+  </div>
+  <form id="login-form" hidden>
+    <label for="server">เซิร์ฟเวอร์ NHSO Tracker</label>
+    <input id="server" value="https://naeline.khostime.site">
+    <label for="username">ชื่อผู้ใช้</label>
+    <input id="username" autocomplete="username" required>
+    <label for="password">รหัสผ่าน</label>
+    <input id="password" type="password" autocomplete="current-password" required>
+    <button type="submit">เข้าสู่ระบบ</button>
+    <div id="msg" class="msg"></div>
+  </form>
+  <script src="popup.js"></script>
+</body>
+</html>

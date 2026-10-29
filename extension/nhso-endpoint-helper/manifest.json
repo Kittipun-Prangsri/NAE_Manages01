@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "NHSO Endpoint Helper",
+  "version": "1.0.0",
+  "description": "ทำ Endpoint (ยืนยันตัวตนแทนผู้เข้ารับบริการ) อัตโนมัติด้วยเครื่องอ่านบัตร Smart Card จากรายการใน NHSO Tracker",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://naeline.khostime.site/*",
+    "https://authenservice.nhso.go.th/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "NHSO Endpoint Helper" },
+  "content_scripts": [
+    {
+      "matches": ["https://authenservice.nhso.go.th/authencode/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

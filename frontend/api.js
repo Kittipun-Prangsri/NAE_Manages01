@@ -97,6 +97,22 @@ const rawApi = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
+    async fetchManualEndpointCases(token) {
+        const res = await fetch(`${API_BASE}/endpoint/manual-cases`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async markManualEndpointDone(vn, token) {
+        const res = await fetch(`${API_BASE}/endpoint/manual-done`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ vn })
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
     async fetchEndpointStatus(token) {
         const res = await fetch(`${API_BASE}/endpoint/status`, {
             headers: { 'Authorization': `Bearer ${token}` }

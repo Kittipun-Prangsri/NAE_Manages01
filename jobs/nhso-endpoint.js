@@ -117,6 +117,49 @@ async function logCase(row, reason, status, message = null) {
     reportProgress({ event: `${label} — VN ${row.vn} (${Number(row.uc_money).toFixed(2)} บาท)${status !== 'saved' && status !== 'dry_run' && message ? `: ${message}` : ''}` });
 }
 
+// Reasons offered by the NHSO behalf form (read from the live form, 2026-10-24),
+// used to suggest a reason when staff do the endpoint by hand.
+const PORTAL_REASON_OPTIONS = [
+    'เกิดอุบัติเหตุฉุกเฉิน',
+    'หมดสติ',
+    'บัตรประจำตัวประชาชนไม่มี chip card',
+    'ทหารเกณฑ์/ผู้ต้องขัง ไม่พกบัตรประจำตัวประชาชน',
+    'ผู้เข้ารับบริการ เป็น เด็กอายุต่ำกว่า 7 ปี',
+    'ผู้เข้ารับบริการ เป็น เด็กอายุต่ำกว่า 15 ปี หรือยังไม่มีบัตรประจำตัวประชาชน'
+];
+
+/** Today's endpoint cases for the card-reader guide, with the reason the bot would pick. */
+export async function listManualEndpointCases(visitDate = today()) {
+    await ensureLogTable();
+    const rows = await getEndpointCandidates(visitDate);
+    const cases = [];
+    for (const row of rows) {
+        cases.push({
+            vn: row.vn,
+            cid: row.cid,
+            age: row.age_y,
+            amount: Number(row.uc_money).toFixed(2),
+            department: row.department,
+            reason: chooseEndpointReason(Number(row.age_y), PORTAL_REASON_OPTIONS),
+            done: await alreadySaved(row.vn)
+        });
+    }
+    return cases;
+}
+
+/** Records an endpoint a person completed by hand in the NHSO portal (card reader). */
+export async function recordManualEndpoint(vn, username, visitDate = today()) {
+    await ensureLogTable();
+    const row = (await getEndpointCandidates(visitDate)).find(r => r.vn === String(vn));
+    if (!row) throw new Error('ไม่พบ VN นี้ในรายการที่ต้องทำ Endpoint วันนี้');
+    if (await alreadySaved(row.vn)) return { already: true };
+    await trackerPool.query(
+        'INSERT INTO nhso_endpoint_log (vn, cid, visit_date, amount, reason, status, message, requested_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [row.vn, row.cid, row.vstdate, Number(row.uc_money), chooseEndpointReason(Number(row.age_y), PORTAL_REASON_OPTIONS), 'saved', 'ทำด้วยมือ (เครื่องอ่านบัตร Smart Card)', username]
+    );
+    return { already: false };
+}
+
 // "save_unconfirmed" may have been saved on the NHSO side: never retry it
 // automatically; staff check the portal and delete that log row to retry.
 async function alreadySaved(vn) {
@@ -592,7 +635,10 @@ async function runBatch({ visitDate = today(), dryRun = true, limit = 10, vn = n
                 if (!err.notified) await sendTelegram(`⚠️ ข้ามราย ${index + 1} (VN ${row.vn}): ${err.message}`);
                 if (status === 'failed') results.failed += 1; else results.skipped += 1;
                 if (err.abortBatch) {
-                    await sendTelegram('⛔ หยุด Endpoint ทั้งชุด: ThaiD ปฏิเสธคำขอผู้รับรองจากเว็บ สปสช. (ทำด้วยมือก็ไม่ได้) รอ สปสช. แก้ไขก่อน');
+                    // Tells the web popup to offer the card-reader route instead.
+                    results.thaidUnavailable = true;
+                    reportProgress({ thaidUnavailable: true });
+                    await sendTelegram('⛔ หยุด Endpoint ทั้งชุด: ThaiD ปฏิเสธคำขอผู้รับรองจากเว็บ สปสช. (ทำด้วยมือก็ไม่ได้)\nถ้าเครื่องที่ใช้มีเครื่องอ่านบัตร Smart Card ใช้ปุ่ม "ทำด้วยเครื่องอ่านบัตร" บนหน้าเว็บแทนได้');
                     break;
                 }
             }

@@ -551,6 +551,7 @@ async function applyEndpointAccess() {
         if (!response.ok || !response.data.canEndpoint) return;
         const linked = response.data.telegramLinked;
         bar.classList.remove('hidden');
+        showCardReaderButton();
         document.getElementById('endpoint-link-telegram-btn')?.classList.toggle('hidden', linked);
         ['endpoint-dry-run-btn', 'endpoint-save-run-btn'].forEach(id => {
             const button = document.getElementById(id);
@@ -576,6 +577,88 @@ export async function handleLinkTelegram() {
     notify.success('กด Start ในบอต Telegram แล้วกลับมาเปิดหน้าต่างนี้ใหม่');
 }
 
+// Whether THIS computer has a Smart Card reader + NHSO Agent: a property of the
+// machine, so it lives in this browser's storage, not the user's account.
+const CARD_READER_KEY = 'nae.endpoint.cardReader';
+function cardReaderAnswer() {
+    try { return localStorage.getItem(CARD_READER_KEY); } catch { return null; }
+}
+function setCardReaderAnswer(value) {
+    try { localStorage.setItem(CARD_READER_KEY, value); } catch { /* private mode: ask again next time */ }
+}
+function showCardReaderButton() {
+    document.getElementById('endpoint-card-reader-btn')?.classList.toggle('hidden', cardReaderAnswer() !== 'yes');
+}
+
+/** Popup answer: does this computer have a card reader? Remembered for the next round. */
+export function handleCardReaderAnswer(hasReader) {
+    setCardReaderAnswer(hasReader ? 'yes' : 'no');
+    document.getElementById('endpoint-thaid-down-ask')?.classList.add('hidden');
+    const answer = document.getElementById('endpoint-thaid-down-answer');
+    if (answer) {
+        answer.classList.remove('hidden');
+        answer.innerHTML = hasReader
+            ? 'เครื่องนี้จะมีปุ่ม <b>ทำด้วยเครื่องอ่านบัตร</b> ในหน้ารายการ UCS ตั้งแต่ตอนนี้ <button id="endpoint-card-open-now" type="button" class="btn btn-sm btn-success h-8 ml-2">เปิดโหมดเครื่องอ่านบัตรเลย</button>'
+            : 'เครื่องนี้ไม่มีเครื่องอ่านบัตร: รอ สปสช. แก้ไข ThaiD แล้วกด ทำ Endpoint ใหม่อีกครั้ง (หรือทำบนเครื่องที่มีเครื่องอ่านบัตร)';
+        document.getElementById('endpoint-card-open-now')?.addEventListener('click', () => {
+            document.getElementById('endpoint-progress-dialog')?.close();
+            openCardReaderGuide();
+        });
+    }
+    showCardReaderButton();
+}
+
+async function copyText(text, label) {
+    try {
+        await navigator.clipboard.writeText(text);
+        notify.success(`คัดลอก${label}แล้ว`);
+    } catch {
+        notify.warning(`คัดลอกไม่ได้ — ${label}: ${text}`);
+    }
+}
+
+/** Card-reader guide: today's cases with copy buttons and a "done" button per case. */
+export async function openCardReaderGuide() {
+    const dialog = document.getElementById('endpoint-card-dialog');
+    const tbody = document.getElementById('endpoint-card-tbody');
+    if (!dialog || !tbody) return;
+    if (!dialog.open) dialog.showModal();
+    tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">กำลังโหลด...</td></tr>';
+    const response = await api.fetchManualEndpointCases(appState.token);
+    if (!response.ok) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-red-600">${escapeHtml(response.data?.message || 'โหลดรายการไม่สำเร็จ')}</td></tr>`;
+        return;
+    }
+    const cases = response.data.cases || [];
+    if (cases.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-500">วันนี้ไม่มีรายการที่ต้องทำ Endpoint</td></tr>';
+        return;
+    }
+    tbody.innerHTML = '';
+    cases.forEach(c => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td class="py-2 px-3 font-mono">${escapeHtml(c.vn)}</td>
+            <td class="py-2 px-3"><button type="button" class="btn btn-sm h-7 font-mono" data-copy="cid">${escapeHtml(c.cid)} <i class="fas fa-copy" aria-hidden="true"></i></button></td>
+            <td class="py-2 px-3">${c.reason ? `<button type="button" class="btn btn-sm h-7 text-left whitespace-normal" data-copy="reason">${escapeHtml(c.reason)} <i class="fas fa-copy" aria-hidden="true"></i></button>` : '<span class="text-amber-600">เลือกเอง (ผู้ใหญ่)</span>'}</td>
+            <td class="py-2 px-3 text-right"><button type="button" class="btn btn-sm h-7 font-mono" data-copy="amount">${escapeHtml(c.amount)} <i class="fas fa-copy" aria-hidden="true"></i></button></td>
+            <td class="py-2 px-3 whitespace-nowrap">${c.done
+                ? '<span class="text-emerald-600">✅ ทำแล้ว</span>'
+                : `<a class="btn btn-sm h-7" href="https://authenservice.nhso.go.th/authencode/nhso-endpoint/create/behalf" target="_blank" rel="noopener">เปิดหน้า สปสช.</a>
+                   <button type="button" class="btn btn-sm btn-success h-7" data-done>บันทึกแล้ว ✓</button>`}</td>`;
+        tr.querySelector('[data-copy="cid"]')?.addEventListener('click', () => copyText(c.cid, 'เลขบัตร'));
+        tr.querySelector('[data-copy="reason"]')?.addEventListener('click', () => copyText(c.reason, 'เหตุผล'));
+        tr.querySelector('[data-copy="amount"]')?.addEventListener('click', () => copyText(c.amount, 'ค่าบริการ'));
+        tr.querySelector('[data-done]')?.addEventListener('click', async () => {
+            if (!await confirmDialog(`ยืนยันว่าบันทึก Endpoint VN ${c.vn} ในเว็บ สปสช. เรียบร้อยแล้ว?`, { title: 'บันทึกแล้ว', confirmText: 'ใช่ บันทึกแล้ว' })) return;
+            const done = await api.markManualEndpointDone(c.vn, appState.token);
+            if (!done.ok) { notify.warning(done.data?.message || 'บันทึกผลไม่สำเร็จ'); return; }
+            openCardReaderGuide();
+        });
+        tbody.appendChild(tr);
+    });
+}
+
 let endpointQrTimer = null;
 let endpointLastStatus = null;
 
@@ -588,7 +671,9 @@ function renderEndpointPopup(data) {
     const total = Number(data.total) || 0;
     const done = running ? Number(data.done) || 0 : total;
     const title = document.getElementById('endpoint-progress-title');
-    if (title) title.textContent = running ? 'กำลังทำ Endpoint' : data.status === 'failed' ? 'Endpoint ไม่สำเร็จ' : 'Endpoint เสร็จแล้ว';
+    if (title) title.textContent = running ? 'กำลังทำ Endpoint'
+        : data.thaidUnavailable ? 'Endpoint หยุด: ThaiD ใช้ไม่ได้'
+        : data.status === 'failed' ? 'Endpoint ไม่สำเร็จ' : 'Endpoint เสร็จแล้ว';
     const sub = document.getElementById('endpoint-progress-sub');
     if (sub) sub.textContent = `${data.dryRun ? 'แบบทดลอง (ไม่บันทึก)' : 'บันทึกจริง'}${data.requestedBy ? ` • สั่งโดย ${data.requestedBy}` : ''}`;
     const count = document.getElementById('endpoint-progress-count');
@@ -614,6 +699,21 @@ function renderEndpointPopup(data) {
         if (qrTitle) qrTitle.textContent = qr.kind === 'login' ? '📲 สแกนเพื่อเข้าสู่ระบบ สปสช.' : '📲 ผู้รับรองสแกนเพื่อยืนยันรายนี้';
     }
     renderEndpointQrMeta();
+
+    const thaidDown = document.getElementById('endpoint-thaid-down');
+    if (thaidDown) {
+        const show = Boolean(data.thaidUnavailable) && data.status !== 'running';
+        thaidDown.classList.toggle('hidden', !show);
+        if (show && !thaidDown.dataset.shown) {
+            // Ask once per batch; a machine already marked "yes" goes straight to the offer.
+            thaidDown.dataset.shown = '1';
+            const known = cardReaderAnswer();
+            document.getElementById('endpoint-thaid-down-ask')?.classList.toggle('hidden', known === 'yes');
+            document.getElementById('endpoint-thaid-down-answer')?.classList.add('hidden');
+            if (known === 'yes') handleCardReaderAnswer(true);
+        }
+        if (!show) delete thaidDown.dataset.shown;
+    }
 
     const list = document.getElementById('endpoint-progress-events');
     if (list) {

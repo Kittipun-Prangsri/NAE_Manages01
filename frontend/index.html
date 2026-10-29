@@ -1733,6 +1733,9 @@
             <button id="endpoint-link-telegram-btn" type="button" class="btn btn-sm h-8 hidden">
                 <i class="fab fa-telegram" aria-hidden="true"></i> เชื่อม Telegram
             </button>
+            <button id="endpoint-card-reader-btn" type="button" class="btn btn-sm h-8 hidden" title="ทำ Endpoint ด้วยมือบนเครื่องนี้ ใช้เครื่องอ่านบัตร Smart Card">
+                <i class="fas fa-id-card" aria-hidden="true"></i> ทำด้วยเครื่องอ่านบัตร
+            </button>
             <button id="endpoint-dry-run-btn" type="button" class="btn btn-sm h-8">
                 <i class="fas fa-eye" aria-hidden="true"></i> ทดลอง Endpoint
             </button>
@@ -1798,6 +1801,43 @@
                 <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">สแกนจากหน้าจอนี้ หรือจาก Telegram ก็ได้ • QR เปลี่ยนเองเมื่อหมดอายุ</div>
             </div>
             <ul id="endpoint-progress-events" class="max-h-48 space-y-1 overflow-y-auto text-xs"></ul>
+            <div id="endpoint-thaid-down" class="hidden rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-500/40 dark:bg-amber-500/10">
+                <p class="font-semibold">⚠️ ตอนนี้ ThaiD ใช้รับรองผู้ป่วยไม่ได้ (ปัญหาฝั่ง สปสช./ThaiD)</p>
+                <p class="mt-1">เครื่องที่คุณใช้ทำ Endpoint มี<b>เครื่องอ่านบัตร Smart Card</b> และโปรแกรม Agent ของ สปสช. หรือไม่?</p>
+                <div id="endpoint-thaid-down-ask" class="mt-3 flex gap-2">
+                    <button id="endpoint-card-yes" type="button" class="btn btn-sm btn-success h-8">มีเครื่องอ่านบัตร</button>
+                    <button id="endpoint-card-no" type="button" class="btn btn-sm h-8">ไม่มี</button>
+                </div>
+                <p id="endpoint-thaid-down-answer" class="mt-3 hidden"></p>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- Card-reader guide: staff do each endpoint by hand in the NHSO portal on this PC -->
+    <dialog id="endpoint-card-dialog" class="tracking-details-dialog tracking-table-dialog" aria-labelledby="endpoint-card-title">
+        <div class="tracking-details-header">
+            <div>
+                <p class="tracking-details-eyebrow text-emerald-500">Smart Card</p>
+                <h2 id="endpoint-card-title">ทำ Endpoint ด้วยเครื่องอ่านบัตร</h2>
+            </div>
+            <form method="dialog">
+                <button type="submit" class="tracking-details-close" aria-label="ปิด"><i class="fas fa-xmark" aria-hidden="true"></i></button>
+            </form>
+        </div>
+        <div class="space-y-4 p-5 text-sm">
+            <ol class="list-decimal space-y-1 pl-5 text-xs text-slate-600 dark:text-slate-300">
+                <li>เสียบ<b>บัตรประชาชนของคุณ</b>ในเครื่องอ่านบัตร และเปิดโปรแกรม Agent ของ สปสช.</li>
+                <li>กด <b>เปิดหน้า สปสช.</b> ของรายที่จะทำ แล้วกรอก <b>เลขบัตร</b> (ปุ่มคัดลอก) → กด ค้นหา</li>
+                <li>เลือก <b>เหตุผล</b> และใส่ <b>ค่าบริการที่เบิกได้</b> ตามที่แสดง → เลือก "เข้ารับบริการรักษาทั่วไป"</li>
+                <li>ส่วนผู้รับรอง: ระบบอ่านบัตรจากเครื่องอ่าน (ถ้ายังไม่ขึ้น กด "คลิกเพื่อตรวจสอบ Agent อีกครั้ง") → ความสัมพันธ์ = เจ้าหน้าที่ผู้ดูแล</li>
+                <li>กด <b>บันทึก</b> → หน้าถามพิมพ์ให้กด ยกเลิก → กลับมากด <b>บันทึกแล้ว ✓</b> ที่รายนั้น</li>
+            </ol>
+            <div class="overflow-x-auto">
+                <table class="data-table w-full text-left text-xs">
+                    <thead><tr><th>VN</th><th>เลขบัตร</th><th>เหตุผล</th><th class="text-right">ค่าบริการ</th><th></th></tr></thead>
+                    <tbody id="endpoint-card-tbody"></tbody>
+                </table>
+            </div>
         </div>
     </dialog>
 

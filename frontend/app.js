@@ -45,6 +45,8 @@ import {
     handleExportErrors,
     openUcPendingListModal,
     handleEndpointRun,
+    handleCardReaderAnswer,
+    openCardReaderGuide,
     openEndpointPopup,
     updateEndpointSelection,
     handleLinkTelegram,
@@ -165,6 +167,9 @@ function setupEventListeners() {
     document.getElementById('refresh-nhso-session-btn')?.addEventListener('click', handleRefreshNhsoSession);
     document.getElementById('uc-pending-total-count-card')?.addEventListener('click', openUcPendingListModal);
     document.getElementById('endpoint-link-telegram-btn')?.addEventListener('click', handleLinkTelegram);
+    document.getElementById('endpoint-card-reader-btn')?.addEventListener('click', openCardReaderGuide);
+    document.getElementById('endpoint-card-yes')?.addEventListener('click', () => handleCardReaderAnswer(true));
+    document.getElementById('endpoint-card-no')?.addEventListener('click', () => handleCardReaderAnswer(false));
     document.getElementById('endpoint-run-status')?.addEventListener('click', openEndpointPopup);
     document.getElementById('uc-pending-list-dialog')?.addEventListener('change', event => {
         if (event.target.name === 'endpoint-pick') updateEndpointSelection();

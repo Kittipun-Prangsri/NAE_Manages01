@@ -45,6 +45,8 @@ import {
     handleExportErrors,
     openUcPendingListModal,
     handleEndpointRun,
+    handleEndpointSelectAll,
+    updateEndpointSelection,
     handleLinkTelegram,
     handleGroupInsightDepartmentClick,
     applyTrackerDashboardFilter
@@ -163,6 +165,10 @@ function setupEventListeners() {
     document.getElementById('refresh-nhso-session-btn')?.addEventListener('click', handleRefreshNhsoSession);
     document.getElementById('uc-pending-total-count-card')?.addEventListener('click', openUcPendingListModal);
     document.getElementById('endpoint-link-telegram-btn')?.addEventListener('click', handleLinkTelegram);
+    document.getElementById('endpoint-select-all')?.addEventListener('change', event => handleEndpointSelectAll(event.target.checked));
+    document.getElementById('uc-pending-list-tbody')?.addEventListener('change', event => {
+        if (event.target.classList?.contains('endpoint-pick')) updateEndpointSelection();
+    });
     document.getElementById('endpoint-dry-run-btn')?.addEventListener('click', () => handleEndpointRun(true));
     document.getElementById('endpoint-save-run-btn')?.addEventListener('click', () => handleEndpointRun(false));
     document.getElementById('uc-insight-refresh-btn')?.addEventListener('click', refreshGroupInsights);

@@ -1837,11 +1837,14 @@ app.post('/api/endpoint/run', authenticateToken, async (req, res) => {
         return res.status(409).json({ success: false, message: `${endpointRunStatus.requestedBy || 'มีผู้ใช้'} กำลังทำ Endpoint อยู่ กรุณารอให้เสร็จก่อน` });
     }
     const dryRun = req.body?.dry_run !== false;
-    logger.info(`🩺 [Endpoint] Web ${dryRun ? 'dry run' : 'save'} requested by ${req.user?.username}`);
+    // Optional: only the visits the person ticked in the list.
+    const vns = Array.isArray(req.body?.vns) ? req.body.vns.map(String).filter(v => /^\d{6,20}$/.test(v)).slice(0, 50) : null;
+    logger.info(`🩺 [Endpoint] Web ${dryRun ? 'dry run' : 'save'} requested by ${req.user?.username}${vns?.length ? ` for ${vns.length} picked visit(s)` : ''}`);
     endpointRunStatus = { status: 'running', dryRun, requestedBy: access.displayName, total: 0, done: 0, message: 'กำลังเริ่ม...', results: null, startedAt: new Date(), finishedAt: null };
 
     runEndpointBatch({
         dryRun,
+        vns: vns?.length ? vns : null,
         chatIds: [access.chatId],
         requestedBy: req.user.username,
         onProgress: progress => { endpointRunStatus = { ...endpointRunStatus, ...progress }; }

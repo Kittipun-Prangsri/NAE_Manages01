@@ -436,7 +436,10 @@ export async function openUcPendingListModal() {
     const emptyState = document.getElementById('uc-pending-list-empty');
     if (!dialog || !tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500"><i class="fas fa-spinner fa-spin mr-2"></i> กำลังโหลดข้อมูล...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="py-6 text-center text-slate-500"><i class="fas fa-spinner fa-spin mr-2"></i> กำลังโหลดข้อมูล...</td></tr>';
+    const selectAll = document.getElementById('endpoint-select-all');
+    if (selectAll) selectAll.checked = false;
+    updateEndpointSelection();
     applyEndpointAccess();
     api.fetchEndpointStatus(appState.token).then(response => {
         if (!response.ok) return;
@@ -496,7 +499,10 @@ export async function openUcPendingListModal() {
             const checkClaimPresentation = getClaimStatusPresentation(checkClaimVal);
             const issueReason = item.issue_reason || getTrackingIssueReason(item);
 
+            // Admitted visits show "Admit" instead of a VN and are not endpointed here.
+            const selectable = /^\d+$/.test(String(item.vn || ''));
             tr.innerHTML = `
+                <td class="py-2.5 px-3">${selectable ? `<input type="checkbox" class="endpoint-pick" value="${escapeHtml(item.vn)}" aria-label="เลือก VN ${escapeHtml(item.vn)}">` : ''}</td>
                 <td class="py-2.5 px-3 font-mono font-semibold text-brand-600 dark:text-brand-400">${escapeHtml(item.vn || '-')}</td>
                 <td class="py-2.5 px-3 font-medium tracking-wide">${escapeHtml(item.cid || '-')}</td>
                 <td class="py-2.5 px-3">${escapeHtml(item.full_name || '-')}</td>
@@ -521,6 +527,25 @@ export async function openUcPendingListModal() {
 }
 
 let endpointPollTimer = null;
+
+function pickedEndpointVns() {
+    return [...document.querySelectorAll('#uc-pending-list-tbody .endpoint-pick:checked')].map(box => box.value);
+}
+
+/** "ทำ Endpoint ทั้งหมด" becomes "ทำ Endpoint ที่เลือก (n)" while rows are ticked. */
+export function updateEndpointSelection() {
+    const count = pickedEndpointVns().length;
+    const label = document.getElementById('endpoint-save-run-label');
+    if (label) label.textContent = count ? `ทำ Endpoint ที่เลือก (${count})` : 'ทำ Endpoint ทั้งหมด';
+    const all = document.querySelectorAll('#uc-pending-list-tbody .endpoint-pick');
+    const selectAll = document.getElementById('endpoint-select-all');
+    if (selectAll) selectAll.checked = all.length > 0 && count === all.length;
+}
+
+export function handleEndpointSelectAll(checked) {
+    document.querySelectorAll('#uc-pending-list-tbody .endpoint-pick').forEach(box => { box.checked = checked; });
+    updateEndpointSelection();
+}
 
 /** Shows the endpoint bar only to people an admin enabled, and asks unlinked ones to link Telegram. */
 async function applyEndpointAccess() {
@@ -591,12 +616,14 @@ function pollEndpointStatus() {
 
 /** Starts the NHSO endpoint batch from the web (same job as the Telegram "endpoint" command). */
 export async function handleEndpointRun(dryRun) {
+    const picked = pickedEndpointVns();
+    const scope = picked.length ? `${picked.length} รายที่เลือก (VN ${picked.join(', ')})` : 'ผู้ป่วยวันนี้ทุกรายที่ยังไม่ได้ทำ (ครั้งละไม่เกิน 10 ราย)';
     const message = dryRun
-        ? 'ระบบจะเติมฟอร์ม Endpoint ของผู้ป่วยวันนี้ทุกราย แล้วส่งภาพให้ตรวจใน Telegram โดยยังไม่บันทึก'
-        : 'ระบบจะทำ Endpoint ผู้ป่วยวันนี้ทุกรายที่ยังไม่ได้ทำ (ครั้งละไม่เกิน 10 ราย)\nแต่ละรายจะส่ง QR ผู้รับรองเข้า Telegram — ตรวจยอดเงินและเหตุผลก่อนสแกนทุกครั้ง';
-    if (!await confirmDialog(message, { title: dryRun ? 'ทดลอง Endpoint' : 'ทำ Endpoint ทั้งหมด', confirmText: dryRun ? 'เริ่มทดลอง' : 'เริ่มบันทึก' })) return;
+        ? `ระบบจะเติมฟอร์ม Endpoint ของ${scope} แล้วส่งภาพให้ตรวจใน Telegram โดยยังไม่บันทึก`
+        : `ระบบจะทำ Endpoint ${scope}\nแต่ละรายจะส่ง QR ผู้รับรองเข้า Telegram — ตรวจยอดเงินและเหตุผลก่อนสแกนทุกครั้ง`;
+    if (!await confirmDialog(message, { title: dryRun ? 'ทดลอง Endpoint' : (picked.length ? 'ทำ Endpoint ที่เลือก' : 'ทำ Endpoint ทั้งหมด'), confirmText: dryRun ? 'เริ่มทดลอง' : 'เริ่มบันทึก' })) return;
 
-    const response = await api.runEndpointBatch(dryRun, appState.token);
+    const response = await api.runEndpointBatch(dryRun, appState.token, picked.length ? picked : null);
     if (!response.ok) {
         notify.warning(response.data?.message || 'เริ่มงาน Endpoint ไม่สำเร็จ');
         return;

@@ -394,26 +394,39 @@ export async function runEndpointBatch({ chatIds = null, requestedBy = null, ...
     }
 }
 
-async function runBatch({ visitDate = today(), dryRun = true, limit = 10, vn = null, onProgress = () => {} } = {}) {
+// vn / vns: limit the batch to visits the person picked; picked visits that
+// cannot be done are reported instead of silently dropped.
+async function runBatch({ visitDate = today(), dryRun = true, limit = 10, vn = null, vns = null, onProgress = () => {} } = {}) {
     if (!dryRun && visitDate !== today()) {
         throw new Error('บันทึกจริงได้เฉพาะวันนี้ (วันที่เข้ารับบริการในฟอร์มตั้งเป็นวันนี้อัตโนมัติ)');
     }
     fs.mkdirSync(outDir, { recursive: true });
     await ensureLogTable();
 
+    const picked = vn ? [String(vn)] : (Array.isArray(vns) && vns.length ? vns.map(String) : null);
     const candidates = [];
+    const done = [];
     for (const row of await getEndpointCandidates(visitDate)) {
-        if (vn && row.vn !== vn) continue;
-        if (!(await alreadySaved(row.vn))) candidates.push(row);
+        if (picked && !picked.includes(row.vn)) continue;
+        if (await alreadySaved(row.vn)) done.push(row.vn);
+        else candidates.push(row);
     }
+    const notEligible = picked ? picked.filter(v => !done.includes(v) && !candidates.some(row => row.vn === v)) : [];
+    const skippedNote = [
+        done.length ? `ทำไปแล้ว: ${done.join(', ')}` : '',
+        notEligible.length ? `ไม่อยู่ในเงื่อนไข Endpoint (ไม่ใช่ UC/ไม่มียอด/ทำแล้วหรือ Admit): ${notEligible.join(', ')}` : ''
+    ].filter(Boolean).join('\n');
+
     const batch = candidates.slice(0, limit);
     const mode = dryRun ? 'ทดลอง (ไม่บันทึก)' : 'บันทึกจริง';
-    logger.info(`🩺 [Endpoint] ${mode}: ${batch.length}/${candidates.length} case(s) for ${visitDate}`);
+    logger.info(`🩺 [Endpoint] ${mode}: ${batch.length}/${candidates.length} case(s) for ${visitDate}${picked ? ` (picked ${picked.length})` : ''}`);
     onProgress({ total: batch.length, done: 0, message: `${mode}: ${batch.length} ราย` });
     if (batch.length === 0) {
-        await sendTelegram(`🩺 Endpoint ${visitDate}: ไม่มีรายการที่ต้องทำ`);
+        await sendTelegram(`🩺 Endpoint ${visitDate}: ไม่มีรายการที่ต้องทำ${skippedNote ? `\n${skippedNote}` : ''}`);
+        onProgress({ total: 0, done: 0, message: `ไม่มีรายการที่ต้องทำ${skippedNote ? ` — ${skippedNote.replace(/\n/g, ' • ')}` : ''}` });
         return { processed: 0 };
     }
+    if (skippedNote) await sendTelegram(`ℹ️ ข้ามรายที่เลือก\n${skippedNote}`);
     const total = batch.reduce((sum, row) => sum + Number(row.uc_money), 0);
     await sendTelegram(`🩺 เริ่ม Endpoint ${visitDate} — ${mode}${batchContext.requestedBy ? ` (สั่งโดย ${batchContext.requestedBy})` : ''}\n${batch.length} ราย รวม ${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท${dryRun ? '' : '\nแต่ละรายจะส่ง QR มาให้ผู้รับรองสแกน ตรวจยอดและเหตุผลก่อนสแกนทุกครั้ง'}`);
 

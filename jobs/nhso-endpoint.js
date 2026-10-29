@@ -283,6 +283,20 @@ async function formLooksFilled(page, row) {
 }
 
 /** Sends the officer QR to Telegram and waits for the scan.  Returns true when scanned. */
+/**
+ * True only when the browser is really on the NHSO endpoint form.  Checked on
+ * host + path: ThaiD's own URLs carry the form's address in redirect_uri, so a
+ * plain substring test matches ThaiD's error page too.
+ */
+function isEndpointFormUrl(url) {
+    try {
+        const { host, pathname } = new URL(url);
+        return host === 'authenservice.nhso.go.th' && pathname.includes('/nhso-endpoint/');
+    } catch {
+        return false;
+    }
+}
+
 /** Screenshot + where we are + what the page says, sent to Telegram, for a step that went wrong. */
 async function reportPageState(page, row, label) {
     const shot = path.join(outDir, `${row.vstdate}-${row.vn}-${label}.png`);
@@ -312,7 +326,16 @@ async function officerScan(page, row, caption) {
                 || (location.host.includes('authenservice.nhso.go.th') && location.pathname.includes('/nhso-endpoint/')),
             { timeout: 30000 }
         ).catch(() => {});
-        if (page.url().includes('authenservice.nhso.go.th') && page.url().includes('/nhso-endpoint/')) {
+        // ThaiD refused the portal's request (seen since 2026-10-28: redirect_uri mismatch).
+        const refusal = await page.evaluate(() => {
+            const text = document.body?.innerText || '';
+            return /"error"\s*:\s*"invalid_request"|redirect or callback url mismatch/i.test(text) ? text.slice(0, 200) : null;
+        }).catch(() => null);
+        if (refusal) {
+            await reportPageState(page, row, 'ThaiD ปฏิเสธคำขอผู้รับรอง');
+            throw Object.assign(new Error('ThaiD ปฏิเสธคำขอสแกนผู้รับรอง (redirect url mismatch) — ลองทำ Endpoint นี้ด้วยมือในเว็บ สปสช. ว่าได้ไหม'), { notified: true });
+        }
+        if (isEndpointFormUrl(page.url())) {
             logger.info(`🖱️ [Endpoint] VN ${row.vn}: ThaiD returned without a QR (already confirmed)`);
             await waitForFormBack(page, row);
             await sleep(1500);
@@ -331,7 +354,7 @@ async function officerScan(page, row, caption) {
 
         while (Date.now() < expiresAt) {
             const url = page.url();
-            if (url.includes('authenservice.nhso.go.th') && url.includes('/nhso-endpoint/')) {
+            if (isEndpointFormUrl(url)) {
                 await notifier.finish(`✅ สแกนแล้ว กำลังบันทึก\n${caption}`);
                 reportProgress({ qr: null });
                 await waitForFormBack(page, row);
@@ -495,6 +518,16 @@ async function runBatch({ visitDate = today(), dryRun = true, limit = 10, vn = n
         const page = await browser.newPage();
         await page.setViewport({ width: 1440, height: 900 });
         page.on('dialog', handleDialog);
+        // The persistent profile may hold an old copy of the NHSO web app (HTTP
+        // cache / service worker) that builds outdated ThaiD redirect URLs. Drop
+        // those caches every run; cookies stay, so the NHSO login is kept.
+        try {
+            const cdp = await page.target().createCDPSession();
+            await cdp.send('Network.clearBrowserCache');
+            await cdp.send('Storage.clearDataForOrigin', { origin: 'https://authenservice.nhso.go.th', storageTypes: 'service_workers,cache_storage' });
+        } catch (err) {
+            logger.warn({ err: err.message }, '⚠️ [Endpoint] Could not clear NHSO web app cache:');
+        }
 
         const loginQr = createTelegramQrNotifier(telegramTarget().token, telegramTarget().chatIds);
         const login = await loginWithThaid(page, {

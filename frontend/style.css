@@ -2271,6 +2271,29 @@ text.tcount {
   font-variant-numeric: tabular-nums;
 }
 
+/* UC outstanding list: the title and endpoint bar stay put while the table
+   scrolls under a sticky header row. */
+#uc-pending-list-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#uc-pending-list-dialog .uc-pending-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+#uc-pending-list-dialog thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f8fafc;
+  box-shadow: 0 1px 0 var(--border-color);
+}
+.dark #uc-pending-list-dialog thead th {
+  background: #0f172a;
+}
+
 /* Sticky table header needs an opaque background while scrolling. */
 #tracking-table-thead tr {
   box-shadow: 0 1px 0 var(--border-color);

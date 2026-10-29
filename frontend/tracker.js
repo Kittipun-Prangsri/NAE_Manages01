@@ -437,8 +437,8 @@ export async function openUcPendingListModal() {
     if (!dialog || !tbody) return;
 
     tbody.innerHTML = '<tr><td colspan="8" class="py-6 text-center text-slate-500"><i class="fas fa-spinner fa-spin mr-2"></i> กำลังโหลดข้อมูล...</td></tr>';
-    const selectAll = document.getElementById('endpoint-select-all');
-    if (selectAll) selectAll.checked = false;
+    const pickAll = document.getElementById('endpoint-pick-all');
+    if (pickAll) pickAll.checked = true;
     updateEndpointSelection();
     applyEndpointAccess();
     api.fetchEndpointStatus(appState.token).then(response => {
@@ -502,7 +502,7 @@ export async function openUcPendingListModal() {
             // Admitted visits show "Admit" instead of a VN and are not endpointed here.
             const selectable = /^\d+$/.test(String(item.vn || ''));
             tr.innerHTML = `
-                <td class="py-2.5 px-3">${selectable ? `<input type="checkbox" class="endpoint-pick" value="${escapeHtml(item.vn)}" aria-label="เลือก VN ${escapeHtml(item.vn)}">` : ''}</td>
+                <td class="py-2.5 px-3">${selectable ? `<input type="radio" name="endpoint-pick" class="endpoint-pick" value="${escapeHtml(item.vn)}" aria-label="เลือก VN ${escapeHtml(item.vn)}">` : ''}</td>
                 <td class="py-2.5 px-3 font-mono font-semibold text-brand-600 dark:text-brand-400">${escapeHtml(item.vn || '-')}</td>
                 <td class="py-2.5 px-3 font-medium tracking-wide">${escapeHtml(item.cid || '-')}</td>
                 <td class="py-2.5 px-3">${escapeHtml(item.full_name || '-')}</td>
@@ -528,23 +528,17 @@ export async function openUcPendingListModal() {
 
 let endpointPollTimer = null;
 
+// One radio group: "ทั้งหมด" in the header (value "") or a single visit.
 function pickedEndpointVns() {
-    return [...document.querySelectorAll('#uc-pending-list-tbody .endpoint-pick:checked')].map(box => box.value);
+    const picked = document.querySelector('input[name="endpoint-pick"]:checked');
+    return picked?.value ? [picked.value] : [];
 }
 
-/** "ทำ Endpoint ทั้งหมด" becomes "ทำ Endpoint ที่เลือก (n)" while rows are ticked. */
+/** "ทำ Endpoint ทั้งหมด" becomes "ทำ Endpoint VN …" while one visit is picked. */
 export function updateEndpointSelection() {
-    const count = pickedEndpointVns().length;
+    const [vn] = pickedEndpointVns();
     const label = document.getElementById('endpoint-save-run-label');
-    if (label) label.textContent = count ? `ทำ Endpoint ที่เลือก (${count})` : 'ทำ Endpoint ทั้งหมด';
-    const all = document.querySelectorAll('#uc-pending-list-tbody .endpoint-pick');
-    const selectAll = document.getElementById('endpoint-select-all');
-    if (selectAll) selectAll.checked = all.length > 0 && count === all.length;
-}
-
-export function handleEndpointSelectAll(checked) {
-    document.querySelectorAll('#uc-pending-list-tbody .endpoint-pick').forEach(box => { box.checked = checked; });
-    updateEndpointSelection();
+    if (label) label.textContent = vn ? `ทำ Endpoint VN ${vn}` : 'ทำ Endpoint ทั้งหมด';
 }
 
 /** Shows the endpoint bar only to people an admin enabled, and asks unlinked ones to link Telegram. */
@@ -617,7 +611,7 @@ function pollEndpointStatus() {
 /** Starts the NHSO endpoint batch from the web (same job as the Telegram "endpoint" command). */
 export async function handleEndpointRun(dryRun) {
     const picked = pickedEndpointVns();
-    const scope = picked.length ? `${picked.length} รายที่เลือก (VN ${picked.join(', ')})` : 'ผู้ป่วยวันนี้ทุกรายที่ยังไม่ได้ทำ (ครั้งละไม่เกิน 10 ราย)';
+    const scope = picked.length ? `VN ${picked[0]}` : 'ผู้ป่วยวันนี้ทุกรายที่ยังไม่ได้ทำ (ครั้งละไม่เกิน 10 ราย)';
     const message = dryRun
         ? `ระบบจะเติมฟอร์ม Endpoint ของ${scope} แล้วส่งภาพให้ตรวจใน Telegram โดยยังไม่บันทึก`
         : `ระบบจะทำ Endpoint ${scope}\nแต่ละรายจะส่ง QR ผู้รับรองเข้า Telegram — ตรวจยอดเงินและเหตุผลก่อนสแกนทุกครั้ง`;

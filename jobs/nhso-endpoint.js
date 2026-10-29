@@ -283,6 +283,25 @@ async function formLooksFilled(page, row) {
 }
 
 /** Sends the officer QR to Telegram and waits for the scan.  Returns true when scanned. */
+/** Screenshot + where we are + what the page says, sent to Telegram, for a step that went wrong. */
+async function reportPageState(page, row, label) {
+    const shot = path.join(outDir, `${row.vstdate}-${row.vn}-${label}.png`);
+    await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
+    const text = await page.evaluate(() => document.body?.innerText.replace(/\s+/g, ' ').trim().slice(0, 200) || '').catch(() => '');
+    const where = page.url().replace(/txID=[^&]+/, 'txID=…').replace(/AUTHEN-[^&]+/, 'AUTHEN-…').replace(/code=[^&]+/, 'code=…');
+    logger.warn(`🔎 [Endpoint] ${label} VN ${row.vn}: ${where} | text="${text}"`);
+    await sendTelegram(`🔎 ${label} (VN ${row.vn})\nหน้า: ${where}\nข้อความบนหน้า: ${text || '-'}`, shot);
+    return { where, text };
+}
+
+/** After ThaiD sends us back, the filled form must be on the page; otherwise report what is. */
+async function waitForFormBack(page, row) {
+    const ok = await page.waitForSelector('#paidAmount', { timeout: 20000 }).then(() => true, () => false);
+    if (ok) return;
+    const { where, text } = await reportPageState(page, row, 'กลับจาก ThaiD แต่ไม่พบฟอร์ม');
+    throw Object.assign(new Error(`กลับจาก ThaiD แต่ไม่พบฟอร์ม (หน้า ${where.split('?')[0]}: ${text.slice(0, 60) || 'ว่าง'})`), { notified: true });
+}
+
 async function officerScan(page, row, caption) {
     for (let attempt = 1; attempt <= OFFICER_SCAN_ATTEMPTS; attempt += 1) {
         if (!(await clickButtonByText(page, /สแกน\s*ThaiD/))) throw new Error('ไม่พบปุ่ม "คลิกเพื่อสแกน ThaiD QR code"');
@@ -295,23 +314,14 @@ async function officerScan(page, row, caption) {
         ).catch(() => {});
         if (page.url().includes('authenservice.nhso.go.th') && page.url().includes('/nhso-endpoint/')) {
             logger.info(`🖱️ [Endpoint] VN ${row.vn}: ThaiD returned without a QR (already confirmed)`);
-            await page.waitForSelector('#paidAmount', { timeout: 20000 });
+            await waitForFormBack(page, row);
             await sleep(1500);
             return true;
         }
         const qr = await readThaidQr(page);
         if (!qr) {
-            // Keep what ThaiD showed instead of the QR, so the cause can be fixed.
-            const shot = path.join(outDir, `${row.vstdate}-${row.vn}-officer-noqr.png`);
-            await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
-            const seen = await page.evaluate(() => ({
-                text: document.body?.innerText.replace(/\s+/g, ' ').trim().slice(0, 200) || '',
-                imgs: [...document.querySelectorAll('img, canvas, svg')].map(el => `${el.tagName.toLowerCase()}:${(el.getAttribute('src') || '').slice(0, 25)}:${Math.round(el.getBoundingClientRect().width)}px`).slice(0, 6)
-            })).catch(() => ({ text: '', imgs: [] }));
-            const where = page.url().replace(/txID=[^&]+/, 'txID=…').replace(/AUTHEN-[^&]+/, 'AUTHEN-…');
-            logger.warn(`🔎 [Endpoint] Officer QR missing VN ${row.vn}: ${where} | text="${seen.text}" | ${seen.imgs.join(', ')}`);
-            await sendTelegram(`🔎 ไม่พบ QR ผู้รับรอง (VN ${row.vn})\nหน้า: ${where}\nข้อความบนหน้า: ${seen.text || '-'}`, shot);
-            throw Object.assign(new Error(`ไม่พบ QR ของผู้รับรอง (หน้า ThaiD แสดง: ${seen.text.slice(0, 80) || 'ว่าง'})`), { notified: true });
+            const { text } = await reportPageState(page, row, 'ไม่พบ QR ผู้รับรอง');
+            throw Object.assign(new Error(`ไม่พบ QR ของผู้รับรอง (หน้า ThaiD แสดง: ${text.slice(0, 80) || 'ว่าง'})`), { notified: true });
         }
 
         const notifier = createTelegramQrNotifier(telegramTarget().token, telegramTarget().chatIds);
@@ -324,7 +334,7 @@ async function officerScan(page, row, caption) {
             if (url.includes('authenservice.nhso.go.th') && url.includes('/nhso-endpoint/')) {
                 await notifier.finish(`✅ สแกนแล้ว กำลังบันทึก\n${caption}`);
                 reportProgress({ qr: null });
-                await page.waitForSelector('#paidAmount', { timeout: 20000 });
+                await waitForFormBack(page, row);
                 await sleep(1500);
                 return true;
             }

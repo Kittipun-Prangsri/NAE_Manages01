@@ -45,7 +45,22 @@ const today = () => new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangko
 // codes and results only to that person's Telegram and is logged under their
 // name; otherwise the shared TELEGRAM_CHAT_ID chats are used.  One batch runs at
 // a time per process (the portal lock), so module state is enough.
-const batchContext = { chatIds: null, requestedBy: null };
+const batchContext = { chatIds: null, requestedBy: null, progress: null };
+
+// Live updates for the web popup: { qr } shows/clears a QR, { event } adds a result line.
+function reportProgress(update) {
+    try { batchContext.progress?.(update); } catch { /* the popup is best effort */ }
+}
+
+const STATUS_EVENT = {
+    saved: '✅ บันทึกแล้ว',
+    dry_run: '👁️ เติมฟอร์มแล้ว (ทดลอง)',
+    not_scanned: '⌛ ข้าม: ไม่ได้สแกน QR ผู้รับรอง',
+    needs_review: '🔎 ข้าม: ต้องตรวจเอง',
+    no_reason: '⚠️ ข้าม: ไม่มีเหตุผลที่ตรงเงื่อนไข',
+    save_unconfirmed: '❓ กดบันทึกแล้วไม่ได้รับการยืนยัน',
+    failed: '❌ ผิดพลาด'
+};
 
 function telegramTarget() {
     const token = process.env.WORKER_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
@@ -98,6 +113,8 @@ async function logCase(row, reason, status, message = null) {
         'INSERT INTO nhso_endpoint_log (vn, cid, visit_date, amount, reason, status, message, requested_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [row.vn, row.cid, row.vstdate, Number(row.uc_money), reason, status, message, batchContext.requestedBy]
     );
+    const label = STATUS_EVENT[status] || status;
+    reportProgress({ event: `${label} — VN ${row.vn} (${Number(row.uc_money).toFixed(2)} บาท)${status !== 'saved' && status !== 'dry_run' && message ? `: ${message}` : ''}` });
 }
 
 // "save_unconfirmed" may have been saved on the NHSO side: never retry it
@@ -276,12 +293,14 @@ async function officerScan(page, row, caption) {
 
         const notifier = createTelegramQrNotifier(telegramTarget().token, telegramTarget().chatIds);
         await notifier.show(qr.buffer || Buffer.from(qr.dataUrl.split(',')[1], 'base64'), `${caption}\nเลขอ้างอิง ${qr.refCode || '-'} • QR อายุ ~1 นาที`, thaidOpenPageUrl(qr.txId));
+        reportProgress({ qr: { kind: 'officer', dataUrl: qr.dataUrl, refCode: qr.refCode, expiresAt: new Date(Date.now() + qr.secondsLeft * 1000).toISOString(), round: attempt } });
         const expiresAt = Date.now() + qr.secondsLeft * 1000 + 5000;
 
         while (Date.now() < expiresAt) {
             const url = page.url();
             if (url.includes('authenservice.nhso.go.th') && url.includes('/nhso-endpoint/')) {
                 await notifier.finish(`✅ สแกนแล้ว กำลังบันทึก\n${caption}`);
+                reportProgress({ qr: null });
                 await page.waitForSelector('#paidAmount', { timeout: 20000 });
                 await sleep(1500);
                 return true;
@@ -290,6 +309,7 @@ async function officerScan(page, row, caption) {
             await sleep(1500);
         }
         await notifier.finish(`⌛ QR หมดอายุ (รอบ ${attempt}/${OFFICER_SCAN_ATTEMPTS})\n${caption}`);
+        reportProgress({ qr: null });
         if (attempt < OFFICER_SCAN_ATTEMPTS) {
             // The form is gone once the QR page closes; fill it again for a fresh QR.
             await fillForm(page, row);
@@ -386,11 +406,13 @@ export function parseEndpointCommand(text) {
 export async function runEndpointBatch({ chatIds = null, requestedBy = null, ...options } = {}) {
     batchContext.chatIds = chatIds?.length ? chatIds.map(String) : null;
     batchContext.requestedBy = requestedBy;
+    batchContext.progress = options.onProgress || null;
     try {
         return await runBatch(options);
     } finally {
         batchContext.chatIds = null;
         batchContext.requestedBy = null;
+        batchContext.progress = null;
     }
 }
 
@@ -444,15 +466,19 @@ async function runBatch({ visitDate = today(), dryRun = true, limit = 10, vn = n
         const loginQr = createTelegramQrNotifier(telegramTarget().token, telegramTarget().chatIds);
         const login = await loginWithThaid(page, {
             portalUrl: PORTAL_URL,
-            onQr: ({ buffer, refCode, round, txId }) => loginQr.show(buffer, `📲 [Endpoint] สแกน ThaiD เพื่อเข้าสู่ระบบ สปสช.\nเลขอ้างอิง: ${refCode || '-'} (รอบที่ ${round})`, thaidOpenPageUrl(txId))
+            onQr: async ({ buffer, dataUrl, refCode, round, txId, expiresAt }) => {
+                reportProgress({ message: 'สแกน QR ThaiD เพื่อเข้าสู่ระบบ สปสช.', qr: { kind: 'login', dataUrl, refCode, expiresAt: new Date(expiresAt).toISOString(), round } });
+                await loginQr.show(buffer, `📲 [Endpoint] สแกน ThaiD เพื่อเข้าสู่ระบบ สปสช.\nเลขอ้างอิง: ${refCode || '-'} (รอบที่ ${round})`, thaidOpenPageUrl(txId));
+            }
         });
+        reportProgress({ qr: null });
         if (!login.authenticated) throw new Error('เข้าสู่ระบบ ThaiD ไม่สำเร็จ');
         if (login.rounds > 0) await loginQr.finish('✅ เข้าสู่ระบบแล้ว กำลังเริ่ม Endpoint');
 
         for (const [index, row] of batch.entries()) {
             const amount = Number(row.uc_money).toFixed(2);
             let reason = null;
-            onProgress({ total: batch.length, done: index, message: `ราย ${index + 1}/${batch.length} (VN ${row.vn}, ${amount} บาท): ${dryRun ? 'กำลังเติมฟอร์ม' : 'เติมฟอร์ม แล้วรอสแกน QR ผู้รับรองใน Telegram'}` });
+            onProgress({ total: batch.length, done: index, message: `ราย ${index + 1}/${batch.length} (VN ${row.vn}, ${amount} บาท): ${dryRun ? 'กำลังเติมฟอร์ม' : 'เติมฟอร์ม แล้วรอผู้รับรองสแกน QR'}` });
             try {
                 reason = await fillForm(page, row);
                 const caption = `🩺 Endpoint ราย ${index + 1}/${batch.length}\nVN ${row.vn} • อายุ ${row.age_y} ปี\nค่าบริการที่เบิกได้ ${amount} บาท\nเหตุผล: ${reason}`;

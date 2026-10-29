@@ -576,7 +576,76 @@ export async function handleLinkTelegram() {
     notify.success('กด Start ในบอต Telegram แล้วกลับมาเปิดหน้าต่างนี้ใหม่');
 }
 
+let endpointQrTimer = null;
+let endpointLastStatus = null;
+
+/** Fills the progress popup: bar, current step, the QR to scan (requester only), results so far. */
+function renderEndpointPopup(data) {
+    const dialog = document.getElementById('endpoint-progress-dialog');
+    if (!dialog) return;
+    endpointLastStatus = data;
+    const running = data.status === 'running';
+    const total = Number(data.total) || 0;
+    const done = running ? Number(data.done) || 0 : total;
+    const title = document.getElementById('endpoint-progress-title');
+    if (title) title.textContent = running ? 'กำลังทำ Endpoint' : data.status === 'failed' ? 'Endpoint ไม่สำเร็จ' : 'Endpoint เสร็จแล้ว';
+    const sub = document.getElementById('endpoint-progress-sub');
+    if (sub) sub.textContent = `${data.dryRun ? 'แบบทดลอง (ไม่บันทึก)' : 'บันทึกจริง'}${data.requestedBy ? ` • สั่งโดย ${data.requestedBy}` : ''}`;
+    const count = document.getElementById('endpoint-progress-count');
+    if (count) count.textContent = `${done}/${total} ราย`;
+    const state = document.getElementById('endpoint-progress-state');
+    if (state) state.textContent = running ? '⏳ กำลังทำงาน' : data.status === 'failed' ? '❌ ล้มเหลว' : '✅ เสร็จ';
+    const bar = document.getElementById('endpoint-progress-bar');
+    if (bar) {
+        bar.style.width = `${total ? Math.round(done / total * 100) : (running ? 0 : 100)}%`;
+        bar.classList.toggle('bg-red-500', data.status === 'failed');
+    }
+    const message = document.getElementById('endpoint-progress-message');
+    if (message) message.textContent = data.message || '';
+
+    const qrBox = document.getElementById('endpoint-progress-qr');
+    const qr = running ? data.qr : null;
+    qrBox?.classList.toggle('hidden', !qr);
+    qrBox?.classList.toggle('flex', Boolean(qr));
+    if (qr) {
+        const img = document.getElementById('endpoint-progress-qr-img');
+        if (img && img.src !== qr.dataUrl) img.src = qr.dataUrl;
+        const qrTitle = document.getElementById('endpoint-progress-qr-title');
+        if (qrTitle) qrTitle.textContent = qr.kind === 'login' ? '📲 สแกนเพื่อเข้าสู่ระบบ สปสช.' : '📲 ผู้รับรองสแกนเพื่อยืนยันรายนี้';
+    }
+    renderEndpointQrMeta();
+
+    const list = document.getElementById('endpoint-progress-events');
+    if (list) {
+        list.innerHTML = (data.events || []).map(e => `<li class="rounded-lg bg-slate-50 px-3 py-1.5 dark:bg-slate-800/60">${escapeHtml(e.text)}</li>`).join('');
+        list.scrollTop = list.scrollHeight;
+    }
+}
+
+function renderEndpointQrMeta() {
+    const meta = document.getElementById('endpoint-progress-qr-meta');
+    const qr = endpointLastStatus?.status === 'running' ? endpointLastStatus.qr : null;
+    if (!meta || !qr) return;
+    const secondsLeft = Math.max(0, Math.round((new Date(qr.expiresAt).getTime() - Date.now()) / 1000));
+    meta.textContent = `เลขอ้างอิง ${qr.refCode || '-'} • ${secondsLeft > 0 ? `หมดอายุใน ${secondsLeft} วิ` : 'กำลังสร้าง QR ใหม่...'} • รอบที่ ${qr.round || 1}`;
+}
+
+export function openEndpointPopup() {
+    const dialog = document.getElementById('endpoint-progress-dialog');
+    if (!dialog) return;
+    if (!dialog.open) {
+        if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.setAttribute('open', '');
+    }
+    if (endpointLastStatus) renderEndpointPopup(endpointLastStatus);
+    clearInterval(endpointQrTimer);
+    endpointQrTimer = setInterval(() => {
+        if (!dialog.open) { clearInterval(endpointQrTimer); return; }
+        renderEndpointQrMeta();
+    }, 1000);
+}
+
 function renderEndpointStatus(data) {
+    renderEndpointPopup(data);
     const statusEl = document.getElementById('endpoint-run-status');
     const running = data.status === 'running';
     ['endpoint-dry-run-btn', 'endpoint-save-run-btn'].forEach(id => {
@@ -622,8 +691,8 @@ export async function handleEndpointRun(dryRun) {
         notify.warning(response.data?.message || 'เริ่มงาน Endpoint ไม่สำเร็จ');
         return;
     }
-    notify.success(dryRun ? 'เริ่มทดลอง Endpoint แล้ว ดูภาพใน Telegram' : 'เริ่มทำ Endpoint แล้ว รอสแกน QR ใน Telegram');
-    renderEndpointStatus({ status: 'running', message: 'กำลังเริ่ม...' });
+    renderEndpointStatus({ status: 'running', dryRun, total: 0, done: 0, message: 'กำลังเริ่ม...', events: [] });
+    openEndpointPopup();
     pollEndpointStatus();
 }
 

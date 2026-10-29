@@ -1802,7 +1802,7 @@ async function runManualPortalSyncInBackground(visit_date, username = null, chat
 // --- NHSO endpoint batch (web button) ---
 // Same job as the Telegram "endpoint" command; the officer still scans each
 // ThaiD QR in Telegram.  Only one batch runs at a time per server process.
-let endpointRunStatus = { status: 'idle', dryRun: true, total: 0, done: 0, message: '', results: null, startedAt: null, finishedAt: null };
+let endpointRunStatus = { status: 'idle', dryRun: true, total: 0, done: 0, message: '', results: null, events: [], qr: null, startedAt: null, finishedAt: null };
 
 // What this person may do with endpoints (checked against the database on every
 // request, so an admin's change applies at once).
@@ -1840,28 +1840,34 @@ app.post('/api/endpoint/run', authenticateToken, async (req, res) => {
     // Optional: only the visits the person ticked in the list.
     const vns = Array.isArray(req.body?.vns) ? req.body.vns.map(String).filter(v => /^\d{6,20}$/.test(v)).slice(0, 50) : null;
     logger.info(`🩺 [Endpoint] Web ${dryRun ? 'dry run' : 'save'} requested by ${req.user?.username}${vns?.length ? ` for ${vns.length} picked visit(s)` : ''}`);
-    endpointRunStatus = { status: 'running', dryRun, requestedBy: access.displayName, total: 0, done: 0, message: 'กำลังเริ่ม...', results: null, startedAt: new Date(), finishedAt: null };
+    endpointRunStatus = { status: 'running', dryRun, requestedBy: access.displayName, requesterUsername: req.user.username, total: 0, done: 0, message: 'กำลังเริ่ม...', results: null, events: [], qr: null, startedAt: new Date(), finishedAt: null };
 
     runEndpointBatch({
         dryRun,
         vns: vns?.length ? vns : null,
         chatIds: [access.chatId],
         requestedBy: req.user.username,
-        onProgress: progress => { endpointRunStatus = { ...endpointRunStatus, ...progress }; }
+        onProgress: ({ event, qr, ...progress }) => {
+            endpointRunStatus = { ...endpointRunStatus, ...progress };
+            if (qr !== undefined) endpointRunStatus.qr = qr;
+            if (event) endpointRunStatus.events = [...endpointRunStatus.events, { at: new Date(), text: event }].slice(-30);
+        }
     })
         .then(results => {
-            endpointRunStatus = { ...endpointRunStatus, status: 'done', results, finishedAt: new Date() };
+            endpointRunStatus = { ...endpointRunStatus, status: 'done', results, qr: null, finishedAt: new Date() };
         })
         .catch(err => {
             logger.error({ err: err.message }, '❌ [Endpoint] Web batch failed:');
-            endpointRunStatus = { ...endpointRunStatus, status: 'failed', message: err.message, finishedAt: new Date() };
+            endpointRunStatus = { ...endpointRunStatus, status: 'failed', message: err.message, qr: null, finishedAt: new Date() };
         });
 
     res.json({ success: true, message: 'เริ่มงาน Endpoint แล้ว' });
 });
 
 app.get('/api/endpoint/status', authenticateToken, (req, res) => {
-    res.json(endpointRunStatus);
+    // The QR is the requester's to scan: other viewers see progress only.
+    const { qr, requesterUsername, ...status } = endpointRunStatus;
+    res.json({ ...status, isMine: req.user.username === requesterUsername, qr: req.user.username === requesterUsername ? qr : null });
 });
 
 app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {

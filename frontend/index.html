@@ -1739,7 +1739,7 @@
             <button id="endpoint-save-run-btn" type="button" class="btn btn-sm btn-success h-8">
                 <i class="fas fa-check-double" aria-hidden="true"></i> <span id="endpoint-save-run-label">ทำ Endpoint ทั้งหมด</span>
             </button>
-            <span id="endpoint-run-status" class="text-slate-500 dark:text-slate-400">บันทึกจริงได้เฉพาะผู้ป่วยวันนี้ • QR ผู้รับรองส่งเข้า Telegram ของคุณ สแกนทีละราย</span>
+            <span id="endpoint-run-status" class="cursor-pointer text-slate-500 dark:text-slate-400" title="คลิกเพื่อดูความคืบหน้า">บันทึกจริงได้เฉพาะผู้ป่วยวันนี้ • QR ผู้รับรองส่งเข้า Telegram ของคุณ สแกนทีละราย</span>
         </div>
         <div class="p-5 overflow-x-auto">
             <table class="data-table w-full text-left border-collapse min-w-[700px] text-xs">
@@ -1763,6 +1763,41 @@
                 <i class="fas fa-check-circle text-4xl text-emerald-500 mb-2"></i>
                 <p class="font-bold text-sm">ไม่พบรายการค้าง</p>
             </div>
+        </div>
+    </dialog>
+
+    <!-- Endpoint progress popup (a <dialog> so it opens above the UC list dialog) -->
+    <dialog id="endpoint-progress-dialog" class="tracking-details-dialog" aria-labelledby="endpoint-progress-title">
+        <div class="tracking-details-header">
+            <div>
+                <p class="tracking-details-eyebrow text-emerald-500">NHSO Endpoint</p>
+                <h2 id="endpoint-progress-title">กำลังทำ Endpoint</h2>
+                <p id="endpoint-progress-sub" class="text-xs text-slate-500 dark:text-slate-400"></p>
+            </div>
+            <form method="dialog">
+                <button type="submit" class="tracking-details-close" aria-label="ปิด"><i class="fas fa-xmark" aria-hidden="true"></i></button>
+            </form>
+        </div>
+        <div class="space-y-4 p-5 text-sm">
+            <div>
+                <div class="mb-1 flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                    <span id="endpoint-progress-count">0/0 ราย</span>
+                    <span id="endpoint-progress-state"></span>
+                </div>
+                <div class="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                    <div id="endpoint-progress-bar" class="h-full rounded-full bg-emerald-500 transition-all duration-500" style="width:0%"></div>
+                </div>
+            </div>
+            <div id="endpoint-progress-message" class="rounded-xl bg-[#0b1120] p-3 font-mono text-[11px] text-slate-300">กำลังเริ่ม...</div>
+            <div id="endpoint-progress-qr" class="hidden flex-col items-center rounded-xl border border-slate-200 p-4 text-center dark:border-slate-700">
+                <div id="endpoint-progress-qr-title" class="mb-2 text-xs font-semibold text-brand-600 dark:text-brand-300"></div>
+                <div class="size-48 rounded-xl border border-slate-200 bg-white p-2">
+                    <img id="endpoint-progress-qr-img" src="" alt="ThaiD QR Code" class="h-full w-full object-contain">
+                </div>
+                <div id="endpoint-progress-qr-meta" class="mt-2 font-mono text-xs text-slate-600 dark:text-slate-300"></div>
+                <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">สแกนจากหน้าจอนี้ หรือจาก Telegram ก็ได้ • QR เปลี่ยนเองเมื่อหมดอายุ</div>
+            </div>
+            <ul id="endpoint-progress-events" class="max-h-48 space-y-1 overflow-y-auto text-xs"></ul>
         </div>
     </dialog>
 

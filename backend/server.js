@@ -40,7 +40,7 @@ import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
 import { thaidAppLink } from '../jobs/thaidLogin.js';
 import { createTelegramLink, ensureUserAccessColumns, getEndpointAccess } from './telegramLink.js';
-import { listManualEndpointCases, recordManualEndpoint, runEndpointBatch } from '../jobs/nhso-endpoint.js';
+import { listAuthenCases, listManualEndpointCases, recordManualEndpoint, runEndpointBatch } from '../jobs/nhso-endpoint.js';
 import { keepAliveNhsoSession, getNhsoSessionStatusInfo } from '../jobs/keep-alive-nhso.js';
 import visitRoutes from './routes/visitRoutes.js';
 import logger from './logger.js';
@@ -1873,6 +1873,19 @@ app.get('/api/endpoint/manual-cases', authenticateToken, async (req, res) => {
         res.json({ cases: await listManualEndpointCases() });
     } catch (error) {
         logger.error({ err: error.message }, 'Manual endpoint list failed:');
+        res.status(500).json({ message: 'โหลดรายการไม่สำเร็จ' });
+    }
+});
+
+// Authen Code at the counter: today's patients without an Authen Code, for the
+// Chrome helper to fill the NHSO "behalf" form.  Same permission as endpoints.
+app.get('/api/authen/cases', authenticateToken, async (req, res) => {
+    const access = await getEndpointAccess(req.user.username).catch(() => null);
+    if (!access?.canEndpoint) return res.status(403).json({ message: 'บัญชีนี้ยังไม่ได้รับสิทธิ์ (ให้ผู้ดูแลระบบเปิด "ทำ Endpoint ได้")' });
+    try {
+        res.json({ cases: await listAuthenCases() });
+    } catch (error) {
+        logger.error({ err: error.message }, 'Authen case list failed:');
         res.status(500).json({ message: 'โหลดรายการไม่สำเร็จ' });
     }
 });

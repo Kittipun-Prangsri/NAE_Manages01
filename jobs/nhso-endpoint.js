@@ -8,7 +8,7 @@ import logger from '../backend/logger.js';
 import { trackerPool } from '../backend/db.js';
 import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
 import { createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
-import { bangkokNowHHMM, chooseEndpointReason, endpointTimes, getEndpointCandidates } from '../backend/endpointCandidates.js';
+import { bangkokNowHHMM, chooseEndpointReason, endpointTimes, getAuthenCandidates, getEndpointCandidates } from '../backend/endpointCandidates.js';
 import { acquirePortalLock, PORTAL_LOCK_KEY } from './keep-alive-nhso.js';
 import { createTelegramQrNotifier, isThaidExpiredUrl, loginWithThaid, readThaidQr, thaidOpenPageUrl } from './thaidLogin.js';
 
@@ -152,6 +152,24 @@ const MANUAL_METHOD_LABEL = {
     manual: 'ทำด้วยมือ (เครื่องอ่านบัตร Smart Card)',
     extension: 'ส่วนเสริม Chrome อัตโนมัติ (เครื่องอ่านบัตร Smart Card)'
 };
+
+/**
+ * Patients still without an Authen Code today, for the Chrome helper at the counter.
+ * The reason is suggested only for children (age options on the form); for adults it
+ * is left for the officer to choose, because there is no default for a missing card.
+ */
+export async function listAuthenCases(visitDate = today()) {
+    const rows = await getAuthenCandidates(visitDate);
+    return rows.map(row => ({
+        vn: row.vn,
+        cid: row.cid,
+        hn: row.hn,
+        age: row.age_y,
+        visitTime: row.vsttime,
+        department: row.department,
+        reason: chooseEndpointReason(Number(row.age_y), PORTAL_REASON_OPTIONS, '')
+    }));
+}
 
 /** Records an endpoint completed in the NHSO portal on a staff PC (by hand or by the Chrome helper). */
 // status 'save_unconfirmed': save was clicked but the portal never confirmed it;

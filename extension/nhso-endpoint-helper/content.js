@@ -268,8 +268,214 @@
     }
 
     let pendingCases = null;
+    /**
+     * Read-only survey of the page structure for planning new automation (e.g. the
+     * Authen Code form).  Records labels, field ids/types, select options, button
+     * texts and table headers.  It never records typed or displayed VALUES (names,
+     * ID numbers, phone numbers): inputs only report whether they are filled.
+     */
+    function describePage() {
+        // Anything typed or shown in a text field (name, ID number, phone...) is treated
+        // as patient data and blanked out wherever it appears in the survey text.
+        const sensitive = new Set();
+        document.querySelectorAll('input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]), textarea').forEach(el => {
+            String(el.value || '').split(/\s+/).filter(token => token.length >= 3).forEach(token => sensitive.add(token));
+        });
+        const escapeRegex = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const redact = text => {
+            let out = text.replace(/\d{9,}/g, '[ตัวเลขยาว]');
+            for (const token of sensitive) out = out.replace(new RegExp(escapeRegex(token), 'g'), '[ข้อมูลผู้ป่วย]');
+            return out;
+        };
+        const clean = text => redact((text || '').replace(/\s+/g, ' ').trim()).slice(0, 60);
+        const labelOf = control => {
+            if (control.id) {
+                const label = document.querySelector(`label[for="${CSS.escape(control.id)}"]`);
+                if (label) return clean(label.innerText);
+            }
+            const wrapping = control.closest('label');
+            if (wrapping) return clean(wrapping.innerText);
+            const row = control.closest('.row, .form-group, .mb-3');
+            const rowLabel = row?.querySelector('label');
+            return rowLabel && !rowLabel.contains(control) ? clean(rowLabel.innerText) : '';
+        };
+        const controls = [...document.querySelectorAll('input, select, textarea')]
+            .filter(el => visible(el) || el.type === 'radio' || el.type === 'checkbox')
+            .map(el => ({
+                tag: el.tagName.toLowerCase(),
+                type: el.type || null,
+                id: el.id || null,
+                name: el.name || null,
+                label: labelOf(el),
+                placeholder: el.placeholder || null,
+                required: Boolean(el.required) || /\*/.test(labelOf(el)),
+                readonly: Boolean(el.readOnly),
+                disabled: Boolean(el.disabled),
+                filled: el.type === 'radio' || el.type === 'checkbox' ? Boolean(el.checked) : Boolean(el.value),
+                options: el.tagName === 'SELECT' ? [...el.options].map(o => clean(o.text)) : undefined
+            }));
+        return {
+            path: location.pathname,
+            title: clean(document.title),
+            headings: [...document.querySelectorAll('h1, h2, h3, h4, h5, .nav-link, .card-header')].filter(visible).map(el => clean(el.innerText)).filter(Boolean),
+            controls,
+            buttons: [...document.querySelectorAll('button, a.btn, input[type="submit"]')].filter(visible).map(el => ({ text: clean(el.innerText || el.value), id: el.id || null, disabled: Boolean(el.disabled) })),
+            tableHeaders: [...document.querySelectorAll('th')].filter(visible).map(el => clean(el.innerText)).filter(Boolean),
+            at: new Date().toISOString()
+        };
+    }
+
+    async function renderProbePanel() {
+        const el = ensurePanel();
+        el.innerHTML = `<b>🔍 สำรวจหน้านี้</b>
+            <div style="margin-top:6px;color:#475569">ใช้เมื่อต้องการให้ผู้พัฒนาดูโครงสร้างหน้า (เช่น หน้าขอ Authen Code) ระบบจะอ่านแค่ชื่อช่อง ปุ่ม และตัวเลือก <b>ไม่เก็บ</b>ชื่อ เลขบัตร หรือค่าที่กรอกของผู้ป่วย และไม่กดอะไรในหน้านี้</div>
+            <button id="nae-probe" style="border:0;border-radius:8px;padding:7px 10px;cursor:pointer;font-size:13px;margin-top:10px;background:#2563eb;color:#fff;width:100%">สำรวจและคัดลอกผลลัพธ์</button>
+            <textarea id="nae-probe-out" readonly style="display:none;margin-top:8px;width:100%;height:120px;font:11px monospace"></textarea>
+            <div id="nae-probe-msg" style="margin-top:6px;font-size:12px"></div>`;
+        el.querySelector('#nae-probe').onclick = async () => {
+            const json = JSON.stringify(describePage(), null, 2);
+            const out = el.querySelector('#nae-probe-out');
+            out.value = json;
+            out.style.display = 'block';
+            let copied = false;
+            try { await navigator.clipboard.writeText(json); copied = true; } catch { /* the textarea is the fallback */ }
+            el.querySelector('#nae-probe-msg').textContent = copied
+                ? `✅ คัดลอกแล้ว (${json.length} ตัวอักษร) นำไปวางในแชตได้เลย`
+                : 'คัดลอกอัตโนมัติไม่ได้ — กดในช่องข้อความแล้ว Ctrl+A, Ctrl+C';
+        };
+    }
+
+    // ---- Authen Code at the counter ---------------------------------------------
+    // The "behalf" form of the Authen Code report (patient without a usable card).
+    // The helper fills what is the same for every case (CID search, reason for
+    // children, HN, service type) and STOPS before the two steps that attest to the
+    // patient in front of the officer: certifying (card / ThaiD) and "บันทึก/ยืนยันส่ง".
+
+    const onAuthenPage = () => !onBehalfPage() && /รายงานการขอ\s*Authen\s*code/i.test(document.body?.innerText || '');
+    const todayKey = () => new Date().toLocaleDateString('sv');
+    const normalizeFilter = text => String(text || '').replace(/\s+/g, '').toLowerCase();
+
+    function inputByLabel(text) {
+        const label = [...document.querySelectorAll('label')].find(l => visible(l) && l.innerText.trim() === text);
+        if (!label) return null;
+        if (label.htmlFor) return document.getElementById(label.htmlFor);
+        const row = label.closest('.row, .form-group, .mb-3') || label.parentElement?.parentElement;
+        return row?.querySelector('input:not([type="radio"]):not([type="checkbox"]), textarea') || null;
+    }
+
+    async function ensureBehalfTab() {
+        const searchBox = () => { const el = document.getElementById('search-pid'); return visible(el) ? el : null; };
+        if (searchBox()) return;
+        const tab = [...document.querySelectorAll('.nav-link, a, button')].filter(visible)
+            .find(el => /ยืนยันตัวตนแทนผู้เข้ารับบริการ/.test(el.innerText));
+        if (!tab) throw new Error('ไม่พบแท็บ "ยืนยันตัวตนแทนผู้เข้ารับบริการ…"');
+        tab.click();
+        await waitFor(searchBox, 10000, 'แท็บยืนยันตัวตนแทน');
+    }
+
+    /** Fills the form for one patient; returns what was set and what is left to the officer. */
+    async function fillAuthenCase(c) {
+        await ensureBehalfTab();
+        await searchPatient(c); // search by CID, stops on unusual drug records
+        const done = [`เลขบัตร`], left = [];
+        const reason = document.getElementById('identity-reason');
+        if (c.reason && reason && selectByText(reason, c.reason)) done.push(`เหตุผล "${c.reason}"`);
+        else left.push('เลือก "เหตุผลการไม่ยืนยันตัวตนด้วยตนเอง" เอง (ผู้ใหญ่/ไม่มีเหตุผลที่ตรงอายุ)');
+        const hn = inputByLabel('HN');
+        if (hn && c.hn) { setValue(hn, c.hn); done.push(`HN ${c.hn}`); }
+        else left.push('กรอก HN เอง (ไม่พบช่อง HN)');
+        const general = document.getElementById('servicetype0');
+        if (general) { if (!general.checked) general.click(); done.push('เข้ารับบริการรักษาทั่วไป'); }
+        else left.push('เลือกประเภทบริการเอง');
+        // Point at the certifying step; the officer does it.
+        const target = buttonByText(/ตรวจสอบข้อมูลจากบัตร/) || buttonByText(/สแกน\s*ThaiD/) || buttonByText(/ตรวจสอบ\s*Agent/);
+        if (target) {
+            target.scrollIntoView({ block: 'center' });
+            target.style.outline = '4px solid #f59e0b';
+            target.style.outlineOffset = '3px';
+        }
+        left.push('ผู้รับรอง (เจ้าหน้าที่) ยืนยันตัวตนผู้ป่วยด้วยบัตรหรือ ThaiD (กรอบสีส้ม)', 'ตรวจเวลาในฟอร์ม แล้วกด "บันทึก/ยืนยันส่ง" เอง');
+        return { done, left };
+    }
+
+    async function loadAuthenCases() {
+        const response = await api('/authen/cases');
+        if (!response?.ok) throw new Error(response?.data?.message || 'โหลดรายการไม่สำเร็จ');
+        return response.data.cases || [];
+    }
+
+    async function renderAuthenPanel() {
+        const el = ensurePanel();
+        const btn = 'border:0;border-radius:8px;padding:7px 10px;cursor:pointer;font-size:13px;';
+        const stored = await chrome.storage.local.get(['authenDone', 'authenResult']);
+        const doneToday = stored.authenDone?.date === todayKey() ? stored.authenDone.vns : [];
+        el.innerHTML = `<b>🪪 ขอ Authen Code ที่เคาน์เตอร์</b>
+            <div style="margin-top:6px;color:#475569">เลือกผู้ป่วยที่อยู่ตรงหน้า ระบบกรอกฟอร์มให้ ส่วนรับรองและบันทึกคุณทำเอง</div>
+            <input id="nae-filter" placeholder="ค้นหาด้วยเลขบัตรหรือ HN" style="margin-top:8px;width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
+            <div id="nae-authen-list" style="margin-top:6px;color:#475569">กำลังโหลดรายการ...</div>
+            <div id="nae-authen-result" style="margin-top:8px"></div>`;
+        const showResult = result => {
+            if (!result) return;
+            el.querySelector('#nae-authen-result').innerHTML = `<div style="padding:8px;border-radius:8px;background:#f0fdf4;color:#166534">✅ กรอกแล้ว: ${esc(result.done.join(' • '))}</div>
+                <div style="margin-top:6px;padding:8px;border-radius:8px;background:#fffbeb;color:#92400e"><b>เหลือให้คุณทำ</b><ol style="margin:4px 0 0 18px;padding:0">${result.left.map(t => `<li>${esc(t)}</li>`).join('')}</ol></div>`;
+        };
+        showResult(stored.authenResult);
+        try {
+            authenCases = await loadAuthenCases();
+        } catch (err) {
+            el.querySelector('#nae-authen-list').innerHTML = `<span style="color:#b91c1c">${esc(err.message)}</span>`;
+            return;
+        }
+        const list = el.querySelector('#nae-authen-list');
+        const draw = () => {
+            const filter = normalizeFilter(el.querySelector('#nae-filter').value);
+            const rows = authenCases.filter(c => !filter || normalizeFilter(`${c.cid} ${c.hn}`).includes(filter)).slice(0, 25);
+            if (!rows.length) { list.textContent = authenCases.length ? 'ไม่พบผู้ป่วยตามที่ค้นหา (อาจขอ Authen Code แล้ว หรือไม่ใช่สิทธิ UC)' : 'วันนี้ไม่มีผู้ป่วยที่ยังไม่ได้ขอ Authen Code'; return; }
+            list.innerHTML = rows.map(c => {
+                const done = doneToday.includes(c.vn);
+                return `<label style="display:block;margin-top:6px;color:${done ? '#94a3b8' : '#0f172a'};cursor:pointer"><input type="radio" name="nae-authen" value="${esc(c.vn)}" ${done ? 'disabled' : ''}> HN ${esc(c.hn || '-')} • อายุ ${esc(c.age ?? '-')} ปี • มา ${esc(c.visitTime || '-')}${done ? ' ✅ ทำแล้ว' : ''}<br><span style="margin-left:20px;color:#64748b;font-size:12px">${esc(c.reason || 'ต้องเลือกเหตุผลเอง')}</span></label>`;
+            }).join('') + `<button id="nae-authen-go" style="${btn}margin-top:10px;background:#059669;color:#fff;width:100%">กรอกฟอร์มให้</button>`;
+            list.querySelector('#nae-authen-go').onclick = async () => {
+                const vn = list.querySelector('input[name="nae-authen"]:checked')?.value;
+                const c = authenCases.find(x => x.vn === vn);
+                if (!c) { el.querySelector('#nae-authen-result').textContent = 'เลือกผู้ป่วยก่อน'; return; }
+                el.querySelector('#nae-authen-result').textContent = 'กำลังกรอกฟอร์ม...';
+                await chrome.storage.local.set({ authenCurrent: { vn: c.vn, at: Date.now() }, authenResult: null });
+                try {
+                    const result = await fillAuthenCase(c);
+                    await chrome.storage.local.set({ authenResult: result });
+                    showResult(result);
+                } catch (err) {
+                    el.querySelector('#nae-authen-result').innerHTML = `<div style="padding:8px;border-radius:8px;background:#fef2f2;color:#991b1b">⛔ ${esc(err.message)}</div>`;
+                }
+            };
+        };
+        el.querySelector('#nae-filter').addEventListener('input', draw);
+        draw();
+    }
+
+    /** When the portal shows its print/success prompt for the case being worked, remember it as done today. */
+    async function watchAuthenSaved() {
+        const { authenCurrent } = await chrome.storage.local.get('authenCurrent');
+        if (!authenCurrent || Date.now() - authenCurrent.at > 30 * 60 * 1000) return;
+        const modal = openModal();
+        if (!modal || !/พิมพ์|สำเร็จ/.test(modal.innerText)) return;
+        const stored = (await chrome.storage.local.get('authenDone')).authenDone;
+        const vns = stored?.date === todayKey() ? stored.vns : [];
+        if (!vns.includes(authenCurrent.vn)) vns.push(authenCurrent.vn);
+        await chrome.storage.local.set({ authenDone: { date: todayKey(), vns }, authenCurrent: null, authenResult: null });
+    }
+
+    let authenCases = null;
+
+    let panelMode = '';
     async function render() {
-        if (!onBehalfPage()) { panel?.remove(); return; }
+        if (!onBehalfPage()) {
+            panelMode = onAuthenPage() ? 'authen' : 'probe';
+            if (panelMode === 'authen') await renderAuthenPanel(); else await renderProbePanel();
+            return;
+        }
+        panelMode = 'endpoint';
         const el = ensurePanel();
         const run = await getRun();
         const btn = 'border:0;border-radius:8px;padding:7px 10px;cursor:pointer;font-size:13px;';
@@ -338,10 +544,17 @@
 
     // The portal is a single-page app: react to route changes as well as page loads.
     let lastPath = '';
-    setInterval(() => {
+    setInterval(async () => {
         if (location.pathname !== lastPath) {
             lastPath = location.pathname;
-            setTimeout(continueRun, 1500);
+            setTimeout(continueRun, 1500); // continueRun renders the panel (probe panel off the behalf page)
+            return;
+        }
+        // The portal renders its pages after load: switch to the Authen panel once its page appears.
+        if (!onBehalfPage()) {
+            const mode = onAuthenPage() ? 'authen' : 'probe';
+            if (mode !== panelMode) render();
+            if (mode === 'authen') watchAuthenSaved();
         }
     }, 1000);
 })();

@@ -69,6 +69,40 @@ export async function getEndpointCandidates(visitDate) {
     return rows.filter(isEndpointCandidate);
 }
 
+/**
+ * Visits that have no Authen Code yet: the rows behind the "ยังไม่นำเข้า" figure
+ * (UCS right, not admitted, no usable temp_authen_code claim), newest first so the
+ * patient standing at the counter is at the top.
+ */
+export async function getAuthenCandidates(visitDate) {
+    const [rows] = await hosxpPool.query(
+        `SELECT
+            v.vn,
+            v.cid,
+            v.hn,
+            v.age_y,
+            TIME_FORMAT(ov.vsttime, '%H:%i') AS vsttime,
+            CAST(CONVERT(k.department USING utf8) AS CHAR) AS department
+         FROM vn_stat v
+         LEFT JOIN ovst ov ON ov.vn = v.vn
+         LEFT JOIN temp_authen_code td ON td.cid = v.cid
+            AND td.status_use <> 'C'
+            AND td.dateser = v.vstdate
+            AND td.flag = 'D'
+         LEFT JOIN pttype py ON py.pttype = v.pttype
+         LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
+         WHERE v.vstdate = ?
+           AND UPPER(py.hipdata_code) = 'UCS'
+           AND COALESCE(ov.pt_subtype, '') <> '1'
+           AND ov.an IS NULL
+           AND td.claimcode IS NULL
+         GROUP BY v.vn
+         ORDER BY ov.vsttime DESC`,
+        [visitDate]
+    );
+    return rows.filter(row => /^\d{13}$/.test(String(row.cid || '')));
+}
+
 export function getClaimOffsetMinutes(value = process.env.ENDPOINT_CLAIM_OFFSET_MINUTES) {
     const minutes = Number(value);
     return Number.isInteger(minutes) && minutes >= 0 && minutes <= 240 ? minutes : 30;

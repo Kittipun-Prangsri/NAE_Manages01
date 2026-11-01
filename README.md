@@ -70,58 +70,7 @@
 
 ---
 
-## ⚙️ การตั้งค่าระบบก่อนใช้งาน (Configuration)
 
-ก่อนเริ่มต้นใช้งานโปรเจกต์ คุณจำเป็นต้องคัดลอกไฟล์ต้นแบบการตั้งค่า และตั้งชื่อเป็นไฟล์ `.env` ที่อยู่ในโฟลเดอร์ราก (Root Directory) ของโปรเจกต์:
-
-```env
-# HOSxP Database (Read-Only — must have SELECT only)
-HOSXP_HOST=192.168.1.4
-HOSXP_USER=your_hosxp_username
-HOSXP_PASS=your_hosxp_password
-HOSXP_DB=hos
-HOSXP_PORT=3306
-
-# HOSxP Sync Database (Write access — only required for Sync operations)
-# Grant this account only the minimum permissions on authencode,
-# temp_authen_code, and visit_pttype. Do not reuse the read-only account.
-HOSXP_WRITE_USER=your_hosxp_sync_username
-HOSXP_WRITE_PASS=your_hosxp_sync_password
-
-# Internal Tracking Database
-TRACKER_HOST=192.168.1.4
-TRACKER_USER=your_tracker_username
-TRACKER_PASS=your_tracker_password
-TRACKER_DB=hos
-TRACKER_PORT=3306
-TRACKER_CHARSET=tis620
-
-# Authentication & JWT
-JWT_SECRET=replace_with_a_unique_secret_of_at_least_32_characters
-# Separate 32+ character secret used to encrypt per-user LINE/Telegram tokens in MySQL
-NOTIFICATION_CREDENTIALS_KEY=replace_with_a_separate_32_character_or_longer_secret
-GOOGLE_SHEET_ID=your_sheet_id
-GOOGLE_SERVICE_ACCOUNT_EMAIL=your_service_account_email
-
-# Server Config
-PORT=3000
-NODE_ENV=development
-# Optional development URL used by the Puppeteer dashboard capture (defaults to http://localhost:5174)
-LOCAL_DASHBOARD_URL=http://localhost:5174
-# Optional in production: comma-separated browser origins allowed to call the API
-CORS_ORIGINS=https://tracker.example.go.th
-# Excel uploads are kept in memory; choose a value between 1 MB and 100 MB
-MAX_EXCEL_UPLOAD_BYTES=20971520
-# Screenshots are authenticated by default. Enable only when an external service must fetch them by public URL.
-ALLOW_PUBLIC_SCREENSHOTS=false
-# Prevent duplicate scheduled jobs across server/worker instances (minimum 60 seconds)
-SCHEDULER_LOCK_TTL_SECONDS=1800
-
-# NHSO API Configuration
-NHSO_API_URL=https://test.nhso.go.th/authencodestatus/api/check-authen-status
-NHSO_BEARER_TOKEN=YOUR_BEARER_TOKEN_HERE
-NHSO_SERVICE_CODE=PG0060001
-```
 
 ---
 

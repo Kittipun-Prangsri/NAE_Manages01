@@ -97,6 +97,20 @@ const rawApi = {
         return { ok: res.ok, status: res.status, data: await res.json() };
     },
 
+    async fetchEndpointLog(token) {
+        const res = await fetch(`${API_BASE}/admin/endpoint-log`, { headers: { 'Authorization': `Bearer ${token}` } });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
+    async resolveEndpointHold(id, action, token) {
+        const res = await fetch(`${API_BASE}/admin/endpoint-log/${encodeURIComponent(id)}/resolve`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action })
+        });
+        return { ok: res.ok, status: res.status, data: await res.json() };
+    },
+
     async fetchManualEndpointCases(token) {
         const res = await fetch(`${API_BASE}/endpoint/manual-cases`, {
             headers: { 'Authorization': `Bearer ${token}` }

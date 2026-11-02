@@ -103,6 +103,39 @@ export async function getAuthenCandidates(visitDate) {
     return rows.filter(row => /^\d{13}$/.test(String(row.cid || '')));
 }
 
+/** "22:30" -> { hour, minute }; empty / "off" / invalid -> null (reminder disabled). */
+export function parseReminderTime(value = process.env.ENDPOINT_REMINDER_TIME ?? '22:30') {
+    const text = String(value).trim().toLowerCase();
+    if (!text || text === 'off') return null;
+    const match = /^(\d{1,2}):(\d{2})$/.exec(text);
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    return hour <= 23 && minute <= 59 ? { hour, minute } : null;
+}
+
+/**
+ * End-of-day message listing what is still open, or null when nothing is.
+ * endpoint: cases still to do ({ count, amount }), held: cases whose save was
+ * never confirmed (a person must check the portal), authen: visits without an
+ * Authen Code.
+ */
+export function formatEndOfDayReminder({ visitDate, endpoint, held, authen }, deadline = '23:59') {
+    if (!endpoint.count && !held.length && !authen.count) return null;
+    const lines = [`🔔 สรุปรายการค้างวันที่ ${visitDate} (ทำได้ถึง ${deadline})`];
+    if (endpoint.count) {
+        lines.push(`• Endpoint ที่ยังไม่ได้ทำ: ${endpoint.count} ราย รวม ${Number(endpoint.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`);
+    }
+    if (held.length) {
+        lines.push(`• พักไว้รอตรวจในเว็บ สปสช. (ไม่แน่ใจว่าบันทึกแล้ว): ${held.length} ราย — ผู้ดูแลระบบปลดล็อกได้ในหน้าจัดการระบบ`);
+    }
+    if (authen.count) {
+        lines.push(`• ยังไม่ได้ขอ Authen Code: ${authen.count} ราย`);
+    }
+    lines.push('ใช้ปุ่ม "ทำ Endpoint" ในเว็บ หรือส่วนเสริม Chrome ที่เคาน์เตอร์');
+    return lines.join('\n');
+}
+
 export function getClaimOffsetMinutes(value = process.env.ENDPOINT_CLAIM_OFFSET_MINUTES) {
     const minutes = Number(value);
     return Number.isInteger(minutes) && minutes >= 0 && minutes <= 240 ? minutes : 30;

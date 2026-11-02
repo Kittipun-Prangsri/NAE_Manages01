@@ -1140,6 +1140,9 @@
                         <button id="admin-subtab-sync-runs" class="seg-btn flex-1">
                             <i class="fas fa-history mr-1"></i> ประวัติ Sync
                         </button>
+                        <button id="admin-subtab-endpoint" class="seg-btn flex-1">
+                            <i class="fas fa-check-double mr-1"></i> Endpoint
+                        </button>
                         <button id="admin-subtab-audit-logs" class="seg-btn flex-1">
                             <i class="fas fa-clipboard-list mr-1"></i> Audit Log
                         </button>
@@ -1233,6 +1236,30 @@
                     </div>
 
                     <!-- Admin Sync Runs Sub-View -->
+                    <div id="admin-subview-endpoint" class="hidden space-y-6">
+                        <div class="glass-panel p-6 rounded-2xl">
+                            <h2 class="card-title text-base">
+                                <i class="fas fa-hand text-amber-500"></i>
+                                <span>รายการที่พักไว้ (ไม่แน่ใจว่าบันทึกแล้ว)</span>
+                            </h2>
+                            <p class="card-subtitle">เปิดเมนู "ค้นหา/ลบรายการที่ยืนยันแล้ว" ในเว็บ สปสช. ตรวจก่อน แล้วเลือกว่ารายนั้นบันทึกแล้ว หรือปลดล็อกให้ทำใหม่</p>
+                            <div id="admin-endpoint-held" class="mt-4 space-y-2 text-sm"></div>
+                        </div>
+                        <div class="glass-panel p-6 rounded-2xl">
+                            <h2 class="card-title text-base">
+                                <i class="fas fa-list-check text-emerald-500"></i>
+                                <span>ประวัติ Endpoint ล่าสุด</span>
+                            </h2>
+                            <p class="card-subtitle">ใครทำรายไหน เมื่อไร ด้วยวิธีไหน (100 รายการล่าสุด)</p>
+                            <div class="mt-4 overflow-x-auto">
+                                <table class="data-table w-full text-left text-xs">
+                                    <thead><tr><th>เวลา</th><th>VN</th><th class="text-right">ยอด</th><th>สถานะ</th><th>ผู้ทำ</th><th>รายละเอียด</th></tr></thead>
+                                    <tbody id="admin-endpoint-log-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
                     <div id="admin-subview-sync-runs" class="hidden space-y-6">
                         <div class="glass-panel p-6 rounded-2xl">
                             <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">

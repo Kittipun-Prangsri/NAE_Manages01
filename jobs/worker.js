@@ -29,7 +29,8 @@ import {
 import { processCrossCheck } from '../backend/crossCheckLogic.js';
 import { extractQueryDate } from '../backend/dateInput.js';
 import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
-import { parseEndpointCommand, runEndpointBatch } from './nhso-endpoint.js';
+import { buildEndOfDayReminder, parseEndpointCommand, runEndpointBatch } from './nhso-endpoint.js';
+import { parseReminderTime } from '../backend/endpointCandidates.js';
 import { consumeTelegramLink, findUserByTelegramChat, parseStartCode } from '../backend/telegramLink.js';
 import { keepAliveNhsoSession } from './keep-alive-nhso.js';
 import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
@@ -252,6 +253,37 @@ async function runE2EPortalSyncAndCapture(targetChatId, visit_date, { chatIds, r
     }
 }
 
+const todayBangkok = () => new Date().toLocaleDateString('sv', { timeZone: 'Asia/Bangkok' });
+
+/**
+ * Chats that get the end-of-day summary: people who may do endpoints and have linked
+ * their Telegram; if nobody has, the shared TELEGRAM_CHAT_ID chats.
+ */
+async function reminderChatIds() {
+    try {
+        const [rows] = await trackerPool.query("SELECT DISTINCT telegram_chat_id FROM users WHERE can_endpoint = 1 AND telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''");
+        const linked = rows.map(row => String(row.telegram_chat_id));
+        if (linked.length) return linked;
+    } catch (err) {
+        logger.warn({ err: err.message }, '⚠️ [Reminder] Could not read linked chats, using the shared chats:');
+    }
+    return (process.env.TELEGRAM_CHAT_ID || '').split(',').map(id => id.trim()).filter(Boolean);
+}
+
+/** Sends the "still open today" summary; sendWhenEmpty=false stays silent when nothing is open. */
+async function sendEndOfDayReminder(chatIds, { sendWhenEmpty = false } = {}) {
+    const token = process.env.WORKER_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+    const text = await buildEndOfDayReminder(todayBangkok());
+    if (!text && !sendWhenEmpty) {
+        logger.info('🔔 [Reminder] Nothing open today; no message sent.');
+        return;
+    }
+    for (const chatId of chatIds) {
+        await sendTelegramMessage(token, chatId, text || '✅ ไม่มีรายการค้างของวันนี้ (Endpoint และ Authen Code ครบแล้ว)');
+    }
+    logger.info(`🔔 [Reminder] Sent to ${chatIds.length} chat(s).`);
+}
+
 async function startTelegramBotListener() {
     logger.info('🤖 Telegram Bot message listener started (Long Polling)...');
     
@@ -324,6 +356,16 @@ async function startTelegramBotListener() {
                             await sendTelegramMessage(token, fromChatId, user
                                 ? `✅ เชื่อม Telegram กับบัญชี ${user.full_name || user.username} แล้ว\nQR ผู้รับรองและผล Endpoint ที่คุณสั่งจะส่งมาที่แชตนี้`
                                 : '⚠️ ลิงก์เชื่อมบัญชีไม่ถูกต้องหรือหมดอายุ (15 นาที) กรุณากด "เชื่อม Telegram" บนหน้าเว็บอีกครั้ง');
+                            continue;
+                        }
+                        if (/^(สรุปค้าง|\/pending)$/i.test(text)) {
+                            const user = await findUserByTelegramChat(fromChatId);
+                            if (user?.can_endpoint || allowedChatIds.includes(fromChatId)) {
+                                sendEndOfDayReminder([fromChatId], { sendWhenEmpty: true }).catch(err => {
+                                    logger.error({ err: err.message }, '❌ [Reminder] On-demand summary failed:');
+                                    sendTelegramMessage(token, fromChatId, `❌ สรุปรายการค้างไม่สำเร็จ: ${err.message}`);
+                                });
+                            }
                             continue;
                         }
                         if (parseEndpointCommand(text)) {
@@ -469,6 +511,23 @@ async function startWorker() {
             logger.info(`⏰ [Worker-Cron] NHSO session keep-alive scheduled ("${pattern}").`);
         } else {
             logger.info('ℹ️ [Worker-Cron] NHSO session keep-alive is off (set NHSO_KEEP_ALIVE_MINUTES to enable).');
+        }
+
+        // End-of-day summary so missed cases are closed before the day ends.
+        // ENDPOINT_REMINDER_TIME=HH:MM (default 22:30, "off" disables).
+        const reminderTime = parseReminderTime();
+        if (reminderTime) {
+            const pattern = `${reminderTime.minute} ${reminderTime.hour} * * *`;
+            cron.schedule(pattern, async () => {
+                try {
+                    await sendEndOfDayReminder(await reminderChatIds());
+                } catch (err) {
+                    logger.error({ err: err.message }, '❌ [Reminder] End-of-day summary failed:');
+                }
+            }, { scheduled: true, timezone: 'Asia/Bangkok' });
+            logger.info(`🔔 [Worker-Cron] End-of-day summary scheduled ("${pattern}", Asia/Bangkok).`);
+        } else {
+            logger.info('ℹ️ [Worker-Cron] End-of-day summary is off (ENDPOINT_REMINDER_TIME).');
         }
 
         logger.info('✅ Background Cron Scheduler, Session Keep-Alive, and Telegram Polling are fully active.');

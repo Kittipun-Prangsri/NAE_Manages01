@@ -45,3 +45,20 @@ test('claim time is the visit time plus the fixed offset, and waits until it has
     assert.equal(getClaimOffsetMinutes('45'), 45);
     assert.equal(getClaimOffsetMinutes('abc'), 30);
 });
+
+test('end-of-day reminder: configurable time and a message only when something is open', async () => {
+    const { formatEndOfDayReminder, parseReminderTime } = await import('../backend/endpointCandidates.js');
+    assert.deepEqual(parseReminderTime('22:30'), { hour: 22, minute: 30 });
+    assert.deepEqual(parseReminderTime('7:05'), { hour: 7, minute: 5 });
+    assert.equal(parseReminderTime('off'), null);
+    assert.equal(parseReminderTime(''), null);
+    assert.equal(parseReminderTime('25:00'), null);
+    assert.equal(parseReminderTime('22:75'), null);
+
+    assert.equal(formatEndOfDayReminder({ visitDate: '2026-11-02', endpoint: { count: 0, amount: 0 }, held: [], authen: { count: 0 } }), null);
+    const text = formatEndOfDayReminder({ visitDate: '2026-11-02', endpoint: { count: 3, amount: 1234.5 }, held: ['691102000001'], authen: { count: 2 } });
+    assert.match(text, /Endpoint ที่ยังไม่ได้ทำ: 3 ราย/);
+    assert.match(text, /พักไว้รอตรวจ.*1 ราย/);
+    assert.match(text, /ยังไม่ได้ขอ Authen Code: 2 ราย/);
+    assert.doesNotMatch(formatEndOfDayReminder({ visitDate: 'x', endpoint: { count: 1, amount: 1 }, held: [], authen: { count: 0 } }), /พักไว้/);
+});

@@ -40,7 +40,7 @@ import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
 import { thaidAppLink } from '../jobs/thaidLogin.js';
 import { createTelegramLink, ensureUserAccessColumns, getEndpointAccess } from './telegramLink.js';
-import { listAuthenCases, listManualEndpointCases, recordManualEndpoint, runEndpointBatch } from '../jobs/nhso-endpoint.js';
+import { ensureLogTable as ensureEndpointLogTable, listAuthenCases, listManualEndpointCases, recordManualEndpoint, runEndpointBatch } from '../jobs/nhso-endpoint.js';
 import { keepAliveNhsoSession, getNhsoSessionStatusInfo } from '../jobs/keep-alive-nhso.js';
 import visitRoutes from './routes/visitRoutes.js';
 import logger from './logger.js';
@@ -2646,6 +2646,51 @@ app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, 
     } catch (error) {
         logger.error('Delete user error:', error);
         res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// --- Endpoint history and held cases (admin) ---
+// A save the portal never confirmed is "save_unconfirmed" and is never redone on
+// its own. After checking "ค้นหา/ลบรายการที่ยืนยันแล้ว" in the NHSO portal an admin
+// either confirms it was saved, or releases it so it can be done again.
+app.get('/api/admin/endpoint-log', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        await ensureEndpointLogTable();
+        const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+        const [rows] = await trackerPool.query(
+            `SELECT l.id, l.vn, l.amount, l.reason, l.status, l.message, l.requested_by, l.created_at,
+                    (l.status = 'save_unconfirmed'
+                     AND NOT EXISTS (SELECT 1 FROM nhso_endpoint_log n WHERE n.vn = l.vn AND n.id > l.id AND n.status IN ('saved', 'save_unconfirmed'))) AS is_held
+             FROM nhso_endpoint_log l ORDER BY l.id DESC LIMIT ?`,
+            [limit]
+        );
+        res.json({ rows: rows.map(row => ({ ...row, is_held: Boolean(row.is_held) })) });
+    } catch (error) {
+        logger.error({ err: error.message }, 'Endpoint log fetch failed:');
+        res.status(500).json({ message: 'โหลดประวัติ Endpoint ไม่สำเร็จ' });
+    }
+});
+
+app.post('/api/admin/endpoint-log/:id/resolve', authenticateToken, requireAdmin, async (req, res) => {
+    const action = req.body?.action;
+    if (!['saved', 'retry'].includes(action)) return res.status(400).json({ message: 'action ต้องเป็น saved หรือ retry' });
+    try {
+        await ensureEndpointLogTable();
+        const [[row]] = await trackerPool.query('SELECT id, vn, status FROM nhso_endpoint_log WHERE id = ?', [Number(req.params.id)]);
+        if (!row) return res.status(404).json({ message: 'ไม่พบรายการ' });
+        if (row.status !== 'save_unconfirmed') return res.status(409).json({ message: 'รายการนี้ไม่ได้อยู่ในสถานะพักไว้' });
+        const note = action === 'saved'
+            ? `ผู้ดูแลระบบ ${req.user.username} ตรวจในเว็บ สปสช. แล้วยืนยันว่าบันทึกแล้ว`
+            : `ผู้ดูแลระบบ ${req.user.username} ตรวจในเว็บ สปสช. แล้วไม่พบรายการ จึงปลดล็อกให้ทำใหม่`;
+        await trackerPool.query(
+            'UPDATE nhso_endpoint_log SET status = ?, message = CONCAT(COALESCE(message, \'\'), \' | \', ?) WHERE id = ?',
+            [action === 'saved' ? 'saved' : 'released', note, row.id]
+        );
+        await writeAuditLog(req, 'endpoint_hold_resolved', 'visit', row.vn, { action, by: req.user.username });
+        res.json({ success: true });
+    } catch (error) {
+        logger.error({ err: error.message }, 'Endpoint hold resolve failed:');
+        res.status(500).json({ message: 'ดำเนินการไม่สำเร็จ' });
     }
 });
 

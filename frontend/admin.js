@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { ui } from './ui.js';
 import { appState } from './state.js';
 import { notify, confirmDialog } from './notify.js';
+import { escapeHtml } from './uploader.js';
 
 export async function loadAdminUsers() {
     if (!appState.token || appState.user.role !== 'admin') return;
@@ -195,62 +196,29 @@ export async function loadAdminSchedules() {
     }
 }
 
+// One entry per admin sub-view: its loader runs when the tab is opened.
+const ADMIN_SUBTABS = {
+    users: () => loadAdminUsers(),
+    schedules: () => loadAdminSchedules(),
+    'sync-runs': () => loadAdminSyncRuns(),
+    endpoint: () => loadAdminEndpointLog(),
+    'audit-logs': () => loadAdminAuditLogs()
+};
+
 export function handleAdminSubtabSwitch(subtab) {
-    const btnUsers = document.getElementById('admin-subtab-users');
-    const btnSchedules = document.getElementById('admin-subtab-schedules');
-    const btnSyncRuns = document.getElementById('admin-subtab-sync-runs');
-    const btnAuditLogs = document.getElementById('admin-subtab-audit-logs');
-    const viewUsers = document.getElementById('admin-subview-users');
-    const viewSchedules = document.getElementById('admin-subview-schedules');
-    const viewSyncRuns = document.getElementById('admin-subview-sync-runs');
-    const viewAuditLogs = document.getElementById('admin-subview-audit-logs');
-
-    if (!btnUsers || !btnSchedules || !btnSyncRuns || !btnAuditLogs || !viewUsers || !viewSchedules || !viewSyncRuns || !viewAuditLogs) return;
-
-    const activeClass = 'seg-btn flex-1 is-active';
-    const inactiveClass = 'seg-btn flex-1';
-
-    if (subtab === 'users') {
-        btnUsers.className = activeClass;
-        btnSchedules.className = inactiveClass;
-        btnSyncRuns.className = inactiveClass;
-        btnAuditLogs.className = inactiveClass;
-        viewUsers.classList.remove('hidden');
-        viewSchedules.classList.add('hidden');
-        viewSyncRuns.classList.add('hidden');
-        viewAuditLogs.classList.add('hidden');
-        loadAdminUsers();
-    } else if (subtab === 'schedules') {
-        btnUsers.className = inactiveClass;
-        btnSchedules.className = activeClass;
-        btnSyncRuns.className = inactiveClass;
-        btnAuditLogs.className = inactiveClass;
-        viewUsers.classList.add('hidden');
-        viewSchedules.classList.remove('hidden');
-        viewSyncRuns.classList.add('hidden');
-        viewAuditLogs.classList.add('hidden');
-        loadAdminSchedules();
-    } else if (subtab === 'sync-runs') {
-        btnUsers.className = inactiveClass;
-        btnSchedules.className = inactiveClass;
-        btnSyncRuns.className = activeClass;
-        btnAuditLogs.className = inactiveClass;
-        viewUsers.classList.add('hidden');
-        viewSchedules.classList.add('hidden');
-        viewSyncRuns.classList.remove('hidden');
-        viewAuditLogs.classList.add('hidden');
-        loadAdminSyncRuns();
-    } else if (subtab === 'audit-logs') {
-        btnUsers.className = inactiveClass;
-        btnSchedules.className = inactiveClass;
-        btnSyncRuns.className = inactiveClass;
-        btnAuditLogs.className = activeClass;
-        viewUsers.classList.add('hidden');
-        viewSchedules.classList.add('hidden');
-        viewSyncRuns.classList.add('hidden');
-        viewAuditLogs.classList.remove('hidden');
-        loadAdminAuditLogs();
+    if (!ADMIN_SUBTABS[subtab]) return;
+    const parts = Object.keys(ADMIN_SUBTABS).map(name => [
+        name,
+        document.getElementById(`admin-subtab-${name}`),
+        document.getElementById(`admin-subview-${name}`)
+    ]);
+    if (parts.some(([, button, view]) => !button || !view)) return;
+    for (const [name, button, view] of parts) {
+        const active = name === subtab;
+        button.className = active ? 'seg-btn flex-1 is-active' : 'seg-btn flex-1';
+        view.classList.toggle('hidden', !active);
     }
+    ADMIN_SUBTABS[subtab]();
 }
 
 export async function handleAddSchedule(e) {
@@ -310,4 +278,62 @@ export async function handleDeleteSchedule(id, timeStr) {
     } finally {
         ui.setLoading(false);
     }
+}
+
+const ENDPOINT_STATUS_LABEL = {
+    saved: '✅ บันทึกแล้ว',
+    dry_run: '👁️ ทดลอง',
+    save_unconfirmed: '❓ พักไว้',
+    released: '🔓 ปลดล็อกแล้ว',
+    not_scanned: '⌛ ไม่ได้สแกน',
+    needs_review: '🔎 ต้องตรวจเอง',
+    no_reason: '⚠️ ไม่มีเหตุผล',
+    failed: '❌ ผิดพลาด'
+};
+
+export async function loadAdminEndpointLog() {
+    if (!appState.token || appState.user.role !== 'admin') return;
+    const heldBox = document.getElementById('admin-endpoint-held');
+    const body = document.getElementById('admin-endpoint-log-body');
+    if (!heldBox || !body) return;
+    const { ok, data } = await api.fetchEndpointLog(appState.token);
+    if (!ok) {
+        heldBox.textContent = data?.message || 'โหลดไม่สำเร็จ';
+        return;
+    }
+    const rows = data.rows || [];
+    const time = value => new Date(value).toLocaleString('th-TH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const held = rows.filter(row => row.is_held);
+
+    heldBox.innerHTML = held.length ? '' : '<p class="text-slate-500">ไม่มีรายการที่พักไว้</p>';
+    held.forEach(row => {
+        const item = document.createElement('div');
+        item.className = 'flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-amber-500/10';
+        item.innerHTML = `<span class="font-mono font-semibold">VN ${escapeHtml(row.vn)}</span>
+            <span>${Number(row.amount).toFixed(2)} บาท • ${escapeHtml(row.requested_by || '-')} • ${escapeHtml(time(row.created_at))}</span>
+            <span class="w-full text-xs text-slate-500">${escapeHtml(row.message || '')}</span>
+            <button type="button" class="btn btn-sm btn-success h-8" data-action="saved">บันทึกแล้ว (ตรวจแล้ว)</button>
+            <button type="button" class="btn btn-sm h-8" data-action="retry">ไม่พบรายการ — ปลดล็อกให้ทำใหม่</button>`;
+        item.querySelectorAll('button').forEach(button => button.addEventListener('click', async () => {
+            const action = button.dataset.action;
+            const text = action === 'saved'
+                ? `ยืนยันว่า VN ${row.vn} มีรายการบันทึกแล้วในเว็บ สปสช.?`
+                : `ยืนยันว่า VN ${row.vn} ไม่มีรายการในเว็บ สปสช. และให้ทำใหม่ได้?`;
+            if (!await confirmDialog(text, { title: 'ตรวจในเว็บ สปสช. แล้ว', confirmText: 'ยืนยัน' })) return;
+            const result = await api.resolveEndpointHold(row.id, action, appState.token);
+            if (!result.ok) { notify.warning(result.data?.message || 'ดำเนินการไม่สำเร็จ'); return; }
+            notify.success(action === 'saved' ? 'บันทึกสถานะแล้ว' : 'ปลดล็อกแล้ว ทำใหม่ได้');
+            loadAdminEndpointLog();
+        }));
+        heldBox.appendChild(item);
+    });
+
+    body.innerHTML = rows.slice(0, 100).map(row => `<tr class="border-b border-slate-100 dark:border-slate-800">
+        <td class="py-2 px-3 whitespace-nowrap">${escapeHtml(time(row.created_at))}</td>
+        <td class="py-2 px-3 font-mono">${escapeHtml(row.vn)}</td>
+        <td class="py-2 px-3 text-right">${Number(row.amount).toFixed(2)}</td>
+        <td class="py-2 px-3 whitespace-nowrap">${escapeHtml(ENDPOINT_STATUS_LABEL[row.status] || row.status)}</td>
+        <td class="py-2 px-3">${escapeHtml(row.requested_by || '-')}</td>
+        <td class="py-2 px-3 max-w-[320px] truncate" title="${escapeHtml(row.message || '')}">${escapeHtml(row.message || '')}</td></tr>`).join('')
+        || '<tr><td colspan="6" class="py-4 text-center text-slate-500">ยังไม่มีประวัติ</td></tr>';
 }

@@ -261,6 +261,7 @@ function setupEventListeners() {
     document.getElementById('admin-subtab-users')?.addEventListener('click', () => handleAdminSubtabSwitch('users'));
     document.getElementById('admin-subtab-schedules')?.addEventListener('click', () => handleAdminSubtabSwitch('schedules'));
     document.getElementById('admin-subtab-sync-runs')?.addEventListener('click', () => handleAdminSubtabSwitch('sync-runs'));
+    document.getElementById('admin-subtab-endpoint')?.addEventListener('click', () => handleAdminSubtabSwitch('endpoint'));
     document.getElementById('admin-subtab-audit-logs')?.addEventListener('click', () => handleAdminSubtabSwitch('audit-logs'));
     document.getElementById('add-schedule-form')?.addEventListener('submit', handleAddSchedule);
     document.getElementById('refresh-sync-runs-btn')?.addEventListener('click', loadAdminSyncRuns);

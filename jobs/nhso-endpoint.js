@@ -8,7 +8,7 @@ import logger from '../backend/logger.js';
 import { trackerPool } from '../backend/db.js';
 import { getPuppeteerLaunchOptions } from '../backend/puppeteerHelper.js';
 import { createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
-import { bangkokNowHHMM, chooseEndpointReason, endpointTimes, getAuthenCandidates, getEndpointCandidates } from '../backend/endpointCandidates.js';
+import { bangkokNowHHMM, chooseEndpointReason, endpointTimes, formatEndOfDayReminder, getAuthenCandidates, getEndpointCandidates } from '../backend/endpointCandidates.js';
 import { acquirePortalLock, PORTAL_LOCK_KEY } from './keep-alive-nhso.js';
 import { createTelegramQrNotifier, isThaidExpiredUrl, loginWithThaid, readThaidQr, thaidOpenPageUrl } from './thaidLogin.js';
 
@@ -89,7 +89,7 @@ async function sendTelegram(text, photoPath = null) {
     }
 }
 
-async function ensureLogTable() {
+export async function ensureLogTable() {
     await trackerPool.query(`CREATE TABLE IF NOT EXISTS nhso_endpoint_log (
         id INT AUTO_INCREMENT PRIMARY KEY,
         vn VARCHAR(20) NOT NULL,
@@ -169,6 +169,26 @@ export async function listAuthenCases(visitDate = today()) {
         department: row.department,
         reason: chooseEndpointReason(Number(row.age_y), PORTAL_REASON_OPTIONS, '')
     }));
+}
+
+/**
+ * What is still open today: endpoint cases not yet saved (and not held), held cases
+ * whose save was never confirmed, and visits without an Authen Code.  Returns the
+ * reminder text, or null when nothing is open.
+ */
+export async function buildEndOfDayReminder(visitDate = today()) {
+    await ensureLogTable();
+    const endpoint = { count: 0, amount: 0 };
+    const held = [];
+    for (const row of await getEndpointCandidates(visitDate)) {
+        const [logged] = await trackerPool.query(
+            "SELECT status FROM nhso_endpoint_log WHERE vn = ? AND status IN ('saved', 'save_unconfirmed') ORDER BY id DESC LIMIT 1", [row.vn]
+        );
+        if (logged[0]?.status === 'save_unconfirmed') held.push(row.vn);
+        else if (!logged[0]) { endpoint.count += 1; endpoint.amount += Number(row.uc_money); }
+    }
+    const authen = { count: (await getAuthenCandidates(visitDate)).length };
+    return formatEndOfDayReminder({ visitDate, endpoint, held, authen });
 }
 
 /** Records an endpoint completed in the NHSO portal on a staff PC (by hand or by the Chrome helper). */

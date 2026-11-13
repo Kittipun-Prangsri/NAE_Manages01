@@ -31,7 +31,7 @@ import { extractQueryDate } from '../backend/dateInput.js';
 import { downloadNhsoReport, cleanOldDownloads } from './download-nhso.js';
 import { buildEndOfDayReminder, parseEndpointCommand, runEndpointBatch } from './nhso-endpoint.js';
 import { parseReminderTime } from '../backend/endpointCandidates.js';
-import { consumeTelegramLink, findUserByTelegramChat, parseStartCode } from '../backend/telegramLink.js';
+import { consumeTelegramLink, explainLinkFailure, findUserByTelegramChat, parseStartCode } from '../backend/telegramLink.js';
 import { keepAliveNhsoSession } from './keep-alive-nhso.js';
 import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 import logger from '../backend/logger.js';
@@ -352,10 +352,20 @@ async function startTelegramBotListener() {
                         if (/^\/start(\s|$)/.test(text)) {
                             const code = parseStartCode(text);
                             const user = code ? await consumeTelegramLink(code, fromChatId) : null;
-                            logger.info(`🔗 [Telegram Bot] Link ${user ? `chat ${fromChatId} -> ${user.username}` : 'failed (bad or expired code)'}`);
-                            await sendTelegramMessage(token, fromChatId, user
-                                ? `✅ เชื่อม Telegram กับบัญชี ${user.full_name || user.username} แล้ว\nQR ผู้รับรองและผล Endpoint ที่คุณสั่งจะส่งมาที่แชตนี้`
-                                : '⚠️ ลิงก์เชื่อมบัญชีไม่ถูกต้องหรือหมดอายุ (15 นาที) กรุณากด "เชื่อม Telegram" บนหน้าเว็บอีกครั้ง');
+                            if (user) {
+                                logger.info(`🔗 [Telegram Bot] Link chat ${fromChatId} -> ${user.username}`);
+                                await sendTelegramMessage(token, fromChatId, `✅ เชื่อม Telegram กับบัญชี ${user.full_name || user.username} แล้ว\nQR ผู้รับรองและผล Endpoint ที่คุณสั่งจะส่งมาที่แชตนี้`);
+                                continue;
+                            }
+                            const failure = await explainLinkFailure(code);
+                            const shownCode = code ? `${code.slice(0, 6)}…` : '-';
+                            logger.warn({ chatId: fromChatId, text: text.slice(0, 40), code: shownCode, ...failure }, `🔗 [Telegram Bot] Link failed: ${failure.reason}`);
+                            const replies = {
+                                'no-code': '⚠️ ยังไม่ได้รับรหัสเชื่อมบัญชี กรุณากดปุ่ม "เชื่อม Telegram" บนหน้าเว็บ แล้วเปิดลิงก์ที่ได้ (อย่าค้นหาบอทเอง)',
+                                expired: '⚠️ ลิงก์นี้หมดอายุแล้ว (15 นาที) กรุณากด "เชื่อม Telegram" บนหน้าเว็บเพื่อขอลิงก์ใหม่',
+                                'not-found': '⚠️ ลิงก์นี้ใช้ไม่ได้ (อาจถูกแทนด้วยลิงก์ที่ขอใหม่กว่า) กรุณากด "เชื่อม Telegram" บนหน้าเว็บครั้งเดียว แล้วเปิดลิงก์ล่าสุด'
+                            };
+                            await sendTelegramMessage(token, fromChatId, replies[failure.reason]);
                             continue;
                         }
                         if (/^(สรุปค้าง|\/pending)$/i.test(text)) {

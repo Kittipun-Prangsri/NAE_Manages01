@@ -83,6 +83,22 @@ export async function consumeTelegramLink(code, chatId) {
     return user;
 }
 
+/**
+ * Why a "/start" did not link, for the log and the reply:
+ * 'no-code' (bot opened without the web link), 'expired' (code known but past its
+ * 15 minutes), or 'not-found' (replaced by a newer link, already used, or made by
+ * a web server that writes to a different database).
+ */
+export async function explainLinkFailure(code) {
+    if (!code) return { reason: 'no-code' };
+    await ensureUserAccessColumns();
+    const [[row]] = await trackerPool.query(
+        'SELECT username, telegram_link_expires FROM users WHERE telegram_link_code = ?',
+        [code]
+    );
+    return row ? { reason: 'expired', username: row.username, expiredAt: row.telegram_link_expires } : { reason: 'not-found' };
+}
+
 export async function findUserByTelegramChat(chatId) {
     await ensureUserAccessColumns();
     const [[user]] = await trackerPool.query(

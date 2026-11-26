@@ -39,6 +39,7 @@ import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
 import { thaidAppLink } from '../jobs/thaidLogin.js';
+import { isEndpointRight } from './endpointCandidates.js';
 import { createTelegramLink, ensureUserAccessColumns, getEndpointAccess } from './telegramLink.js';
 import { ensureLogTable as ensureEndpointLogTable, listAuthenCases, listManualEndpointCases, recordManualEndpoint, runEndpointBatch } from '../jobs/nhso-endpoint.js';
 import { keepAliveNhsoSession, getNhsoSessionStatusInfo } from '../jobs/keep-alive-nhso.js';
@@ -1979,6 +1980,7 @@ app.get('/api/tracking/rights-table', authenticateToken, async (req, res) => {
                 CONCAT('cid_', v.cid) AS cid_check,
                 v.cid,
                 vp.pttype,
+                v.pttype AS main_pttype,
                 py.hipdata_code AS pcode,
                 vp.Auth_Code AS authCode,
                 vp.claim_code,
@@ -2017,7 +2019,7 @@ app.get('/api/tracking/rights-table', authenticateToken, async (req, res) => {
             success: true,
             visit_date: date,
             count: rows.length,
-            rows,
+            rows: rows.map(row => ({ ...row, endpoint_right: isEndpointRight({ pcode: row.pcode, pttype: row.main_pttype }) })),
             generated_at: new Date().toISOString()
         });
     } catch (error) {

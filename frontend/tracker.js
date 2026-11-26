@@ -467,12 +467,12 @@ export async function openUcPendingListModal() {
             }));
 
             pendingUcData = liveRows.filter(item => {
-                const pcode = String(item.pcode || item.hipdata_code || item.hipdata || '').toUpperCase();
                 const ucMoney = Number(item.uc_money) || Number(item.item_money) || 0;
                 const authenType = String(item.authen_code_type || item.pttype_note || '').toUpperCase().trim();
                 const isAuthencodeOrEmpty = authenType === 'AUTHENCODE' || authenType === '';
                 
-                return ['UC', 'UCS'].includes(pcode) && 
+                // Which rights count is decided by the server (backend/endpointCandidates.js).
+                return item.endpoint_right && 
                        ucMoney > 0 && 
                        isAuthencodeOrEmpty;
             });
@@ -483,7 +483,7 @@ export async function openUcPendingListModal() {
 
     const titleEl = document.getElementById('uc-pending-list-title');
     if (titleEl) {
-        titleEl.textContent = `รายการ UCS ที่ต้องติดตาม (ทั้งหมด ${pendingUcData.length.toLocaleString()} รายการ)`;
+        titleEl.textContent = `รายการที่ต้องทำ Endpoint (ทั้งหมด ${pendingUcData.length.toLocaleString()} รายการ)`;
     }
 
     tbody.innerHTML = '';
@@ -598,7 +598,7 @@ export function handleCardReaderAnswer(hasReader) {
     if (answer) {
         answer.classList.remove('hidden');
         answer.innerHTML = hasReader
-            ? 'เครื่องนี้จะมีปุ่ม <b>ทำด้วยเครื่องอ่านบัตร</b> ในหน้ารายการ UCS ตั้งแต่ตอนนี้ <button id="endpoint-card-open-now" type="button" class="btn btn-sm btn-success h-8 ml-2">เปิดโหมดเครื่องอ่านบัตรเลย</button>'
+            ? 'เครื่องนี้จะมีปุ่ม <b>ทำด้วยเครื่องอ่านบัตร</b> ในหน้ารายการที่ต้องทำ Endpoint ตั้งแต่ตอนนี้ <button id="endpoint-card-open-now" type="button" class="btn btn-sm btn-success h-8 ml-2">เปิดโหมดเครื่องอ่านบัตรเลย</button>'
             : 'เครื่องนี้ไม่มีเครื่องอ่านบัตร: รอ สปสช. แก้ไข ThaiD แล้วกด ทำ Endpoint ใหม่อีกครั้ง (หรือทำบนเครื่องที่มีเครื่องอ่านบัตร)';
         document.getElementById('endpoint-card-open-now')?.addEventListener('click', () => {
             document.getElementById('endpoint-progress-dialog')?.close();

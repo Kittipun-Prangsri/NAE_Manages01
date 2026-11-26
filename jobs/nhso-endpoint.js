@@ -601,7 +601,7 @@ async function runBatch({ visitDate = today(), dryRun = true, limit = 10, vn = n
     const notEligible = picked ? picked.filter(v => !done.includes(v) && !candidates.some(row => row.vn === v) && !waiting.some(w => w.startsWith(v))) : [];
     const skippedNote = [
         done.length ? `ทำไปแล้ว: ${done.join(', ')}` : '',
-        notEligible.length ? `ไม่อยู่ในเงื่อนไข Endpoint (ไม่ใช่ UC/ไม่มียอด/ทำแล้วหรือ Admit): ${notEligible.join(', ')}` : '',
+        notEligible.length ? `ไม่อยู่ในเงื่อนไข Endpoint (ไม่ใช่สิทธิ UC/อปท./การรถไฟ, ไม่มียอด, ทำแล้วหรือ Admit): ${notEligible.join(', ')}` : '',
         waiting.length ? `รอถึงเวลาเบิกสิทธิ: ${waiting.join(', ')}` : ''
     ].filter(Boolean).join('\n');
 

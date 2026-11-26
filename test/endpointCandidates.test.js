@@ -14,6 +14,15 @@ test('only UC visits with money, not yet endpointed and not admitted are candida
     assert.equal(isEndpointCandidate({ ...base, cid: '12345' }), false);
 });
 
+test('อปท. (16) and การรถไฟ (43) are candidates by pttype code, other non-UC rights are not', () => {
+    assert.equal(isEndpointCandidate({ ...base, pcode: 'LGO', pttype: '16' }), true);
+    assert.equal(isEndpointCandidate({ ...base, pcode: 'A2', pttype: '43' }), true);
+    assert.equal(isEndpointCandidate({ ...base, pcode: 'LGO', pttype: '17' }), false);
+    assert.equal(isEndpointCandidate({ ...base, pcode: 'A2', pttype: '44' }), false);
+    assert.equal(isEndpointCandidate({ ...base, pcode: 'LGO', pttype: '16', authen_code_type: 'ENDPOINT' }), false);
+    assert.equal(isEndpointCandidate({ ...base, pcode: 'A2', pttype: '43', uc_money: 0 }), false);
+});
+
 test('reason follows age options and otherwise the configured default, never a guess', () => {
     const options = ['เด็กอายุต่ำกว่า 7 ปี', 'เด็กอายุต่ำกว่า 15 ปี', 'บัตรประจำตัวประชาชนไม่มี chip card'];
     assert.equal(chooseEndpointReason(5, options, 'บัตรประจำตัวประชาชนไม่มี chip card'), 'เด็กอายุต่ำกว่า 7 ปี');

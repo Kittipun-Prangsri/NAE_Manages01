@@ -1,19 +1,9 @@
 import { hosxpPool } from './db.js';
+import { isEndpointRight } from './endpointRights.js';
 
 // Visits that still need an NHSO endpoint: the same rows the web app shows in
-// "รายการที่ต้องทำ Endpoint" (UC right or one of ENDPOINT_PTTYPES, UC money > 0,
+// "รายการที่ต้องทำ Endpoint" (a right accepted by isEndpointRight, UC money > 0,
 // authen type still AUTHENCODE or empty, not admitted).
-
-// Non-UC rights that also need an endpoint, by HOSxP pttype code:
-// 16 = เบิกจ่ายตรง อปท. (LGO), 43 = เบิกจ่ายตรงการรถไฟแห่งประเทศไทย.  Matched by
-// code, not hipdata_code, which they share with rights that are not included.
-export const ENDPOINT_PTTYPES = Object.freeze(['16', '43']);
-
-/** True when the visit's main right is one that gets an endpoint. */
-export function isEndpointRight({ pcode, pttype }) {
-    return ['UC', 'UCS'].includes(String(pcode || '').toUpperCase())
-        || ENDPOINT_PTTYPES.includes(String(pttype || '').trim());
-}
 
 /** Pure filter shared by the endpoint job and its tests. */
 export function isEndpointCandidate(row) {

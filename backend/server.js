@@ -39,7 +39,7 @@ import cron from 'node-cron';
 import { captureAndNotify } from '../jobs/capture-grafana.js';
 import { downloadNhsoReport, cleanOldDownloads } from '../jobs/download-nhso.js';
 import { thaidAppLink } from '../jobs/thaidLogin.js';
-import { isEndpointRight } from './endpointCandidates.js';
+import { buildOtherRightsFlexContents, getOtherRightsPending, isEndpointRight } from './endpointRights.js';
 import { createTelegramLink, ensureUserAccessColumns, getEndpointAccess } from './telegramLink.js';
 import { ensureLogTable as ensureEndpointLogTable, listAuthenCases, listManualEndpointCases, recordManualEndpoint, runEndpointBatch } from '../jobs/nhso-endpoint.js';
 import { keepAliveNhsoSession, getNhsoSessionStatusInfo } from '../jobs/keep-alive-nhso.js';
@@ -583,7 +583,19 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
             }
         }
 
-        // Build right items contents dynamically
+        // อปท./การรถไฟ, read from the same source as the figures above.  Its own
+        // failure leaves the rest of the report intact.
+        let otherRights = null;
+        if (service_total_count > 0) {
+            const fromHosxp = dataSourceLabel.startsWith('HOSxP');
+            otherRights = await queryWithTimeout(
+                getOtherRightsPending(fromHosxp ? hosxpPool : trackerPool, queryDate, fromHosxp ? 'hosxp' : 'tracker'), 4000
+            ).catch(err => {
+                logger.warn(`⚠️ อปท./การรถไฟ summary query failed: ${err.message}`);
+                return null;
+            });
+        }
+
         // Build right items contents dynamically (Ensure non-empty for LINE Flex schema)
         const safeRights = (Array.isArray(rights) && rights.length > 0) ? rights : [{ right_name: 'ไม่มีข้อมูล', cnt: 0 }];
         const rightsContents = safeRights.map(r => ({
@@ -862,6 +874,18 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                         "margin": "md",
                         "spacing": "sm",
                         "contents": ucsContents
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md",
+                        "color": "#333333"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "md",
+                        "spacing": "sm",
+                        "contents": buildOtherRightsFlexContents(otherRights)
                     }
                 ]
             }

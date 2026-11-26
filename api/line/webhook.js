@@ -1,6 +1,7 @@
 import { trackerPool, hosxpPool } from '../../backend/db.js';
 import { extractQueryDate } from '../../backend/dateInput.js';
 import { checkLineSignature } from '../../backend/lineSignature.js';
+import { buildOtherRightsFlexContents, getOtherRightsPending } from '../../backend/endpointRights.js';
 
 export function GET() {
     return new Response('LINE Webhook Endpoint Active');
@@ -284,7 +285,21 @@ async function fetchSummaryData(queryDate) {
         }
     }
 
+    // อปท./การรถไฟ, from the same source as the figures above; null = unavailable.
+    let other_rights = null;
+    if (dataSource !== 'No Data') {
+        const fromHosxp = dataSource === 'HOSxP Live DB';
+        try {
+            other_rights = await queryWithTimeout(getOtherRightsPending(
+                fromHosxp ? hosxpPool : trackerPool, queryDate, fromHosxp ? 'hosxp' : 'tracker'
+            ));
+        } catch (err) {
+            console.warn('⚠️ อปท./การรถไฟ summary query failed:', err.message);
+        }
+    }
+
     return {
+        other_rights,
         total_visits,
         total_money,
         endpoint_count,
@@ -437,7 +452,9 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                     ]
                 },
                 { type: "separator", margin: "md", color: "#333333" },
-                { type: "box", layout: "vertical", margin: "md", spacing: "sm", contents: ucsContents }
+                { type: "box", layout: "vertical", margin: "md", spacing: "sm", contents: ucsContents },
+                { type: "separator", margin: "md", color: "#333333" },
+                { type: "box", layout: "vertical", margin: "md", spacing: "sm", contents: buildOtherRightsFlexContents(stats.other_rights) }
             ]
         }
     };

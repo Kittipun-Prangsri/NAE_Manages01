@@ -11,7 +11,7 @@ export const DEFAULT_HIPDATA_SQL_LIST = DEFAULT_HIPDATA_CODES.map(code => `'${co
 export async function getHosxpVisits(visitDate) {
     const query = `
         SELECT 
-            IF(ov.an IS NULL, v.vn, 'Admit') AS vn,
+            v.vn,
             v.hn,
             CONCAT('cid_', v.cid) AS cid_check,
             v.cid,
@@ -129,14 +129,12 @@ export async function getHosxpTotalVisits(visitDate) {
             result.completedTreatmentEndpointCount = Number(endpointClosed?.completedTreatmentEndpointCount || 0);
             result.completedTreatmentSource = 'hosxp_endpoint_closed';
         }
-        if (result.totalVisits > 0) {
-            return result;
-        }
-        // Fallback to mock counts matching the sum of geoData (247 visits, 247 persons, e.g. 154200 uc money)
-        return { totalPersons: 247, totalVisits: 247, totalUcMoney: 154200.00, completedTreatmentEndpointCount: 0, completedTreatmentSource: 'fallback_mock' };
+        // SUM() is NULL on a day without visits.
+        result.totalUcMoney = Number(result.totalUcMoney || 0);
+        return result;
     } catch (error) {
         logger.error('❌ HOSxP Total Visits Query Error:', error);
-        return { totalPersons: 247, totalVisits: 247, totalUcMoney: 154200.00, completedTreatmentEndpointCount: 0, completedTreatmentSource: 'fallback_mock' };
+        throw error;
     }
 }
 
@@ -469,31 +467,10 @@ export async function getLiveDashboardGeo(visitDate) {
     `;
     try {
         const [rows] = await hosxpPool.query(query, [visitDate]);
-        if (rows && rows.length > 0) {
-            return rows;
-        }
-        // Fallback to mock data where ไทรทอง (T02) has 11 patients
-        return [
-            { subdistrict_code: '01', subdistrict_name: 'ไทรเดี่ยว', unique_patients: 45, visit_count: 45 },
-            { subdistrict_code: '02', subdistrict_name: 'ไทรทอง', unique_patients: 11, visit_count: 11 },
-            { subdistrict_code: '03', subdistrict_name: 'เบญจขร', unique_patients: 24, visit_count: 24 },
-            { subdistrict_code: '04', subdistrict_name: 'ซับมะกรูด', unique_patients: 8, visit_count: 8 },
-            { subdistrict_code: '05', subdistrict_name: 'คลองหาด', unique_patients: 75, visit_count: 75 },
-            { subdistrict_code: '06', subdistrict_name: 'ไทยอุดม', unique_patients: 52, visit_count: 52 },
-            { subdistrict_code: '07', subdistrict_name: 'คลองไก่เถื่อน', unique_patients: 32, visit_count: 32 }
-        ];
+        return rows;
     } catch (error) {
         logger.error('❌ HOSxP Geo Query Error:', error);
-        // Fallback to mock data where ไทรทอง (T02) has 11 patients
-        return [
-            { subdistrict_code: '01', subdistrict_name: 'ไทรเดี่ยว', unique_patients: 45, visit_count: 45 },
-            { subdistrict_code: '02', subdistrict_name: 'ไทรทอง', unique_patients: 11, visit_count: 11 },
-            { subdistrict_code: '03', subdistrict_name: 'เบญจขร', unique_patients: 24, visit_count: 24 },
-            { subdistrict_code: '04', subdistrict_name: 'ซับมะกรูด', unique_patients: 8, visit_count: 8 },
-            { subdistrict_code: '05', subdistrict_name: 'คลองหาด', unique_patients: 75, visit_count: 75 },
-            { subdistrict_code: '06', subdistrict_name: 'ไทยอุดม', unique_patients: 52, visit_count: 52 },
-            { subdistrict_code: '07', subdistrict_name: 'คลองไก่เถื่อน', unique_patients: 32, visit_count: 32 }
-        ];
+        throw error;
     }
 }
 
@@ -516,24 +493,10 @@ export async function getLiveDashboardDeps(visitDate) {
     `;
     try {
         const [rows] = await hosxpPool.query(query, [visitDate]);
-        if (rows && rows.length > 0) {
-            return rows;
-        }
-        // Fallback to mock data matching frontend dashboard defaults
-        return [
-            { dep_code: 'OPD', dep_name: 'Outpatient Dept. (OPD)', unique_patients: 72, visit_count: 72 },
-            { dep_code: 'ER', dep_name: 'Emergency Room (ER)', unique_patients: 17, visit_count: 17 },
-            { dep_code: 'NCD', dep_name: 'NCD Clinic', unique_patients: 94, visit_count: 94 },
-            { dep_code: 'DENTAL', dep_name: 'Dental Clinic', unique_patients: 21, visit_count: 21 }
-        ];
+        return rows;
     } catch (error) {
         logger.error('❌ HOSxP Department Query Error:', error);
-        return [
-            { dep_code: 'OPD', dep_name: 'Outpatient Dept. (OPD)', unique_patients: 72, visit_count: 72 },
-            { dep_code: 'ER', dep_name: 'Emergency Room (ER)', unique_patients: 17, visit_count: 17 },
-            { dep_code: 'NCD', dep_name: 'NCD Clinic', unique_patients: 94, visit_count: 94 },
-            { dep_code: 'DENTAL', dep_name: 'Dental Clinic', unique_patients: 21, visit_count: 21 }
-        ];
+        throw error;
     }
 }
 

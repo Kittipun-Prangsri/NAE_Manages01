@@ -1937,7 +1937,8 @@ app.get('/api/tracking/dashboard', authenticateToken, async (req, res) => {
         
         let hosxpStats = null;
         if (date) {
-            hosxpStats = await getHosxpTotalVisits(date);
+            // Optional: without it the page counts the tracked rows itself.
+            hosxpStats = await getHosxpTotalVisits(date).catch(() => null);
         }
 
         res.json({

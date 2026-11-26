@@ -53,6 +53,7 @@ export async function getHosxpVisits(visitDate) {
         LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
         WHERE v.vstdate = ?
           AND py.hipdata_code IN (${DEFAULT_HIPDATA_SQL_LIST})
+          AND ov.an IS NULL
         GROUP BY v.vn
         ORDER BY vp.Auth_Code, vp.claim_code
     `;
@@ -139,6 +140,21 @@ export async function getHosxpTotalVisits(visitDate) {
 }
 
 /**
+ * ลบแถวผู้ป่วย Admit ออกจากตารางติดตามของวันนั้น: visit ที่ถูก Admit หลังจาก
+ * Sync ไปแล้ว และแถว 'Admit' ที่ระบบรุ่นก่อนบันทึกไว้
+ */
+async function removeAdmittedTrackingRows(visitDate) {
+    const [admitted] = await hosxpPool.query(
+        'SELECT vn FROM ovst WHERE vstdate = ? AND an IS NOT NULL',
+        [visitDate]
+    );
+    await trackerPool.query(
+        'DELETE FROM visit_tracking WHERE visit_date = ? AND vn IN (?)',
+        [visitDate, ['Admit', ...admitted.map(row => row.vn)]]
+    );
+}
+
+/**
  * บันทึกหรืออัปเดตข้อมูลผลการ Cross-check ลงใน Internal DB
  */
 export async function saveTrackingResults(results) {
@@ -177,6 +193,8 @@ export async function saveTrackingResults(results) {
     try {
         if (values.length === 0) return;
         await trackerPool.query(query, [values]);
+        // ผลลัพธ์หนึ่งชุดเป็นของวันที่เข้ารับบริการวันเดียว
+        await removeAdmittedTrackingRows(results[0].visit_date);
         logger.info(`✅ Saved/Updated ${results.length} records to internal DB.`);
 
     } catch (error) {

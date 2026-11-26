@@ -1968,7 +1968,7 @@ app.get('/api/tracking/rights-table', authenticateToken, async (req, res) => {
 
         const [rows] = await hosxpPool.query(
             `SELECT
-                IF(ov.an IS NULL, v.vn, 'Admit') AS vn,
+                v.vn,
                 CONCAT('cid_', v.cid) AS cid_check,
                 v.cid,
                 vp.pttype,
@@ -2000,6 +2000,7 @@ app.get('/api/tracking/rights-table', authenticateToken, async (req, res) => {
              LEFT OUTER JOIN ovst ov ON ov.vn = v.vn
              LEFT JOIN kskdepartment k ON k.depcode = ov.main_dep
              WHERE v.vstdate = ?
+               AND ov.an IS NULL
              GROUP BY v.vn
              ORDER BY py.hipdata_code, vp.Auth_Code, vp.claim_code`,
             [date]

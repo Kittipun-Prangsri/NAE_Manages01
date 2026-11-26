@@ -499,7 +499,7 @@ export async function openUcPendingListModal() {
             const checkClaimPresentation = getClaimStatusPresentation(checkClaimVal);
             const issueReason = item.issue_reason || getTrackingIssueReason(item);
 
-            // Admitted visits show "Admit" instead of a VN and are not endpointed here.
+            // Only a numeric VN can be picked for an endpoint.
             const selectable = /^\d+$/.test(String(item.vn || ''));
             tr.innerHTML = `
                 <td class="py-2.5 px-3">${selectable ? `<input type="radio" name="endpoint-pick" class="endpoint-pick" value="${escapeHtml(item.vn)}" aria-label="เลือก VN ${escapeHtml(item.vn)}">` : ''}</td>

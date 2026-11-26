@@ -201,3 +201,5 @@ pm2 save
 4.  ส่งสรุปยอด (Flex Message) และภาพ Dashboard แจ้งเตือนเข้าห้องแชทโดยอัตโนมัติ
 
 > 💡 **หมายเหตุการตั้งค่า:** ตรวจสอบการตั้งค่าในไฟล์ `.env` สำหรับ `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_GROUP_ID`, `TELEGRAM_BOT_TOKEN`, และ `TELEGRAM_CHAT_ID` เพื่อให้บอททำงานได้อย่างถูกต้อง และปิด `DISABLE_NOTIFICATIONS=false`
+>
+> 🔐 **ต้องตั้ง `LINE_CHANNEL_SECRET`** (LINE Developers → Channel → Basic settings → Channel secret) ใน `.env` และใน Vercel ถ้าใช้ webhook บน Vercel ระบบตรวจลายเซ็น `x-line-signature` ของทุก request และจะปฏิเสธคำสั่งทั้งหมดหากยังไม่ได้ตั้งค่านี้

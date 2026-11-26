@@ -1,98 +1,78 @@
 import { trackerPool, hosxpPool } from '../../backend/db.js';
 import { extractQueryDate } from '../../backend/dateInput.js';
+import { checkLineSignature } from '../../backend/lineSignature.js';
 
-export default async function handler(req, res) {
-    // Enable CORS for testing if needed
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+export function GET() {
+    return new Response('LINE Webhook Endpoint Active');
+}
 
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-
-    if (req.method === 'GET') {
-        return res.status(200).send('LINE Webhook Endpoint Active');
-    }
-
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method Not Allowed' });
+// Web-standard signature: it is the form that exposes the unparsed body, which
+// the LINE signature is computed over.
+export async function POST(request) {
+    const rawBody = Buffer.from(await request.arrayBuffer());
+    const signatureCheck = checkLineSignature(rawBody, request.headers.get('x-line-signature'));
+    if (!signatureCheck.ok) {
+        console.warn(`⚠️ [LINE Webhook] Rejected request: ${signatureCheck.message}`);
+        return Response.json({ error: signatureCheck.message }, { status: signatureCheck.status });
     }
 
     try {
-        let events = [];
-        if (req.body) {
-            if (Array.isArray(req.body.events)) {
-                events = req.body.events;
-            } else if (typeof req.body === 'string') {
-                try {
-                    const parsed = JSON.parse(req.body);
-                    events = parsed?.events || [];
-                } catch (e) {}
-            }
-        }
-
-        // Log events for debugging in Vercel function logs
-        if (Array.isArray(events) && events.length > 0) {
-            for (const event of events) {
-                console.log(`💬 [LINE Webhook Event] Type: ${event.type}`);
-                let targetId = null;
-                if (event.source) {
-                    if (event.source.groupId) {
-                        console.log(`   👉 Group ID: ${event.source.groupId}`);
-                        targetId = event.source.groupId;
-                    }
-                    if (event.source.roomId) targetId = targetId || event.source.roomId;
-                    if (event.source.userId) targetId = targetId || event.source.userId;
-                }
-
-                if (event.type === 'message' && event.message && event.message.type === 'text') {
-                    const text = (event.message.text || '').trim();
-                    const replyToken = event.replyToken;
-
-                    if (/^(|\/)(นำเข้าข้อมูล|นำเข้า|summary|สรุปข้อมูล)/i.test(text)) {
-                        const queryDate = extractQueryDate(text);
-                        console.log(`💬 Processing command 'นำเข้าข้อมูล' for date ${queryDate}`);
-                        sendLineReplyFlexSummary(replyToken, queryDate, targetId).catch(err => {
-                            console.error('❌ LINE Reply Error:', err);
-                        });
-                    } else if (/^(|\/)(ดูรายงาน|รายงาน|report)/i.test(text)) {
-                        console.log(`💬 Processing command 'ดูรายงาน'`);
-                        sendLineReplyReportLinks(replyToken, targetId).catch(err => {
-                            console.error('❌ LINE Reply Error:', err);
-                        });
-                    } else if (/^(|\/)(ตรวจสอบลูกหนี้|ลูกหนี้|debtor)/i.test(text)) {
-                        const queryDate = extractQueryDate(text);
-                        console.log(`💬 Processing command 'ตรวจสอบลูกหนี้' for date ${queryDate}`);
-                        sendLineReplyDebtorSummary(replyToken, queryDate, targetId).catch(err => {
-                            console.error('❌ LINE Reply Error:', err);
-                        });
-                    } else if (/^(|\/)(authen code|authen|ออเธน)/i.test(text)) {
-                        const queryDate = extractQueryDate(text);
-                        console.log(`💬 Processing command 'Authen Code' for date ${queryDate}`);
-                        sendLineReplyAuthenSummary(replyToken, queryDate, targetId).catch(err => {
-                            console.error('❌ LINE Reply Error:', err);
-                        });
-                    } else if (/^(|\/)(คู่มือใช้งาน|คู่มือ|manual|help)/i.test(text)) {
-                        console.log(`💬 Processing command 'คู่มือใช้งาน'`);
-                        sendLineReplyUserManual(replyToken, targetId).catch(err => {
-                            console.error('❌ LINE Reply Error:', err);
-                        });
-                    } else if (/^(|\/)(ติดต่อผู้ดูแล|ผู้ดูแล|admin|contact)/i.test(text)) {
-                        console.log(`💬 Processing command 'ติดต่อผู้ดูแล'`);
-                        sendLineReplyAdminContact(replyToken, targetId).catch(err => {
-                            console.error('❌ LINE Reply Error:', err);
-                        });
-                    }
-                }
-            }
-        }
+        const events = JSON.parse(rawBody.toString('utf8'))?.events;
+        const replies = (Array.isArray(events) ? events : []).map(handleEvent);
+        // Finish the replies before answering: the function may be suspended afterwards.
+        await Promise.all(replies);
 
         // Always return HTTP 200 OK to satisfy LINE Webhook Verification
-        return res.status(200).json({ status: 'ok' });
+        return Response.json({ status: 'ok' });
     } catch (err) {
         console.error('❌ LINE Webhook Error:', err);
-        return res.status(200).json({ status: 'ok', error: err.message });
+        return Response.json({ status: 'ok', error: err.message });
+    }
+}
+
+async function handleEvent(event) {
+    // Log events for debugging in Vercel function logs
+    console.log(`💬 [LINE Webhook Event] Type: ${event.type}`);
+    let targetId = null;
+    if (event.source) {
+        if (event.source.groupId) {
+            console.log(`   👉 Group ID: ${event.source.groupId}`);
+            targetId = event.source.groupId;
+        }
+        if (event.source.roomId) targetId = targetId || event.source.roomId;
+        if (event.source.userId) targetId = targetId || event.source.userId;
+    }
+
+    if (event.type !== 'message' || event.message?.type !== 'text') return;
+
+    const text = (event.message.text || '').trim();
+    const replyToken = event.replyToken;
+
+    try {
+        if (/^(|\/)(นำเข้าข้อมูล|นำเข้า|summary|สรุปข้อมูล)/i.test(text)) {
+            const queryDate = extractQueryDate(text);
+            console.log(`💬 Processing command 'นำเข้าข้อมูล' for date ${queryDate}`);
+            await sendLineReplyFlexSummary(replyToken, queryDate, targetId);
+        } else if (/^(|\/)(ดูรายงาน|รายงาน|report)/i.test(text)) {
+            console.log(`💬 Processing command 'ดูรายงาน'`);
+            await sendLineReplyReportLinks(replyToken, targetId);
+        } else if (/^(|\/)(ตรวจสอบลูกหนี้|ลูกหนี้|debtor)/i.test(text)) {
+            const queryDate = extractQueryDate(text);
+            console.log(`💬 Processing command 'ตรวจสอบลูกหนี้' for date ${queryDate}`);
+            await sendLineReplyDebtorSummary(replyToken, queryDate, targetId);
+        } else if (/^(|\/)(authen code|authen|ออเธน)/i.test(text)) {
+            const queryDate = extractQueryDate(text);
+            console.log(`💬 Processing command 'Authen Code' for date ${queryDate}`);
+            await sendLineReplyAuthenSummary(replyToken, queryDate, targetId);
+        } else if (/^(|\/)(คู่มือใช้งาน|คู่มือ|manual|help)/i.test(text)) {
+            console.log(`💬 Processing command 'คู่มือใช้งาน'`);
+            await sendLineReplyUserManual(replyToken, targetId);
+        } else if (/^(|\/)(ติดต่อผู้ดูแล|ผู้ดูแล|admin|contact)/i.test(text)) {
+            console.log(`💬 Processing command 'ติดต่อผู้ดูแล'`);
+            await sendLineReplyAdminContact(replyToken, targetId);
+        }
+    } catch (err) {
+        console.error('❌ LINE Reply Error:', err);
     }
 }
 

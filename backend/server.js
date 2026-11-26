@@ -44,6 +44,7 @@ import { ensureLogTable as ensureEndpointLogTable, listAuthenCases, listManualEn
 import { keepAliveNhsoSession, getNhsoSessionStatusInfo } from '../jobs/keep-alive-nhso.js';
 import visitRoutes from './routes/visitRoutes.js';
 import logger from './logger.js';
+import { captureRawBody, checkLineSignature } from './lineSignature.js';
 
 dotenv.config();
 
@@ -67,7 +68,7 @@ const upload = multer({
 app.disable('x-powered-by');
 app.use(applySecurityHeaders);
 app.use(cors(createCorsOptions()));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '1mb', verify: captureRawBody }));
 
 function requireDashboardModulesEnabled(req, res, next) {
     if (DASHBOARD_MODULES_ENABLED) return next();
@@ -1222,6 +1223,12 @@ app.get('/api/line/webhook', (req, res) => {
 });
 
 app.post('/api/line/webhook', (req, res) => {
+    const signatureCheck = checkLineSignature(req.rawBody, req.get('x-line-signature'));
+    if (!signatureCheck.ok) {
+        logger.warn(`⚠️ [LINE Webhook] Rejected request: ${signatureCheck.message}`);
+        return res.status(signatureCheck.status).json({ success: false, message: signatureCheck.message });
+    }
+
     const events = req.body?.events || [];
     events.forEach(async (event) => {
         logger.info(`💬 [LINE Webhook Event] Type: ${event.type}`);

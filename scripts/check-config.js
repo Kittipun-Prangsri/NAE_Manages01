@@ -28,6 +28,7 @@ function formatDatabaseCheckError(label, error) {
 if (!status.syncWriteEnabled) errors.push('HOSxP write account ยังตั้งค่าไม่ครบ; ฟีเจอร์ Sync จะใช้งานไม่ได้');
 if (!status.notificationEncryptionEnabled) warnings.push('NOTIFICATION_CREDENTIALS_KEY ยังไม่พร้อม; จะไม่สามารถบันทึก token แจ้งเตือนใหม่แบบเข้ารหัสได้');
 if (isProduction && getAllowedCorsOrigins().length === 0) warnings.push('CORS_ORIGINS ยังว่างอยู่; ระบบจะรับเฉพาะ same-origin');
+if (process.env.LINE_CHANNEL_ACCESS_TOKEN && !process.env.LINE_CHANNEL_SECRET) warnings.push('LINE_CHANNEL_SECRET ยังว่างอยู่; LINE webhook จะปฏิเสธทุกคำสั่งจากแชต');
 
 if (shouldCheckDatabases && errors.length === 0) {
     const checks = [

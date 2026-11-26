@@ -35,6 +35,8 @@ import { consumeTelegramLink, explainLinkFailure, findUserByTelegramChat, parseS
 import { keepAliveNhsoSession } from './keep-alive-nhso.js';
 import { acquireSchedulerLock, createSchedulerHolderId, releaseSchedulerLock } from '../backend/schedulerLock.js';
 import logger from '../backend/logger.js';
+import { notifyAdmin } from '../backend/alerts.js';
+import { checkHealthUrl, createHealthMonitor } from '../backend/healthMonitor.js';
 
 dotenv.config();
 
@@ -174,7 +176,7 @@ let lastUpdateId = 0;
 function reloadTelegramEnv() {
     try {
         const parsed = dotenv.parse(fs.readFileSync(path.join(__dirname, '../.env')));
-        for (const key of ['TELEGRAM_BOT_TOKEN', 'WORKER_TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'DISABLE_NOTIFICATIONS']) {
+        for (const key of ['TELEGRAM_BOT_TOKEN', 'WORKER_TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'ALERT_TELEGRAM_CHAT_ID', 'DISABLE_NOTIFICATIONS']) {
             if (key in parsed) process.env[key] = parsed[key];
         }
     } catch (err) {
@@ -487,9 +489,29 @@ async function startTelegramBotListener() {
     poll();
 }
 
+// Alerts when the web system stops answering.  HEALTH_CHECK_URL: default is the
+// local server; the public URL also covers the tunnel; "off" disables.
+function startHealthMonitor() {
+    const url = process.env.HEALTH_CHECK_URL || 'http://127.0.0.1:3005/api/health';
+    if (url.toLowerCase() === 'off') {
+        logger.info('ℹ️ [Health] Monitor is off (HEALTH_CHECK_URL).');
+        return;
+    }
+    const tick = createHealthMonitor({
+        check: () => checkHealthUrl(url),
+        notify: text => {
+            reloadTelegramEnv();
+            return notifyAdmin(text);
+        }
+    });
+    setInterval(() => tick().catch(err => logger.warn(`⚠️ [Health] Check failed: ${err.message}`)), 5 * 60 * 1000);
+    logger.info('🩺 [Health] Monitor checks the web system every 5 minutes.');
+}
+
 // Start Worker Service
 async function startWorker() {
     logger.info('🚀 [Notification Worker] Starting background service...');
+    startHealthMonitor();
     try {
         await checkConnections();
         logger.info('✅ Database connections verified successfully.');

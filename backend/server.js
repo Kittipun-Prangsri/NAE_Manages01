@@ -46,6 +46,7 @@ import { keepAliveNhsoSession, getNhsoSessionStatusInfo } from '../jobs/keep-ali
 import visitRoutes from './routes/visitRoutes.js';
 import logger from './logger.js';
 import { captureRawBody, checkLineSignature } from './lineSignature.js';
+import { alertAdmin, alertLineReplyFailed, describeLineError } from './alerts.js';
 
 dotenv.config();
 
@@ -947,11 +948,15 @@ async function sendLineReplyFlexSummary(replyToken, queryDate, targetId = null) 
                     logger.info('✅ Sent LINE Fallback Push Flex Message successfully.');
                 } else {
                     logger.error(`❌ LINE Fallback Push API error: ${JSON.stringify(pushData)}`);
+                    alertLineReplyFailed(`รายงานสรุป\n${describeLineError(pushRes.status, pushData)}`);
                 }
+            } else {
+                alertLineReplyFailed(`รายงานสรุป\n${describeLineError(response?.status, resData)}`);
             }
         }
     } catch (error) {
         logger.error(`❌ Error replying to LINE: ${error.stack || error.message}`);
+        alertLineReplyFailed(`รายงานสรุป\n${error.message}`);
     }
 }
 
@@ -981,9 +986,11 @@ async function sendLineGenericPayload(replyToken, payload) {
             logger.info('✅ Sent LINE Reply Message successfully.');
         } else {
             logger.error('❌ LINE Reply API returned error:', resData);
+            alertLineReplyFailed(describeLineError(response.status, resData));
         }
     } catch (fetchErr) {
         logger.warn(`⚠️ LINE Reply fetch error: ${fetchErr.message}`);
+        alertLineReplyFailed(fetchErr.message);
     } finally {
         clearTimeout(timeoutId);
     }
@@ -1251,6 +1258,10 @@ app.post('/api/line/webhook', (req, res) => {
     const signatureCheck = checkLineSignature(req.rawBody, req.get('x-line-signature'));
     if (!signatureCheck.ok) {
         logger.warn(`⚠️ [LINE Webhook] Rejected request: ${signatureCheck.message}`);
+        // Only signed requests: LINE signs every one, passing scanners do not.
+        if (req.get('x-line-signature')) {
+            alertAdmin('line-signature', `⚠️ LINE webhook ถูกปฏิเสธ บอทจะไม่ตอบแชต\n${signatureCheck.message}\nตรวจ LINE_CHANNEL_SECRET ใน .env ของ server`);
+        }
         return res.status(signatureCheck.status).json({ success: false, message: signatureCheck.message });
     }
 
